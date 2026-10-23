@@ -2,13 +2,13 @@
   "domain": "deltasol",
   "name": "Resol KM1/KM2, DL2/DL2Plus/DL3, VBus/LAN, VBus/USB",
   "codeowners": [
-    "@dm82m"
+    "@npinguin"
   ],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/dm82m/hass-deltasol-KM2",
+  "documentation": "https://github.com/npinguin/hass-Deltasol-KM2",
   "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/dm82m/hass-deltasol-KM2/issues",
+  "issue_tracker": "https://github.com/npinguin/hass-Deltasol-KM2/issues",
   "requirements": [],
-  "version": "1.2.5"
+  "version": "1.2.6"
 }
