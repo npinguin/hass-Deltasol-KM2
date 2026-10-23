@@ -1,0 +1,19 @@
+name: Sensor regression tests
+
+on:
+  push:
+    branches:
+      - master
+      - fix/missing-vbus-endpoints
+  pull_request:
+
+jobs:
+  sensor-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Test DeltaSol sensor updates
+        run: python -m unittest discover -s tests -p "test_*.py" -v
