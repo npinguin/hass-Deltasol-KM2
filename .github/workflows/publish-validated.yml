@@ -12,13 +12,17 @@ permissions:
 
 jobs:
   test-and-lint:
-    name: Tests and Ruff
+    name: Tests and Ruff (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: actions/setup-python@v6
         with:
-          python-version: "3.13"
+          python-version: ${{ matrix.python-version }}
       - name: Regression tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
       - name: Ruff check
