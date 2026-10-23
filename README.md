@@ -1,3 +1,10 @@
+> [!IMPORTANT]
+> **npinguin fork (1.2.5)** — based on [dm82m/hass-Deltasol-KM2](https://github.com/dm82m/hass-Deltasol-KM2).
+> Fixes crashes when a previously discovered VBus sensor field temporarily disappears.
+> For HACS, select this fork (`npinguin/hass-Deltasol-KM2`) as a **custom repository** once release 1.2.5 is published.
+> This fork uses the same `deltasol` integration and preserves existing HA entity/unique IDs. Do not install two copies side by side.
+> See [fork patch notes](FORK_PATCH_NOTES.md) for tests and safe upgrade guidance.
+
 [![version](https://img.shields.io/github/v/release/dm82m/hass-deltasol-km2?style=for-the-badge)](https://github.com/dm82m/hass-Deltasol-KM2)
 [![downloads_total](https://img.shields.io/github/downloads/dm82m/hass-deltasol-km2/total?style=for-the-badge)](https://github.com/dm82m/hass-Deltasol-KM2/releases)
 [![downloads_latest](https://img.shields.io/github/downloads/dm82m/hass-deltasol-km2/latest/total?style=for-the-badge)](https://github.com/dm82m/hass-Deltasol-KM2/releases)
@@ -49,7 +56,7 @@ Component uses webservice to get all the sensor data and makes it available in [
 
 ### HACS (preferred method)
 
-- [![add_resol](https://img.shields.io/badge/Add%20Integration-Home%20Assistant-blue?style=flat)](https://my.home-assistant.io/redirect/hacs_repository/?owner=dm82m&repository=hass-Deltasol-KM2&category=integration) or go to your HACS store and search for `dm82m/hass-Deltasol-KM2`.
+- [![add_resol](https://img.shields.io/badge/Add%20Integration-Home%20Assistant-blue?style=flat)](https://my.home-assistant.io/redirect/hacs_repository/?owner=npinguin&repository=hass-Deltasol-KM2&category=integration) or go to your HACS store and add `npinguin/hass-Deltasol-KM2` as a custom integration repository.
 - Click `Download` in the lower right side and install it.
 - Restart Home Assistant Core.
 - [![configure_resol](https://img.shields.io/badge/Configure%20Integration-Home%20Assistant-blue?style=flat)](https://my.home-assistant.io/redirect/config_flow_start/?domain=deltasol) or configure the integration by adding it via UI `Settings` -> `Devices & Services` -> `Add Integration` -> `Resol KM1/KM2, DL2/DL2Plus/DL3, VBus/LAN, VBus/USB`. Then follow the configuration steps below.
