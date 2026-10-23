@@ -27,7 +27,26 @@ or Home Assistant configuration. Custom entity names are retained.
 - GitHub Actions: Sensor regression tests, Ruff, YAML lint, HACS, Hassfest.
 - Live Home Assistant / physical Resol runtime proof remains to be performed.
 
-## HACS deployment (after publishing GitHub release 1.2.5)
+## Automated release governance
+
+The [Publish validated version](.github/workflows/publish-validated.yml) GitHub
+Actions workflow runs for every push to `master` (and can be run manually).
+Regression tests, Ruff, Hassfest and HACS validation must all pass before the
+workflow creates a GitHub release and uploads `deltasol.zip`.
+
+The release tag always matches the integration manifest's `x.y.z` version.
+Already-published versions are skipped; a conflicting existing tag fails closed.
+A documentation-only merge therefore does not create a duplicate release.
+The upstream `release.yml` remains available for manually published releases,
+but automated releases include their ZIP directly, without depending on a second
+GitHub Actions event.
+
+**To issue the next release:** increment the version in
+`custom_components/deltasol/manifest.json`, merge the validated PR into
+`master`, and verify that the published release and HACS artifact appear.
+Never reuse the same version for changed runtime code.
+
+## HACS deployment (after GitHub publishes release 1.2.5)
 
 This fork uses the same domain as upstream; **do not install both copies in parallel**.
 

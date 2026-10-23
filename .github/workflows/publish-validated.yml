@@ -1,0 +1,103 @@
+name: Publish validated version
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-lint:
+    name: Tests and Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+      - name: Regression tests
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Ruff check
+        uses: astral-sh/ruff-action@v4.1.0
+        with:
+          args: check
+      - name: Ruff format check
+        uses: astral-sh/ruff-action@v4.1.0
+        with:
+          args: format --check
+
+  validate-hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: home-assistant/actions/hassfest@master
+
+  validate-hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  publish:
+    name: Publish version and HACS artifact
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    needs:
+      - test-and-lint
+      - validate-hassfest
+      - validate-hacs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: deltasol-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Publish only a validated, not-yet-released master version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="$(python -c 'import json; print(json.load(open("custom_components/deltasol/manifest.json", encoding="utf-8"))["version"])')"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Expected a numeric x.y.z version, got $VERSION"
+            exit 1
+          fi
+
+          # An older workflow run must not publish from an outdated master.
+          MASTER_SHA="$(gh api "repos/$GITHUB_REPOSITORY/branches/master" --jq '.commit.sha')"
+          if [[ "$MASTER_SHA" != "$GITHUB_SHA" ]]; then
+            echo "Master advanced since this run started; skip stale release."
+            exit 0
+          fi
+
+          if gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Version $VERSION is already published; nothing to do."
+            exit 0
+          fi
+
+          if git ls-remote --tags origin "refs/tags/$VERSION" | grep -q .; then
+            echo "::error::Tag $VERSION already exists without a release; refusing to overwrite."
+            exit 1
+          fi
+
+          PACKAGE="$RUNNER_TEMP/deltasol.zip"
+          (cd custom_components/deltasol && zip -qr "$PACKAGE" . -x '*__pycache__*' '*.pyc')
+          unzip -Z1 "$PACKAGE" | grep -Eq '(^|/)manifest.json$'
+          unzip -Z1 "$PACKAGE" | grep -Eq '(^|/)sensor.py$'
+
+          gh release create "$VERSION" "$PACKAGE" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "DeltaSol $VERSION" \
+            --generate-notes
+          echo "Published $VERSION with deltasol.zip for HACS."
