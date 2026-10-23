@@ -7,7 +7,7 @@ do not require a running Home Assistant instance.
 import ast
 import logging
 import unittest
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,8 +17,8 @@ SENSOR_SOURCE = (
     / "deltasol"
     / "sensor.py"
 )
-INITIAL_TIME = datetime(2026, 1, 1, tzinfo=timezone.utc)
-UPDATE_TIME = datetime(2026, 1, 2, tzinfo=timezone.utc)
+INITIAL_TIME = datetime(2026, 1, 1, tzinfo=UTC)
+UPDATE_TIME = datetime(2026, 1, 2, tzinfo=UTC)
 
 
 class SensorDeviceClass:
@@ -62,8 +62,15 @@ def load_sensor_properties():
         "UnitOfPower": SimpleNamespace(WATT="W"),
         "PERCENTAGE": "%",
     }
-    exec(compile(ast.fix_missing_locations(ast.Module(body=[entity], type_ignores=[])),
-                 str(SENSOR_SOURCE), "exec"), namespace)
+    # Only our checked-in sensor.py methods are executed in this test harness.
+    exec(  # noqa: S102
+        compile(
+            ast.fix_missing_locations(ast.Module(body=[entity], type_ignores=[])),
+            str(SENSOR_SOURCE),
+            "exec",
+        ),
+        namespace,
+    )
     return namespace["DeltasolSensor"]
 
 
