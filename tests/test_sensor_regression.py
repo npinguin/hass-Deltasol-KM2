@@ -103,7 +103,9 @@ class DeltasolSensorRegressionTests(unittest.TestCase):
     def test_zero_false_and_empty_string_are_not_synthesized(self):
         for value in (0, False, ""):
             with self.subTest(value=value):
-                sensor = self.make_sensor({"vbus-field-1": SimpleNamespace(value=value)})
+                sensor = self.make_sensor(
+                    {"vbus-field-1": SimpleNamespace(value=value)}
+                )
                 self.assertTrue(sensor.available)
                 self.assertEqual(sensor.native_value, value)
                 self.assertEqual(type(sensor.native_value), type(value))
@@ -121,7 +123,9 @@ class DeltasolSensorRegressionTests(unittest.TestCase):
         self.assertEqual(len(sensor.state_writes), 2)
 
     def test_failed_poll_does_not_expose_cached_value(self):
-        sensor = self.make_sensor({"vbus-field-1": SimpleNamespace(value=7)}, success=False)
+        sensor = self.make_sensor(
+            {"vbus-field-1": SimpleNamespace(value=7)}, success=False
+        )
         self.assertFalse(sensor.available)
         self.assertIsNone(sensor.native_value)
         sensor._handle_coordinator_update()
