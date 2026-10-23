@@ -107,7 +107,7 @@ class DeltasolDateParsingTests(unittest.TestCase):
         data = self.parser._DeltasolApi__parse_data(make_payload(0))
         value = data["00_6653_7112_10_0200__001_3_0"].value
         self.assertEqual(
-            value, datetime.datetime(2001, 1, 1, tzinfo=datetime.timezone.utc)
+            value, datetime.datetime(2001, 1, 1, tzinfo=datetime.UTC)
         )
         self.assertEqual(value.utcoffset(), datetime.timedelta(0))
 
@@ -116,7 +116,7 @@ class DeltasolDateParsingTests(unittest.TestCase):
         self.assertEqual(
             data["00_6653_7112_10_0200__001_3_0"].value,
             datetime.datetime(
-                2001, 1, 1, 1, 1, 1, tzinfo=datetime.timezone.utc
+                2001, 1, 1, 1, 1, 1, tzinfo=datetime.UTC
             ),
         )
         temperature = data["00_6653_7112_10_0200__004_2_0"]
