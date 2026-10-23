@@ -106,18 +106,14 @@ class DeltasolDateParsingTests(unittest.TestCase):
     def test_date_epoch_uses_real_utc_timezone(self):
         data = self.parser._DeltasolApi__parse_data(make_payload(0))
         value = data["00_6653_7112_10_0200__001_3_0"].value
-        self.assertEqual(
-            value, datetime.datetime(2001, 1, 1, tzinfo=datetime.UTC)
-        )
+        self.assertEqual(value, datetime.datetime(2001, 1, 1, tzinfo=datetime.UTC))
         self.assertEqual(value.utcoffset(), datetime.timedelta(0))
 
     def test_date_offset_and_other_sensor_values(self):
         data = self.parser._DeltasolApi__parse_data(make_payload(3661))
         self.assertEqual(
             data["00_6653_7112_10_0200__001_3_0"].value,
-            datetime.datetime(
-                2001, 1, 1, 1, 1, 1, tzinfo=datetime.UTC
-            ),
+            datetime.datetime(2001, 1, 1, 1, 1, 1, tzinfo=datetime.UTC),
         )
         temperature = data["00_6653_7112_10_0200__004_2_0"]
         self.assertEqual(temperature.value, 21.23)
