@@ -12,10 +12,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 SENSOR_SOURCE = (
-    Path(__file__).resolve().parents[1]
-    / "custom_components"
-    / "deltasol"
-    / "sensor.py"
+    Path(__file__).resolve().parents[1] / "custom_components" / "deltasol" / "sensor.py"
 )
 INITIAL_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 UPDATE_TIME = datetime(2026, 1, 2, tzinfo=UTC)
