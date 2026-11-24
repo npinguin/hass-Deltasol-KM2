@@ -1,6 +1,6 @@
 > [!NOTE]
 > **npinguin development fork.** `master` mirrors upstream exactly; fork changes live on `dev`. Existing HACS releases are preserved. Install only a validated fork release from `npinguin/hass-Deltasol-KM2` (same `deltasol` domain; do not install both). Upstream now incorporates the UTC and missing-field fixes. See [open work](https://github.com/npinguin/hass-Deltasol-KM2/issues).
-> Fork publication is explicit: an authorized `release: ...` commit on `dev`, with a new manifest version, must pass the existing release checks. Ordinary development pushes only validate.
+> Fork publication is explicit: an authorized `release: ...` commit on `dev`, with a new manifest version, must pass the existing release checks. Ordinary development pushes only validate. TEST releases are GitHub prereleases; enable prereleases in Marketplace. The shipped ZIP must pass the isolated Home Assistant lifecycle and network-protocol contract checks, including upgrade and rollback to the retained 1.2.6 artifact. Isolated protocol-peer evidence is not physical RESOL acceptance. Do not test manual overrides on a hot solid-fuel installation.
 
 [![version](https://img.shields.io/github/v/release/dm82m/hass-deltasol-km2?style=for-the-badge)](https://github.com/dm82m/hass-Deltasol-KM2)
 [![downloads_total](https://img.shields.io/github/downloads/dm82m/hass-deltasol-km2/total?style=for-the-badge)](https://github.com/dm82m/hass-Deltasol-KM2/releases)
