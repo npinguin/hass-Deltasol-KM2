@@ -6,7 +6,7 @@ https://github.com/dm82m/hass-Deltasol-KM2"""
 
 import asyncio
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import timedelta
 
 import voluptuous as vol
@@ -206,17 +206,22 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 not self.last_update_success
                 or not self.telemetry.last_update_success
                 or not self.data
-                or unique_id not in self.data
+                or unique_id not in self.data.capabilities
             ):
                 raise HomeAssistantError("Relay capability is unavailable")
             try:
                 capability = await self.hass.async_add_executor_job(
                     self.api.set_relay_mode,
                     self.telemetry.data,
-                    self.data[unique_id],
+                    self.data.capabilities[unique_id],
                     option,
                 )
             except VBusError as error:
                 self.async_set_update_error(error)
                 raise HomeAssistantError(str(error)) from error
-            self.async_set_updated_data({**self.data, unique_id: capability})
+            self.async_set_updated_data(
+                replace(
+                    self.data,
+                    capabilities={**self.data.capabilities, unique_id: capability},
+                )
+            )

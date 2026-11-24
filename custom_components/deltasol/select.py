@@ -2,16 +2,35 @@
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.core import callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import DeltasolRelayCoordinator
 from .const import DOMAIN
-from .parameters import MODE_VALUES, OBSERVED_MODES, controller_identity
+from .parameters import OBSERVED_MODES, device_inventory
+
+
+def relay_name(hass, telemetry, capability):
+    """Reuse an unambiguous existing output sensor name, including user overrides."""
+    keys = device_inventory(telemetry).get(capability.device, ())
+    names = {f"relay_{capability.number}", f"relais_{capability.number}"}
+    matches = [
+        key
+        for key in keys
+        if telemetry[key].name.lower() in names and telemetry[key].unit == "%"
+    ]
+    if len(matches) == 1:
+        registry = er.async_get(hass)
+        entity_id = registry.async_get_entity_id("sensor", DOMAIN, matches[0])
+        entity = registry.async_get(entity_id) if entity_id else None
+        if entity and entity.name:
+            return f"{entity.name} (R{capability.number}) mode"
+    return f"Relay R{capability.number} mode"
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    """Add controls only after successful discovery; recover on later polls."""
+    """Add controls only after discovery; recover on later polls."""
     telemetry = entry.runtime_data.coordinator
     if not telemetry.api.supports_parameter_access:
         return
@@ -24,15 +43,16 @@ async def async_setup_entry(hass, entry, async_add_entities):
         if not coordinator.last_update_success or not coordinator.data:
             return
         new = [
-            DeltasolRelaySelect(coordinator, capability)
-            for key, capability in coordinator.data.items()
+            DeltasolRelaySelect(
+                coordinator, capability, relay_name(hass, telemetry.data, capability)
+            )
+            for key, capability in coordinator.data.capabilities.items()
             if key not in registered
         ]
         registered.update(entity.unique_id for entity in new)
         if new:
             async_add_entities(new)
 
-    # Keep discovery running even if the first attempt cannot find controls.
     entry.async_on_unload(coordinator.async_add_listener(discover_entities))
     entry.async_on_unload(
         telemetry.async_add_listener(coordinator.async_update_listeners)
@@ -45,44 +65,53 @@ class DeltasolRelaySelect(CoordinatorEntity, SelectEntity):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator, capability):
+    def __init__(self, coordinator, capability, name):
         super().__init__(coordinator)
-        self._attr_options = list(MODE_VALUES)
         self._attr_unique_id = capability.unique_id
-        self._attr_name = f"Relay R{capability.number} mode"
+        self._attr_name = name
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{capability.serial}_{capability.source}")},
+            identifiers={
+                (DOMAIN, f"{capability.device.serial}_{capability.device.source}")
+            },
         )
 
     @property
-    def available(self):
-        """Keep identity/history but deny writes when capability is stale."""
+    def capability(self):
         if (
             not self.coordinator.last_update_success
             or not self.coordinator.telemetry.last_update_success
             or not self.coordinator.data
         ):
-            return False
-        capability = self.coordinator.data.get(self.unique_id)
-        return capability is not None and controller_identity(
-            self.coordinator.telemetry.data
-        ) == (capability.source, capability.serial)
+            return None
+        capability = self.coordinator.data.capabilities.get(self.unique_id)
+        inventory = device_inventory(self.coordinator.telemetry.data)
+        return capability if capability and capability.matches(inventory) else None
+
+    @property
+    def available(self):
+        return self.capability is not None
+
+    @property
+    def options(self):
+        cap = self.capability
+        return list(cap.options) if cap else []
 
     @property
     def current_option(self):
-        if not self.available:
-            return None
-        return self.coordinator.data[self.unique_id].current_option
+        cap = self.capability
+        return cap.current_option if cap else None
 
     @property
     def extra_state_attributes(self):
-        if not self.available:
+        cap = self.capability
+        if cap is None:
             return {}
-        capability = self.coordinator.data[self.unique_id]
         return {
-            "observed_mode": OBSERVED_MODES[capability.value],
-            "changeset": f"{capability.changeset & 0xFFFFFFFF:08X}",
-            "parameter": capability.name,
+            "observed_mode": OBSERVED_MODES[cap.value],
+            "observed_mode_value": cap.value,
+            "speed_control": cap.speed_control,
+            "changeset": f"{cap.changeset & 0xFFFFFFFF:08X}",
+            "parameter": cap.name,
         }
 
     async def async_select_option(self, option):

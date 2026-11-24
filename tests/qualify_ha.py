@@ -1,6 +1,6 @@
 """Real HA lifecycle test with an independent loopback VBus protocol peer.
 
-The peer models one R4 parameter. This is not physical RESOL evidence.
+The peer models R4 and an independently registered EM relay. This is not physical RESOL evidence.
 """
 
 import ast
@@ -24,12 +24,17 @@ RELAY = 2019
 CHANGESET = 0x2734DABC
 SENSOR_UID = "00_0010_7112_0100__000_2_0"
 SELECT_UID = "isolated-gateway_7112_R4_mode"
+EM_UID = "isolated-gateway_7112_M1_R1_mode"
+EM_RELAY = 2173
+EM_SENSOR_UID = "00_7112_6651_0100__000_4_0"
 
 
 class Peer:
     """Network-side test state; never connect to site devices."""
 
-    mode = 2
+    mode = 4
+    em_mode = 2
+    em_present = True
     deny = False
     writes = 0
 
@@ -65,14 +70,36 @@ class VBusHandler(socketserver.StreamRequestHandler):
             )
             index, value = struct.unpack("<Hi", payload)
             if command == 0x1100:
-                index = {1222011281: 86, 463603356: RELAY}.get(value, 0)
+                index = {
+                    1222011281: 86,
+                    463603356: RELAY,
+                    530579973: 2015,
+                    1121009828: 191,
+                    1682631798: 193,
+                    1215980970: EM_RELAY,
+                    152651155: 2169,
+                }.get(value, 0)
                 response = datagram(source, ADDRESS, 0x1101, index, value)
             elif command == 0x0300:
-                value = {0: CHANGESET, 86: 1, RELAY: Peer.mode}[index]
+                value = {
+                    0: CHANGESET,
+                    86: 1,
+                    RELAY: Peer.mode,
+                    2015: 0,
+                    191: 1,
+                    193: int(Peer.em_present),
+                    EM_RELAY: Peer.em_mode,
+                    2169: 1,
+                }[index]
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0200:
-                assert index == RELAY and value in (0, 2, 3)
-                Peer.mode = value
+                if index == RELAY:
+                    assert value in (0, 2, 4)
+                    Peer.mode = value
+                else:
+                    assert index == EM_RELAY and Peer.em_present
+                    assert value in (0, 1, 2, 3)
+                    Peer.em_mode = value
                 Peer.writes += 1
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0600:
@@ -118,12 +145,34 @@ class HttpHandler(BaseHTTPRequestHandler):
                         "destination_name": "Broadcast",
                         "source_name": "DeltaSol BX Plus",
                         "fields": [
-                            {"id": "000_2_0", "name": "Temperature S1", "unit": "°C"}
+                            {"id": "000_2_0", "name": "Temperature S1", "unit": "°C"},
+                            {"id": "043_1_0", "name": "Relay 4", "unit": "%"},
                         ],
                     }
                 ],
-                "headersets": [{"packets": [{"field_values": [{"raw_value": 42.0}]}]}],
+                "headersets": [
+                    {
+                        "packets": [
+                            {"field_values": [{"raw_value": 42.0}, {"raw_value": 100}]}
+                        ]
+                    }
+                ],
             }
+            if Peer.em_present:
+                result["headers"].append(
+                    {
+                        "id": "00_7112_6651_0100",
+                        "description": "EM #1",
+                        "destination_name": "BX Plus",
+                        "source_name": "EM #1",
+                        "fields": [
+                            {"id": "000_4_0", "name": "Temperature S1", "unit": "°C"}
+                        ],
+                    }
+                )
+                result["headersets"][0]["packets"].append(
+                    {"field_values": [{"raw_value": 30.0}]}
+                )
         self.send(json.dumps([{"result": result}]).encode(), "application/json")
 
     def send(self, data, content_type="text/plain"):
@@ -181,20 +230,6 @@ async def qualify(directory, phase):
         baseline = directory / "qualification-baseline.json"
         identity = {"entry": entry.entry_id, "sensor": sensor, "data": dict(entry.data)}
         if phase == "baseline":
-            baseline.write_text(json.dumps(identity), encoding="utf-8")
-            assert Peer.writes == 0
-            return
-        assert json.loads(baseline.read_text(encoding="utf-8")) == identity
-        if phase == "rollback":
-            assert not any(
-                state.attributes.get("options") == ["Auto", "Off", "On"]
-                and state.state not in ("unavailable", "unknown")
-                for state in hass.states.async_all("select")
-            )
-            assert Peer.writes == 0
-            return
-
-        if phase == "upgrade":
             options = hass.config_entries.options
             result = await options.async_init(entry.entry_id)
             assert result["step_id"] == "init", result
@@ -206,8 +241,39 @@ async def qualify(directory, phase):
         assert entry.options["vbus_password"] == "local-test"
         assert entry.state == ConfigEntryState.LOADED
         select = registry.async_get_entity_id("select", "deltasol", SELECT_UID)
-        assert select, "R4 native select was not discovered"
-        assert hass.states.get(select).state == "Auto"
+        assert select
+        identity["select"] = select
+        em_sensor = registry.async_get_entity_id("sensor", "deltasol", EM_SENSOR_UID)
+        assert em_sensor and float(hass.states.get(em_sensor).state) == 30
+        identity["em_sensor"] = em_sensor
+        if phase == "baseline":
+            baseline.write_text(json.dumps(identity), encoding="utf-8")
+            assert Peer.writes == 0
+            return
+        assert json.loads(baseline.read_text(encoding="utf-8")) == identity
+        if phase == "rollback":
+            em = registry.async_get_entity_id("select", "deltasol", EM_UID)
+            assert (
+                not em
+                or hass.states.get(em) is None
+                or hass.states.get(em).state in ("unavailable", "unknown")
+            )
+            assert Peer.writes == 0
+            return
+
+        assert hass.states.get(select).state == "On"
+        assert hass.states.get(select).attributes["options"] == ["Auto", "Off", "On"]
+        em = registry.async_get_entity_id("select", "deltasol", EM_UID)
+        assert em and hass.states.get(em).state == "Auto"
+        assert hass.states.get(em).attributes["options"] == [
+            "Auto",
+            "Off",
+            "Min",
+            "Max",
+        ]
+        assert (
+            registry.async_get(em).device_id == registry.async_get(em_sensor).device_id
+        )
         assert Peer.writes == 0
         from custom_components.deltasol.diagnostics import (
             async_get_config_entry_diagnostics,
@@ -220,49 +286,74 @@ async def qualify(directory, phase):
         assert diagnostic["telemetry"]["available"]
         access = diagnostic["parameter_access"]
         assert access["status"] == "supported"
-        assert access["relays"]["R4"]["mode"] == "Auto"
-        assert access["relays"]["R4"]["writable_options"] == ["Auto", "Off", "On"]
+        assert access["relays"]["R4"]["mode"] == "On"
+        assert access["relays"]["R4"]["mode_value"] == 4
         assert access["relays"]["R1"]["writable_options"] == []
+        assert access["relays"]["M1_R1"]["writable_options"] == [
+            "Auto",
+            "Off",
+            "Min",
+            "Max",
+        ]
+        assert access["relays"]["M2_R1"]["writable_options"] == []
+        assert any(d["source_address"] == "0x6651" for d in access["devices"])
         assert Peer.writes == 0
-        for number in (1, 2, 3, 5):
-            assert not registry.async_get_entity_id(
-                "select", "deltasol", f"isolated-gateway_7112_R{number}_mode"
-            )
         select_file = directory / "qualification-select.json"
         if phase == "restart":
-            assert select == json.loads(select_file.read_text(encoding="utf-8"))
+            assert em == json.loads(select_file.read_text(encoding="utf-8"))
             return
-        select_file.write_text(json.dumps(select), encoding="utf-8")
+        select_file.write_text(json.dumps(em), encoding="utf-8")
 
-        async def set_mode(option):
+        async def set_mode(entity_id, option):
             await hass.services.async_call(
                 "select",
                 "select_option",
-                {"entity_id": select, "option": option},
+                {"entity_id": entity_id, "option": option},
                 blocking=True,
             )
             await hass.async_block_till_done()
 
-        for option, expected in (("Off", 0), ("On", 3), ("Auto", 2)):
-            await set_mode(option)
+        for option, expected in (("Off", 0), ("On", 4), ("Auto", 2)):
+            await set_mode(select, option)
             assert Peer.mode == expected
             assert hass.states.get(select).state == option
-        assert Peer.writes == 3
+        for option, expected in (("Min", 1), ("Max", 3), ("Off", 0), ("Auto", 2)):
+            await set_mode(em, option)
+            assert Peer.em_mode == expected
+            assert Peer.mode == 2
+            assert hass.states.get(em).state == option
+        assert Peer.writes == 7
         try:
-            await set_mode("unsupported")
+            await set_mode(em, "On")
         except (HomeAssistantError, ValueError):
             pass
         else:
             raise AssertionError("Unsupported mode accepted")
-        assert Peer.writes == 3
+        assert Peer.writes == 7
+
+        Peer.em_present = False
+        try:
+            await set_mode(em, "Off")
+        except HomeAssistantError:
+            pass
+        else:
+            raise AssertionError("Missing EM accepted")
+        assert Peer.writes == 7
+        assert hass.states.get(em).state == "unavailable"
+        Peer.em_present = True
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert registry.async_get_entity_id("select", "deltasol", EM_UID) == em
+        assert hass.states.get(em).state == "Auto"
+
         Peer.deny = True
         try:
-            await set_mode("Off")
+            await set_mode(select, "Off")
         except HomeAssistantError:
             pass
         else:
             raise AssertionError("Authentication failure accepted")
-        assert Peer.writes == 3
+        assert Peer.writes == 7
         assert hass.states.get(select).state == "unavailable"
         assert float(hass.states.get(sensor).state) == 42
         diagnostic = await async_get_config_entry_diagnostics(hass, entry)
@@ -272,14 +363,13 @@ async def qualify(directory, phase):
         assert access["relays"]["R4"]["mode"] is None
         assert access["relays"]["R4"]["last_observed_mode"] == "Auto"
         assert access["relays"]["R4"]["writable_options"] == []
-        assert Peer.writes == 3
         Peer.deny = False
         assert await hass.config_entries.async_reload(entry.entry_id)
         await hass.async_block_till_done()
         assert registry.async_get_entity_id("select", "deltasol", SELECT_UID) == select
         assert hass.states.get(select).state == "Auto"
         assert float(hass.states.get(sensor).state) == 42
-        assert Peer.writes == 3
+        assert Peer.writes == 7
     finally:
         await hass.async_stop(force=True)
 

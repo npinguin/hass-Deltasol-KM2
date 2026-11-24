@@ -50,21 +50,24 @@ class VBusTests(unittest.TestCase):
                 response(0x1101, 0, vbus.parameter_hash(unsupported)),
                 response(0x0100, 0, 12345),
                 response(0x0100, 1321, 2),
+                response(0x0100, 0, 12345),
                 live_packet(),
             )
         )
         conn.recv.side_effect = [stream[:19], stream[19:]]
         session = vbus.VBusSession(conn)
-        self.assertEqual(
-            session.discover(ADDRESS, [NAME, unsupported]),
-            (12345, {NAME: (1321, 2)}),
-        )
+        with session.bus(ADDRESS):
+            changeset = session.read(ADDRESS, 0)
+            self.assertEqual(
+                session.read_parameters(ADDRESS, [NAME, unsupported], changeset),
+                {NAME: (1321, 2)},
+            )
         sent = [
             vbus.Datagram.decode(call.args[0]) for call in conn.sendall.call_args_list
         ]
         self.assertEqual(
             [p.command for p in sent],
-            [0x0300, 0x1100, 0x1100, 0x0300, 0x0300, 0x0600],
+            [0x0300, 0x1100, 0x1100, 0x0300, 0x0300, 0x0300, 0x0600],
         )
         self.assertTrue(all(p.destination == ADDRESS for p in sent))
 
@@ -72,8 +75,8 @@ class VBusTests(unittest.TestCase):
         conn = Mock()
         conn.recv.side_effect = [response(0x0500), b"", live_packet()]
         session = vbus.VBusSession(conn)
-        with self.assertRaises(vbus.VBusError):
-            session.discover(ADDRESS, [NAME])
+        with self.assertRaises(vbus.VBusError), session.bus(ADDRESS):
+            session.read(ADDRESS, 0)
         packet = vbus.Datagram.decode(conn.sendall.call_args.args[0])
         self.assertEqual(packet.command, 0x0600)
 

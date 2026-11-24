@@ -1,4 +1,4 @@
-"""Capability discovery and write gate regressions on production code."""
+"""Regression tests for profile, device, mode and parameter write gates."""
 
 import importlib
 import sys
@@ -16,13 +16,24 @@ sys.modules[PACKAGE] = package
 parameters = importlib.import_module(f"{PACKAGE}.parameters")
 
 NAME = "Relais_Regler_R4_Handbetrieb"
+SPEED = "Relais_Regler_R4_ODrehzahl"
 UID = "gateway_7112_R4_mode"
+M1_NAME = "Relais_Modul1_R1_Handbetrieb"
+M1_SPEED = "Relais_Modul1_R1_ODrehzahl"
+M1_UID = "gateway_7112_M1_R1_mode"
+M2_NAME = "Relais_Modul2_R5_Handbetrieb"
+M2_SPEED = "Relais_Modul2_R5_ODrehzahl"
+M2_UID = "gateway_7112_M2_R5_mode"
 
 
-def telemetry(channel="00", address="7112"):
-    endpoint = Mock(bus_src="DeltaSol BX Plus [Regler]")
+def telemetry(channel="00", address="7112", source="DeltaSol BX Plus [Regler]"):
+    endpoint = Mock(bus_src=source)
     endpoint.product_details = {"serial": "gateway"}
     return {f"{channel}_0010_{address}_0100__000_2_0": endpoint}
+
+
+def module(number):
+    return telemetry(address=f"665{number}", source=f"EM #{number}")
 
 
 class ParameterTests(unittest.TestCase):
@@ -30,59 +41,98 @@ class ParameterTests(unittest.TestCase):
         self.api = parameters.RelayParameters("gateway", "secret")
         self.session = MagicMock()
         self.session.bus.return_value.__enter__.return_value = self.session
-        self.session.discover.return_value = (
-            12345,
-            {"Schema": (86, 0), NAME: (2019, 2)},
-        )
+        self.session.read.return_value = 12345
+        self.values = {"Schema": (86, 0), NAME: (2019, 2), SPEED: (2015, 0)}
+        self.session.read_parameters.side_effect = self.read_parameters
         self.ctx = MagicMock()
         self.ctx.__enter__.return_value = self.session
         self.patcher = patch.object(parameters, "open_vbus", return_value=self.ctx)
         self.connect = self.patcher.start()
         self.addCleanup(self.patcher.stop)
+        self.clock = patch.object(parameters, "monotonic", return_value=100.0)
+        self.clock.start()
+        self.addCleanup(self.clock.stop)
+        self.wait = patch.object(parameters, "sleep")
+        self.sleep = self.wait.start()
+        self.addCleanup(self.wait.stop)
+
+    def read_parameters(self, address, names, changeset):
+        self.assertEqual(address, 0x7112)
+        self.assertEqual(changeset, 12345)
+        return {name: self.values[name] for name in names if name in self.values}
+
+    def activate_modules(self):
+        self.values.update(
+            {
+                "Modul1_Aktiviert": (191, 1),
+                "Modul1_Vorhanden": (193, 1),
+                M1_NAME: (2173, 2),
+                M1_SPEED: (2169, 1),
+                "Modul2_Aktiviert": (197, 1),
+                "Modul2_Vorhanden": (199, 1),
+                M2_NAME: (2299, 2),
+                M2_SPEED: (2295, 0),
+            }
+        )
+
+    def discover(self, data=None):
+        return self.api.discover(telemetry() if data is None else data).capabilities
 
     def test_positive_discovery_only(self):
-        result = self.api.discover(telemetry())
+        result = self.discover()
         self.assertEqual(list(result), [UID])
         self.assertEqual(result[UID].current_option, "Auto")
         self.assertEqual(result[UID].index, 2019)
         self.session.write_verified.assert_not_called()
 
     def test_unknown_and_ambiguous_controller(self):
-        self.assertEqual(self.api.discover(telemetry(address="1234")), {})
-        self.assertEqual(self.api.discover(telemetry(channel="01")), {})
-        self.assertEqual(
-            self.api.discover({**telemetry(), **telemetry(channel="01")}), {}
-        )
+        self.assertEqual(self.discover(telemetry(address="1234")), {})
+        self.assertEqual(self.discover(telemetry(channel="01")), {})
+        self.assertEqual(self.discover({**telemetry(), **telemetry(channel="01")}), {})
         self.connect.assert_not_called()
 
     def test_unknown_layout_is_rejected(self):
-        self.session.discover.return_value = (
-            12345,
-            {"Schema": (86, 0), NAME: (1321, 2)},
-        )
+        self.values[NAME] = (1321, 2)
         with self.assertRaises(parameters.VBusError):
-            self.api.discover(telemetry())
+            self.discover()
         self.session.write_verified.assert_not_called()
 
-    def test_unknown_mode_not_enabled(self):
-        self.session.discover.return_value = (
-            12345,
-            {"Schema": (86, 0), NAME: (2019, 42)},
-        )
-        self.assertEqual(self.api.discover(telemetry()), {})
+    def test_unknown_mode_and_missing_speed_not_enabled(self):
+        self.values[NAME] = (2019, 42)
+        self.assertEqual(self.discover(), {})
+        self.values[NAME] = (2019, 2)
+        del self.values[SPEED]
+        self.assertEqual(self.discover(), {})
 
-    def test_write_uses_revalidated_dynamic_index(self):
-        cap = self.api.discover(telemetry())[UID]
-        self.session.read.side_effect = [12345, 12345, 2]
-        self.session.resolve.side_effect = [86, 2019]
-        self.session.write_verified.return_value = 3
+    def test_fixed_relay_on_is_four_and_readback(self):
+        cap = self.discover()[UID]
+        self.assertEqual(cap.options, ("Auto", "Off", "On"))
+        self.session.write_verified.return_value = 4
         updated = self.api.set_mode(telemetry(), cap, "On")
-        self.session.write_verified.assert_called_once_with(0x7112, 2019, 3, 12345)
+        self.session.write_verified.assert_called_once_with(0x7112, 2019, 4, 12345)
         self.assertEqual(updated.current_option, "On")
         self.assertEqual(updated.unique_id, UID)
 
+    def test_speed_control_has_distinct_min_and_max(self):
+        self.values[SPEED] = (2015, 1)
+        self.values[NAME] = (2019, 3)
+        cap = self.discover()[UID]
+        self.assertEqual(cap.current_option, "Max")
+        self.assertEqual(cap.options, ("Auto", "Off", "Min", "Max"))
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_mode(telemetry(), cap, "On")
+        self.session.write_verified.return_value = 1
+        self.assertEqual(
+            self.api.set_mode(telemetry(), cap, "Min").current_option, "Min"
+        )
+        self.session.write_verified.assert_called_once_with(0x7112, 2019, 1, 12345)
+
+    def test_actual_ein_mode_is_on(self):
+        self.values[NAME] = (2019, 4)
+        self.assertEqual(self.discover()[UID].current_option, "On")
+
     def test_write_rejects_unknown_option_and_stale_identity(self):
-        cap = self.api.discover(telemetry())[UID]
+        cap = self.discover()[UID]
         with self.assertRaises(parameters.VBusError):
             self.api.set_mode(telemetry(), cap, "invalid")
         with self.assertRaises(parameters.VBusError):
@@ -90,45 +140,103 @@ class ParameterTests(unittest.TestCase):
         self.session.write_verified.assert_not_called()
 
     def test_write_rejects_changed_changeset(self):
-        cap = self.api.discover(telemetry())[UID]
+        cap = self.discover()[UID]
         self.session.read.return_value = 12346
         with self.assertRaises(parameters.VBusError):
             self.api.set_mode(telemetry(), cap, "Off")
         self.session.write_verified.assert_not_called()
 
     def test_write_rejects_disappeared_parameter(self):
-        cap = self.api.discover(telemetry())[UID]
-        self.session.read.return_value = 12345
-        self.session.resolve.side_effect = [86, None]
+        cap = self.discover()[UID]
+        del self.values[NAME]
         with self.assertRaises(parameters.VBusError):
             self.api.set_mode(telemetry(), cap, "Off")
         self.session.write_verified.assert_not_called()
 
     def test_write_rejects_unknown_layout(self):
-        cap = self.api.discover(telemetry())[UID]
-        self.session.read.return_value = 12345
-        self.session.resolve.return_value = 1
+        cap = self.discover()[UID]
+        self.values["Schema"] = (1, 0)
         with self.assertRaises(parameters.VBusError):
             self.api.set_mode(telemetry(), cap, "Off")
         self.session.write_verified.assert_not_called()
 
     def test_auto_noop_uses_observed_value(self):
-        cap = self.api.discover(telemetry())[UID]
-        self.session.read.side_effect = [12345, 12345, 2]
-        self.session.resolve.side_effect = [86, 2019]
+        cap = self.discover()[UID]
         self.assertEqual(self.api.set_mode(telemetry(), cap, "Auto").value, 2)
         self.session.write_verified.assert_not_called()
 
     def test_out_of_scope_mode_can_be_restored_to_auto(self):
-        self.session.discover.return_value = (
-            12345,
-            {"Schema": (86, 0), NAME: (2019, 1)},
-        )
-        cap = self.api.discover(telemetry())[UID]
+        self.values[NAME] = (2019, 1)
+        cap = self.discover()[UID]
         self.assertIsNone(cap.current_option)
-        self.session.read.side_effect = [12345, 12345, 1]
-        self.session.resolve.side_effect = [86, 2019]
         self.session.write_verified.return_value = 2
         self.assertEqual(
             self.api.set_mode(telemetry(), cap, "Auto").current_option, "Auto"
         )
+
+    def test_write_rechecks_speed_setting(self):
+        cap = self.discover()[UID]
+        self.values[SPEED] = (2015, 1)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_mode(telemetry(), cap, "On")
+        self.session.write_verified.assert_not_called()
+
+    def test_no_module_or_ambiguous_module_never_probed(self):
+        self.activate_modules()
+        self.assertEqual(set(self.discover()), {UID})
+        calls = self.session.read_parameters.call_args_list
+        self.assertFalse(any("Modul1_Aktiviert" in call.args[1] for call in calls))
+        data = {**telemetry(), **module(1), **telemetry("01", "6651", "EM #1")}
+        self.assertEqual(set(self.discover(data)), {UID})
+
+    def test_one_and_two_modules_use_existing_physical_devices(self):
+        self.activate_modules()
+        one = {**telemetry(), **module(1)}
+        self.assertEqual(set(self.discover(one)), {UID, M1_UID})
+        data = {**one, **module(2), **telemetry(address="7113", source="Module #1")}
+        result = self.discover(data)
+        self.assertEqual(set(result), {UID, M1_UID, M2_UID})
+        self.assertEqual(result[M1_UID].device.source, "EM #1")
+        self.assertEqual(result[M2_UID].device.address, 0x6652)
+        self.assertEqual(result[M1_UID].options, ("Auto", "Off", "Min", "Max"))
+        self.assertEqual(result[M2_UID].options, ("Auto", "Off", "On"))
+        self.session.write_verified.return_value = 3
+        self.assertEqual(self.api.set_mode(data, result[M1_UID], "Max").value, 3)
+        self.session.write_verified.assert_called_once_with(0x7112, 2173, 3, 12345)
+
+    def test_unregistered_or_missing_module_never_writable(self):
+        self.activate_modules()
+        data = {**telemetry(), **module(1), **module(2)}
+        cap = self.discover(data)[M1_UID]
+        self.values["Modul1_Aktiviert"] = (191, 0)
+        self.values["Modul2_Vorhanden"] = (199, 0)
+        result = self.api.discover(data)
+        self.assertEqual(set(result.capabilities), {UID})
+        self.assertEqual(result.group_status["M1"], "not_registered_or_present")
+        self.assertEqual(result.group_status["M2"], "not_registered_or_present")
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_mode(data, cap, "Off")
+        self.session.write_verified.assert_not_called()
+        self.values["Modul1_Aktiviert"] = (191, 1)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_mode(telemetry(), cap, "Off")
+        self.assertEqual(self.discover(data)[M1_UID].unique_id, cap.unique_id)
+
+    def test_unknown_device_is_inventory_only(self):
+        data = {**telemetry(), **telemetry(address="7777", source="Other")}
+        self.assertEqual(len(parameters.device_inventory(data)), 2)
+        self.assertEqual(set(self.discover(data)), {UID})
+
+    def test_session_gap_applies_to_reads_and_writes(self):
+        cap = self.discover()[UID]
+        self.sleep.assert_not_called()
+        self.api.set_mode(telemetry(), cap, "Auto")
+        self.sleep.assert_called_once_with(parameters.SESSION_GAP_SECONDS)
+
+    def test_session_gap_applies_after_failed_session(self):
+        self.ctx.__enter__.side_effect = parameters.VBusError("connection failed")
+        with self.assertRaises(parameters.VBusError):
+            self.discover()
+        self.ctx.__enter__.side_effect = None
+        self.discover()
+        self.sleep.assert_called_once_with(parameters.SESSION_GAP_SECONDS)
