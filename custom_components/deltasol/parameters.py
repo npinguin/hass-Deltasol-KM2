@@ -236,7 +236,10 @@ class RelayParameters:
             if delay > 0:
                 sleep(delay)
             try:
-                with open_vbus(self.host, self.password) as session, session.bus(address):
+                with (
+                    open_vbus(self.host, self.password) as session,
+                    session.bus(address),
+                ):
                     yield session
             finally:
                 self._next_session = monotonic() + SESSION_GAP_SECONDS
