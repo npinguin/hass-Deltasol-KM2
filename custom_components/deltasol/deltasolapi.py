@@ -13,7 +13,7 @@ import requests
 from homeassistant.exceptions import IntegrationError
 from requests.exceptions import RequestException
 
-from .parameters import RelayParameters
+from .parameters import RelayDiscovery, RelayParameters
 from .vbus import VBusError
 
 _LOGGER = logging.getLogger(__name__)
@@ -149,7 +149,7 @@ class DeltasolApi:
     def fetch_relay_modes(self, telemetry):
         """Discover available relay parameters without altering any setting."""
         if not self.supports_parameter_access:
-            return {}
+            return RelayDiscovery(None, {}, {})
         return self._parameters.discover(telemetry)
 
     def set_relay_mode(self, telemetry, capability, option):

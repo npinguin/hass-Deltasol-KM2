@@ -23,28 +23,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Inspect exact RPT module and mode metadata (temporary)
-        if: matrix.python-version == '3.13'
-        run: |
-          python - <<'PY'
-          import io, hashlib, urllib.request, zipfile, xml.etree.ElementTree as ET
-          req = urllib.request.Request("https://www.mastersolar.rs/wp-content/uploads/2021/02/BXPLUS_2.08.zip", headers={"User-Agent": "Mozilla/5.0"})
-          with urllib.request.urlopen(req, timeout=30) as response:
-              data = response.read(4000000)
-          print("RPT SHA", hashlib.sha256(data).hexdigest())
-          assert hashlib.sha256(data).hexdigest() == "1bcc59cac3d4176c68de255fced3b95840bada06db33b0bdae0cddb007a9f079"
-          with zipfile.ZipFile(io.BytesIO(data)) as z:
-              root = ET.fromstring(z.read("BXPLUS_2.08/BXPlus_208-Menu.xml"))
-          for e in root.iter():
-              ident = e.get("id", "")
-              if e.tag == "value" and ("Handbetrieb" in ident or (ident.startswith("Relais_Regler_R") and ident.endswith("_ODrehzahl")) or ("Modul" in ident and any(x in ident for x in ("Aktiv", "Status", "Erkannt", "Verf", "Anmeld", "Adresse", "Relais", "Vorhand")))):
-                  if "Heizung" not in ident and "Funktion" not in ident:
-                      print("VALUE", ET.tostring(e, encoding="unicode")[:1600])
-              if e.tag == "type" and ("Handbetrieb" in ident or "ModulX_Vt" in ident or "Relais_Vt" in ident):
-                  print("TYPE", ET.tostring(e, encoding="unicode")[:4000])
-              if e.tag in ("mask", "constraint") and ("Relais_Regler_R1" in str(e.attrib) or "Relais_Regler_R4" in str(e.attrib) or "Relais_Modul1_R1" in str(e.attrib) or "Handbetrieb" in ET.tostring(e, encoding="unicode")):
-                  print("MENU", ET.tostring(e, encoding="unicode")[:5000])
-          PY
       - name: Regression tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
       - name: Ruff check

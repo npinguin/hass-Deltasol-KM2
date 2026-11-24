@@ -222,25 +222,19 @@ class VBusSession:
             self.connection.sendall(Datagram(address, SELF_ADDRESS, 0x0600).encode())
             self._wait_for_master(address)
 
-    def discover(self, address, names):
-        """Read changeset and resolve/read supported named parameters.
-
-        Caller supplies the controller address from observed device telemetry.
-        Discovery makes no parameter writes and does not infer enum semantics.
-        """
-        with self.bus(address):
-            changeset = self.read(address, 0)
-            if not changeset:
-                raise VBusError("Controller changeset is unknown")
-            indices = {name: self.resolve(address, name) for name in names}
-            if self.read(address, 0) != changeset:
-                raise VBusError("Controller changeset changed during discovery")
-            parameters = {
-                name: (index, self.read(address, index))
-                for name, index in indices.items()
-                if index is not None
-            }
-        return changeset, parameters
+    def read_parameters(self, address, names, changeset):
+        """Resolve/read a batch inside an acquired bus, without mutation."""
+        indices = {name: self.resolve(address, name) for name in names}
+        if self.read(address, 0) != changeset:
+            raise VBusError("Controller changeset changed during discovery")
+        parameters = {
+            name: (index, self.read(address, index))
+            for name, index in indices.items()
+            if index is not None
+        }
+        if self.read(address, 0) != changeset:
+            raise VBusError("Controller changeset changed during discovery")
+        return parameters
 
     def write_verified(self, address, index, value, changeset):
         """Internal volatile write primitive; caller must hold the bus.
