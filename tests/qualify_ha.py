@@ -168,7 +168,9 @@ async def qualify(directory, phase):
                 result["flow_id"], {"username": "admin", "password": "http-test"}
             )
             assert result["step_id"] == "options", result
-            result = await flow.async_configure(result["flow_id"], {"scan_interval": 60})
+            result = await flow.async_configure(
+                result["flow_id"], {"scan_interval": 60}
+            )
             assert result["type"] == "create_entry", result
         await hass.async_block_till_done()
         (entry,) = hass.config_entries.async_entries("deltasol")
