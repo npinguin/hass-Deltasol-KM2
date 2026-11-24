@@ -39,7 +39,7 @@ jobs:
               print("ROOT", root.tag, root.attrib)
               for elem in root.iter():
                   ident = elem.get("id", "")
-                  if (elem.tag == "type" and ("Handbetrieb" in ident and ("{0}" in ident or ident == "Handbetrieb"))) or (ident.startswith("Relais_Regler_R") and ident.endswith("_Verfuegbar")) or (elem.tag == "value" and ident in ("Softwareversion", "Schema")):
+                  if (elem.tag == "type" and ("Handbetrieb" in ident and ("{0}" in ident or ident == "Handbetrieb"))) or (elem.tag == "value" and (ident in ("Softwareversion", "Schema", "ShortChangesetId") or (ident.startswith("Relais_Regler_R") and (ident.endswith("_Handbetrieb") or ident.endswith("_Status") or ident.endswith("_Verfuegbar"))))) or (elem.tag == "mask" and "Verfuegbar" in str(elem.attrib) and "Relais" in str(elem.attrib)):
                       print("META", ET.tostring(elem, encoding="unicode")[:10000])
           PY
       - name: Regression tests
