@@ -70,10 +70,23 @@ async def async_setup_entry(
 ):
     """Set up the Sensors."""
     coordinator = config.runtime_data.coordinator
-    async_add_entities(
-        DeltasolSensor(coordinator, unique_id, endpoint)
-        for unique_id, endpoint in coordinator.data.items()
-    )
+    registered = set()
+
+    @callback
+    def discover_entities():
+        if not coordinator.last_update_success or not coordinator.data:
+            return
+        new = [
+            DeltasolSensor(coordinator, unique_id, endpoint)
+            for unique_id, endpoint in coordinator.data.items()
+            if unique_id not in registered
+        ]
+        registered.update(entity.unique_id for entity in new)
+        if new:
+            async_add_entities(new)
+
+    config.async_on_unload(coordinator.async_add_listener(discover_entities))
+    discover_entities()
 
 
 class DeltasolSensor(CoordinatorEntity, SensorEntity):
