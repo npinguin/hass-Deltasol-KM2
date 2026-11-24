@@ -122,9 +122,7 @@ class HttpHandler(BaseHTTPRequestHandler):
                         ],
                     }
                 ],
-                "headersets": [
-                    {"packets": [{"field_values": [{"raw_value": 42.0}]}]}
-                ],
+                "headersets": [{"packets": [{"field_values": [{"raw_value": 42.0}]}]}],
             }
         self.send(json.dumps([{"result": result}]).encode(), "application/json")
 
