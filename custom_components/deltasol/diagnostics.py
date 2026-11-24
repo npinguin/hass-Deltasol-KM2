@@ -73,9 +73,8 @@ async def async_get_config_entry_diagnostics(hass, entry):
     else:
         status = "supported"
 
-    cached = {
-        cap.number: cap for cap in ((relay.data or {}).values() if relay else ())
-    }
+    values = (relay.data or {}).values() if relay else ()
+    cached = {cap.number: cap for cap in values}
     relays = {}
     for name, (number, _) in RELAY_LAYOUT.items():
         cap = cached.get(number)
