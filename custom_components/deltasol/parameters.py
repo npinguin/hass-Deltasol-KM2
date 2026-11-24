@@ -7,10 +7,15 @@ EM subaddresses use 0x6650 + SA (resol-vbus JSON live-data server).
 The BX Plus manual specifies five local relays and two EM slots.
 """
 
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from threading import Lock
+from time import monotonic, sleep
 
 from .vbus import VBusError, open_vbus
+
+# Initial conservative reconnect guard; tune against physical KM2 evidence.
+SESSION_GAP_SECONDS = 1.5
 
 MODE_VALUES = {"Auto": 2, "Off": 0, "On": 4, "Min": 1, "Max": 3}
 OBSERVED_MODES = {value: name for name, value in MODE_VALUES.items()}
@@ -221,6 +226,20 @@ class RelayParameters:
         self.host = host
         self.password = password
         self._lock = Lock()
+        self._next_session = 0.0
+
+    @contextmanager
+    def _session(self, address):
+        """Serialize polling and writes, including gateway recovery time."""
+        with self._lock:
+            delay = self._next_session - monotonic()
+            if delay > 0:
+                sleep(delay)
+            try:
+                with open_vbus(self.host, self.password) as session, session.bus(address):
+                    yield session
+            finally:
+                self._next_session = monotonic() + SESSION_GAP_SECONDS
 
     def discover(self, telemetry):
         inventory = device_inventory(telemetry)
@@ -229,11 +248,7 @@ class RelayParameters:
             return RelayDiscovery(None, {}, {})
         capabilities = {}
         status = {}
-        with (
-            self._lock,
-            open_vbus(self.host, self.password) as session,
-            session.bus(profile.address),
-        ):
+        with self._session(profile.address) as session:
             changeset = session.read(profile.address, 0)
             if not changeset:
                 raise VBusError("Controller changeset is unknown")
@@ -270,11 +285,7 @@ class RelayParameters:
             raise VBusError("Relay capability or controller identity changed")
         if option not in capability.options:
             raise VBusError("Unsupported relay mode")
-        with (
-            self._lock,
-            open_vbus(self.host, self.password) as session,
-            session.bus(profile.address),
-        ):
+        with self._session(profile.address) as session:
             changeset = session.read(profile.address, 0)
             if changeset != capability.changeset:
                 raise VBusError("Controller changeset changed; rediscover first")

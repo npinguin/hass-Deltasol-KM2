@@ -49,6 +49,12 @@ class ParameterTests(unittest.TestCase):
         self.patcher = patch.object(parameters, "open_vbus", return_value=self.ctx)
         self.connect = self.patcher.start()
         self.addCleanup(self.patcher.stop)
+        self.clock = patch.object(parameters, "monotonic", return_value=100.0)
+        self.clock.start()
+        self.addCleanup(self.clock.stop)
+        self.wait = patch.object(parameters, "sleep")
+        self.sleep = self.wait.start()
+        self.addCleanup(self.wait.stop)
 
     def read_parameters(self, address, names, changeset):
         self.assertEqual(address, 0x7112)
@@ -220,3 +226,17 @@ class ParameterTests(unittest.TestCase):
         data = {**telemetry(), **telemetry(address="7777", source="Other")}
         self.assertEqual(len(parameters.device_inventory(data)), 2)
         self.assertEqual(set(self.discover(data)), {UID})
+
+    def test_session_gap_applies_to_reads_and_writes(self):
+        cap = self.discover()[UID]
+        self.sleep.assert_not_called()
+        self.api.set_mode(telemetry(), cap, "Auto")
+        self.sleep.assert_called_once_with(parameters.SESSION_GAP_SECONDS)
+
+    def test_session_gap_applies_after_failed_session(self):
+        self.ctx.__enter__.side_effect = parameters.VBusError("connection failed")
+        with self.assertRaises(parameters.VBusError):
+            self.discover()
+        self.ctx.__enter__.side_effect = None
+        self.discover()
+        self.sleep.assert_called_once_with(parameters.SESSION_GAP_SECONDS)

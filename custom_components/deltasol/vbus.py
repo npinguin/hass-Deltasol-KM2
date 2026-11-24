@@ -137,9 +137,12 @@ class VBusSession:
     def request(self, address, command, index=0, value=0, *, replies=(0x0100,)):
         """Send exactly once and correlate the response to its address and ID."""
         self.connection.settimeout(2)
-        self.connection.sendall(
-            Datagram(address, SELF_ADDRESS, command, index, value).encode()
-        )
+        try:
+            self.connection.sendall(
+                Datagram(address, SELF_ADDRESS, command, index, value).encode()
+            )
+        except OSError as error:
+            raise VBusError("VBus command send failed") from error
 
         def matches(packet):
             return (
@@ -153,7 +156,12 @@ class VBusSession:
                 )
             )
 
-        return self.receive_matching(matches, 2)
+        try:
+            return self.receive_matching(matches, 2)
+        except (OSError, VBusError) as error:
+            if command == 0x0200:
+                raise VBusError("VBus write outcome uncertain") from error
+            raise VBusError("VBus parameter response failed") from error
 
     def resolve(self, address, name):
         """Resolve a known parameter name to the actual controller index."""
@@ -207,20 +215,36 @@ class VBusSession:
     @contextmanager
     def bus(self, address):
         """Acquire only the expected controller's offer; release in all cases."""
-        self.receive_matching(
-            lambda packet: (
-                packet.source == address
-                and packet.destination in (0, SELF_ADDRESS)
-                and packet.command == 0x0500
-            ),
-            20,
-        )
+        try:
+            self.receive_matching(
+                lambda packet: (
+                    packet.source == address
+                    and packet.destination in (0, SELF_ADDRESS)
+                    and packet.command == 0x0500
+                ),
+                20,
+            )
+        except (OSError, VBusError) as error:
+            raise VBusError("VBus bus acquisition failed") from error
         try:
             yield self
-        finally:
+        except BaseException as error:
+            try:
+                self._release(address)
+            except (OSError, VBusError):
+                error.add_note("VBus bus release also failed")
+            raise
+        else:
+            self._release(address)
+
+    def _release(self, address):
+        """Return ownership and confirm the controller resumed live data."""
+        try:
             self.connection.settimeout(2)
             self.connection.sendall(Datagram(address, SELF_ADDRESS, 0x0600).encode())
             self._wait_for_master(address)
+        except (OSError, VBusError) as error:
+            raise VBusError("VBus release not confirmed") from error
 
     def read_parameters(self, address, names, changeset):
         """Resolve/read a batch inside an acquired bus, without mutation."""
@@ -256,9 +280,13 @@ class VBusSession:
 def open_vbus(host, password):
     """Open a fresh, local VBus session independent of HTTP sensor polling."""
     try:
-        with socket.create_connection((host, VBUS_PORT), timeout=5) as connection:
-            session = VBusSession(connection)
-            session.authenticate(password)
-            yield session
+        connection = socket.create_connection((host, VBUS_PORT), timeout=5)
     except OSError as error:
-        raise VBusError("VBus connection failed or timed out") from error
+        raise VBusError("VBus gateway connection failed") from error
+    with connection:
+        session = VBusSession(connection)
+        try:
+            session.authenticate(password)
+        except OSError as error:
+            raise VBusError("VBus gateway handshake failed") from error
+        yield session
