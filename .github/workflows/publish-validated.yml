@@ -23,6 +23,34 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
+      - name: Inspect exact RPT configuration metadata (temporary evidence)
+        if: matrix.python-version == '3.13'
+        run: |
+          python - <<'PY'
+          import collections, hashlib, io, re, urllib.request, xml.etree.ElementTree as ET, zipfile
+          url = "https://www.mastersolar.rs/wp-content/uploads/2021/02/BXPLUS_2.08.zip"
+          with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=30) as response:
+              data = response.read(4000000)
+          assert hashlib.sha256(data).hexdigest() == "1bcc59cac3d4176c68de255fced3b95840bada06db33b0bdae0cddb007a9f079"
+          with zipfile.ZipFile(io.BytesIO(data)) as archive:
+              root = ET.fromstring(archive.read("BXPLUS_2.08/BXPlus_208-Menu.xml"))
+              print("Archive files", archive.namelist())
+          vals = [e for e in root.iter("value") if e.get("id")]
+          print("Parameter storage counts", collections.Counter(e.get("storage", "unspecified") for e in vals))
+          types = {e.get("id"): e for e in root.iter("type") if e.get("id")}
+          for key in ("Temperature", "Temperatur", "Percent", "Number", "Boolean", "Handbetrieb", "Relais_Vt{0}_MinDrehzahl", "Relais_Vt{0}_MaxDrehzahl", "Relais_Vt{0}_ODrehzahl"):
+              if key in types:
+                  print("TYPE", ET.tostring(types[key], encoding="unicode")[:4000])
+          for e in vals:
+              ident = e.get("id")
+              if re.search(r"^Relais_(Regler_R[1-5]|Modul[12]_R[1-5])_(MinDrehzahl|MaxDrehzahl|ODrehzahl)$", ident) or re.search(r"^(Schema|Modul[12]_(Aktiviert|Vorhanden))$", ident):
+                  print("VALUE", ET.tostring(e, encoding="unicode")[:700])
+              if re.search(r"(T[sS]oll|Tmin|Tmax|DT[Ee]in|DT[Aa]us|DT[Ss]oll|Differenz|Thermostat)", ident) and e.get("storage") not in ("struct", "abstract", "volatile"):
+                  print("CANDIDATE", ident, e.get("index"), e.get("storage"), e.find("type").attrib if e.find("type") is not None else {})
+          for e in root.iter():
+              if e.tag in ("constraint", "mask") and any(x in str(e.attrib) for x in ("MinDrehzahl", "MaxDrehzahl", "ODrehzahl", "Thermostat")):
+                  print("RULE", ET.tostring(e, encoding="unicode")[:1000])
+          PY
       - name: Regression tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
       - name: Ruff check

@@ -142,6 +142,8 @@ class VBusSession:
                 Datagram(address, SELF_ADDRESS, command, index, value).encode()
             )
         except OSError as error:
+            if command in (0x0200, 0x0400):
+                raise VBusError("VBus write outcome uncertain") from error
             raise VBusError("VBus command send failed") from error
 
         def matches(packet):
@@ -159,7 +161,7 @@ class VBusSession:
         try:
             return self.receive_matching(matches, 2)
         except (OSError, VBusError) as error:
-            if command == 0x0200:
+            if command in (0x0200, 0x0400):
                 raise VBusError("VBus write outcome uncertain") from error
             raise VBusError("VBus parameter response failed") from error
 
@@ -260,13 +262,18 @@ class VBusSession:
             raise VBusError("Controller changeset changed during discovery")
         return parameters
 
-    def write_verified(self, address, index, value, changeset):
-        """Internal volatile write primitive; caller must hold the bus.
+    def write_verified(self, address, index, value, changeset, *, save=False):
+        """Internal write primitive; caller must hold the bus.
+
+        The MIT resol-vbus connection.js reference distinguishes volatile
+        writes (0x0200) from writes with save (0x0400). The caller's verified
+        parameter profile must determine whether save is allowed. Readback
+        confirms the live value, not physical power-cycle retention.
 
         Only a verified semantic mapping may invoke this primitive. Do not
         retry an uncertain write: report the error and re-read separately.
         """
-        ack = self.request(address, 0x0200, index, value)
+        ack = self.request(address, 0x0400 if save else 0x0200, index, value)
         if ack.value != value:
             raise VBusError("VBus write acknowledgement differs")
         if self.read(address, 0) != changeset:

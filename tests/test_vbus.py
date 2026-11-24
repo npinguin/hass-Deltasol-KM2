@@ -126,3 +126,38 @@ class VBusTests(unittest.TestCase):
         )
         session = vbus.VBusSession(conn)
         self.assertEqual(session.write_verified(ADDRESS, 1321, 2, 12345), 2)
+
+    def test_persistent_save_uses_distinct_command_and_readback(self):
+        conn = Mock()
+        conn.recv.return_value = (
+            response(0x0100, 1321, 2)
+            + response(0x0100, 0, 12345)
+            + response(0x0100, 1321, 2)
+        )
+        session = vbus.VBusSession(conn)
+        self.assertEqual(
+            session.write_verified(ADDRESS, 1321, 2, 12345, save=True), 2
+        )
+        sent = [
+            vbus.Datagram.decode(call.args[0]) for call in conn.sendall.call_args_list
+        ]
+        self.assertEqual([p.command for p in sent], [0x0400, 0x0300, 0x0300])
+
+    def test_persistent_save_timeout_never_retries(self):
+        conn = Mock()
+        conn.recv.side_effect = TimeoutError()
+        session = vbus.VBusSession(conn)
+        with self.assertRaisesRegex(vbus.VBusError, "write outcome uncertain"):
+            session.write_verified(ADDRESS, 1321, 2, 12345, save=True)
+        self.assertEqual(conn.sendall.call_count, 1)
+        self.assertEqual(
+            vbus.Datagram.decode(conn.sendall.call_args.args[0]).command, 0x0400
+        )
+
+    def test_persistent_send_failure_is_uncertain(self):
+        conn = Mock()
+        conn.sendall.side_effect = OSError()
+        session = vbus.VBusSession(conn)
+        with self.assertRaisesRegex(vbus.VBusError, "write outcome uncertain"):
+            session.write_verified(ADDRESS, 1321, 2, 12345, save=True)
+        self.assertEqual(conn.sendall.call_count, 1)
