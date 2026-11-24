@@ -75,9 +75,8 @@ class VBusTests(unittest.TestCase):
         conn = Mock()
         conn.recv.side_effect = [response(0x0500), b"", live_packet()]
         session = vbus.VBusSession(conn)
-        with self.assertRaises(vbus.VBusError):
-            with session.bus(ADDRESS):
-                session.read(ADDRESS, 0)
+        with self.assertRaises(vbus.VBusError), session.bus(ADDRESS):
+            session.read(ADDRESS, 0)
         packet = vbus.Datagram.decode(conn.sendall.call_args.args[0])
         self.assertEqual(packet.command, 0x0600)
 
