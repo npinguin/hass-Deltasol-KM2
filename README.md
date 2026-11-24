@@ -156,6 +156,14 @@ Field timing feedback (#5/#8): all parameter reads and writes share one serializ
 
 Acceptance: existing sensor and controller controls retain identity; one or more registered modules, missing/disabled modules, ambiguous identity, unknown profile, mixed output types, independent write/readback and diagnostics, lifecycle, and rollback to 1.2.8. Physical actuation remains separate from isolated HA qualification.
 
+### Parameter capability discovery and configuration (issue #10)
+
+- **DS-PAR-01:** discover the readable parameters of the supported firmware profile against the observed controller and registered devices; resolve semantic IDs dynamically and verify layout, type, units and constraints. Do not infer availability merely from a vendor catalog.
+- **DS-PAR-02:** provide an on-demand, redacted current configuration snapshot, with typed values, storage/access metadata, defaults where defined, and explicit missing/stale status. Compare snapshots without automatic restore or an additional state store.
+- **DS-PAR-03:** expose verified operational parameter settings with native HA entities and the existing single serialized writer. Validate range, step, active function and conditional dependencies. Preserve installed program topology, safety limits and credentials; these are read-only or excluded if sensitive.
+- **DS-PAR-04:** keep volatile write and persistent save distinct within the same transport. Require authoritative readback, no repeat writes for unchanged values, no blind retry after uncertain outcome. Verify persistence after reconnect and isolated peer restart; physical power-cycle retention is separate site evidence.
+- **DS-PAR-05:** preserve all existing telemetry and relay controls/identities; test discovery, validation, rejection, readback, persistence, reconnect/recovery and rollback to actual 1.2.9. No public raw parameter writer, second bus engine, new service or automatic optimization.
+
 ## Development
 
 If you want to support the development, you can find AI generated development [documentation](https://deepwiki.com/dm82m/hass-Deltasol-KM2) that will help you start contributing to this project.
