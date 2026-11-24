@@ -51,8 +51,7 @@ class Datagram:
             raise VBusError("Invalid VBus datagram")
         destination, source, _, command = struct.unpack("<HHBH", frame[1:8])
         payload = bytes(
-            byte | (((frame[14] >> i) & 1) << 7)
-            for i, byte in enumerate(frame[8:14])
+            byte | (((frame[14] >> i) & 1) << 7) for i, byte in enumerate(frame[8:14])
         )
         index, value = struct.unpack("<Hi", payload)
         return cls(destination, source, command, index, value)
@@ -194,13 +193,10 @@ class VBusSession:
                         continue
                     frame = self.buffer[:size]
                     del self.buffer[:size]
-                    if (
-                        int.from_bytes(header[3:5], "little") == address
-                        and all(
-                            all(byte < 128 for byte in frame[i : i + 6])
-                            and (sum(frame[i : i + 6]) & 127) == 127
-                            for i in range(10, size, 6)
-                        )
+                    if int.from_bytes(header[3:5], "little") == address and all(
+                        all(byte < 128 for byte in frame[i : i + 6])
+                        and (sum(frame[i : i + 6]) & 127) == 127
+                        for i in range(10, size, 6)
                     ):
                         return
                 else:

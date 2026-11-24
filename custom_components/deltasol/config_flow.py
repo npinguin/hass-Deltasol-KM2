@@ -109,6 +109,7 @@ class ResolConfigFlow(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         return ResolOptionsFlow()
+
     _title: str
     _product: str
     _input_data: dict[str, Any]

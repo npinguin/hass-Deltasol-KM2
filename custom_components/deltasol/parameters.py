@@ -107,11 +107,10 @@ class RelayParameters:
         """Recheck identity, changeset, parameter and value before every write."""
         if option not in MODE_VALUES:
             raise VBusError("Unsupported relay mode")
-        if (
-            controller_identity(telemetry) != (capability.source, capability.serial)
-            or RELAY_LAYOUT.get(capability.name)
-            != (capability.number, capability.index)
-        ):
+        if controller_identity(telemetry) != (
+            capability.source,
+            capability.serial,
+        ) or RELAY_LAYOUT.get(capability.name) != (capability.number, capability.index):
             raise VBusError("Relay capability or controller identity changed")
         with (
             self._lock,

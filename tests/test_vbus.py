@@ -60,8 +60,7 @@ class VBusTests(unittest.TestCase):
             (12345, {NAME: (1321, 2)}),
         )
         sent = [
-            vbus.Datagram.decode(call.args[0])
-            for call in conn.sendall.call_args_list
+            vbus.Datagram.decode(call.args[0]) for call in conn.sendall.call_args_list
         ]
         self.assertEqual(
             [p.command for p in sent],
@@ -111,8 +110,7 @@ class VBusTests(unittest.TestCase):
         with self.assertRaises(vbus.VBusError):
             session.write_verified(ADDRESS, 1321, 2, 12345)
         sent = [
-            vbus.Datagram.decode(call.args[0])
-            for call in conn.sendall.call_args_list
+            vbus.Datagram.decode(call.args[0]) for call in conn.sendall.call_args_list
         ]
         self.assertEqual([p.command for p in sent], [0x0200, 0x0300, 0x0300])
 

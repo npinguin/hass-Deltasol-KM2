@@ -9,7 +9,9 @@ from unittest.mock import MagicMock, Mock, patch
 
 PACKAGE = "_deltasol_parameter_tests"
 package = types.ModuleType(PACKAGE)
-package.__path__ = [str(Path(__file__).resolve().parents[1] / "custom_components/deltasol")]
+package.__path__ = [
+    str(Path(__file__).resolve().parents[1] / "custom_components/deltasol")
+]
 sys.modules[PACKAGE] = package
 parameters = importlib.import_module(f"{PACKAGE}.parameters")
 
@@ -55,7 +57,8 @@ class ParameterTests(unittest.TestCase):
 
     def test_unknown_layout_is_rejected(self):
         self.session.discover.return_value = (
-            12345, {"Schema": (86, 0), NAME: (1321, 2)}
+            12345,
+            {"Schema": (86, 0), NAME: (1321, 2)},
         )
         with self.assertRaises(parameters.VBusError):
             self.api.discover(telemetry())
@@ -63,7 +66,8 @@ class ParameterTests(unittest.TestCase):
 
     def test_unknown_mode_not_enabled(self):
         self.session.discover.return_value = (
-            12345, {"Schema": (86, 0), NAME: (2019, 42)}
+            12345,
+            {"Schema": (86, 0), NAME: (2019, 42)},
         )
         self.assertEqual(self.api.discover(telemetry()), {})
 
@@ -73,9 +77,7 @@ class ParameterTests(unittest.TestCase):
         self.session.resolve.side_effect = [86, 2019]
         self.session.write_verified.return_value = 3
         updated = self.api.set_mode(telemetry(), cap, "On")
-        self.session.write_verified.assert_called_once_with(
-            0x7112, 2019, 3, 12345
-        )
+        self.session.write_verified.assert_called_once_with(0x7112, 2019, 3, 12345)
         self.assertEqual(updated.current_option, "On")
         self.assertEqual(updated.unique_id, UID)
 
@@ -119,11 +121,14 @@ class ParameterTests(unittest.TestCase):
 
     def test_out_of_scope_mode_can_be_restored_to_auto(self):
         self.session.discover.return_value = (
-            12345, {"Schema": (86, 0), NAME: (2019, 1)}
+            12345,
+            {"Schema": (86, 0), NAME: (2019, 1)},
         )
         cap = self.api.discover(telemetry())[UID]
         self.assertIsNone(cap.current_option)
         self.session.read.side_effect = [12345, 12345, 1]
         self.session.resolve.side_effect = [86, 2019]
         self.session.write_verified.return_value = 2
-        self.assertEqual(self.api.set_mode(telemetry(), cap, "Auto").current_option, "Auto")
+        self.assertEqual(
+            self.api.set_mode(telemetry(), cap, "Auto").current_option, "Auto"
+        )
