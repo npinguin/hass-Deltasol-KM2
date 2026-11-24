@@ -37,12 +37,12 @@ jobs:
               root = ET.fromstring(z.read("BXPLUS_2.08/BXPlus_208-Menu.xml"))
           for e in root.iter():
               ident = e.get("id", "")
-              if e.tag == "value" and ("Handbetrieb" in ident or ("Modul" in ident and any(x in ident for x in ("Aktiv", "Status", "Erkannt", "Verf", "Anmeld", "Adresse", "Relais", "Vorhand")))):
+              if e.tag == "value" and ("Handbetrieb" in ident or (ident.startswith("Relais_Regler_R") and ident.endswith("_ODrehzahl")) or ("Modul" in ident and any(x in ident for x in ("Aktiv", "Status", "Erkannt", "Verf", "Anmeld", "Adresse", "Relais", "Vorhand")))):
                   if "Heizung" not in ident and "Funktion" not in ident:
                       print("VALUE", ET.tostring(e, encoding="unicode")[:1600])
-              if e.tag == "type" and ("Handbetrieb" in ident or "Relais_Vt" in ident):
+              if e.tag == "type" and ("Handbetrieb" in ident or "ModulX_Vt" in ident or "Relais_Vt" in ident):
                   print("TYPE", ET.tostring(e, encoding="unicode")[:4000])
-              if e.tag in ("mask", "constraint", "menu", "line", "item") and "Handbetrieb" in str(e.attrib):
+              if e.tag in ("mask", "constraint") and ("Relais_Regler_R1" in str(e.attrib) or "Relais_Regler_R4" in str(e.attrib) or "Relais_Modul1_R1" in str(e.attrib) or "Handbetrieb" in ET.tostring(e, encoding="unicode")):
                   print("MENU", ET.tostring(e, encoding="unicode")[:5000])
           PY
       - name: Regression tests
