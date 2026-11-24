@@ -135,9 +135,7 @@ class VBusTests(unittest.TestCase):
             + response(0x0100, 1321, 2)
         )
         session = vbus.VBusSession(conn)
-        self.assertEqual(
-            session.write_verified(ADDRESS, 1321, 2, 12345, save=True), 2
-        )
+        self.assertEqual(session.write_verified(ADDRESS, 1321, 2, 12345, save=True), 2)
         sent = [
             vbus.Datagram.decode(call.args[0]) for call in conn.sendall.call_args_list
         ]
