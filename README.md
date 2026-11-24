@@ -144,6 +144,14 @@ To enable parameter discovery on an existing KM2/DL2 Plus entry, use Settings â†
 
 Reference: RESOL BXPLUS_2.08 RPT package, SHA256 1bcc59cac3d4176c68de255fced3b95840bada06db33b0bdae0cddb007a9f079, inspected in PR validation job 138837397481. The ZIP is not redistributed. Hardware qualification remains required.
 
+### Device and module relay discovery (issue #8)
+
+- **DS-REL-05:** Derive a single device inventory from existing telemetry; retain native device and entity identities. Include observed packet source addresses and device types in redacted diagnostics without exporting names, serials, credentials or site data. A controller profile defines verified relay mode and module registration/presence semantics; unknown devices remain observable, never blindly writable.
+- **DS-REL-06:** Discover relay mode capabilities on each present, registered module; use the existing parameter transport and native selects, with the correct existing device grouping. No global module count, duplicate discovery or generic arbitrary parameter writer. Reject absent, ambiguous, changed or unsupported modules and parameters before a write; keep previous IDs on reconnect.
+- **DS-REL-07:** Preserve the precise observed relay mode, including distinct vendor Min, Max and Ein values. Expose only verified allowed modes per physical output; report unsupported observed values accurately and do not substitute Max for Ein. Preserve the existing R1â€“R5 entity IDs. Reuse existing output names only where an unambiguous correspondence exists; retain the relay number.
+
+Acceptance: existing sensor and controller controls retain identity; one or more registered modules, missing/disabled modules, ambiguous identity, unknown profile, mixed output types, independent write/readback and diagnostics, lifecycle, and rollback to 1.2.8. Physical actuation remains separate from isolated HA qualification.
+
 ## Development
 
 If you want to support the development, you can find AI generated development [documentation](https://deepwiki.com/dm82m/hass-Deltasol-KM2) that will help you start contributing to this project.
