@@ -43,10 +43,10 @@ class DeltasolRelaySelect(CoordinatorEntity, SelectEntity):
     """Expose the actual manual mode, not the instantaneous relay output."""
 
     _attr_has_entity_name = True
-    _attr_options = list(MODE_VALUES)
 
     def __init__(self, coordinator, capability):
         super().__init__(coordinator)
+        self._attr_options = list(MODE_VALUES)
         self._attr_unique_id = capability.unique_id
         self._attr_name = f"Relay R{capability.number} mode"
         self._attr_device_info = DeviceInfo(

@@ -176,7 +176,7 @@ class VBusSession:
         while True:
             if monotonic() >= deadline:
                 raise VBusError("VBus release not confirmed")
-            start = self.buffer.find(b"\\xaa")
+            start = self.buffer.find(b"\xaa")
             if start == -1:
                 self.buffer.clear()
             elif start:

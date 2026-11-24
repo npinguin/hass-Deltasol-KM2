@@ -70,7 +70,7 @@ class ParameterTests(unittest.TestCase):
     def test_write_uses_revalidated_dynamic_index(self):
         cap = self.api.discover(telemetry())[UID]
         self.session.read.side_effect = [12345, 12345, 2]
-        self.session.resolve.return_value = 2019
+        self.session.resolve.side_effect = [86, 2019]
         self.session.write_verified.return_value = 3
         updated = self.api.set_mode(telemetry(), cap, "On")
         self.session.write_verified.assert_called_once_with(
@@ -97,7 +97,15 @@ class ParameterTests(unittest.TestCase):
     def test_write_rejects_disappeared_parameter(self):
         cap = self.api.discover(telemetry())[UID]
         self.session.read.return_value = 12345
-        self.session.resolve.return_value = None
+        self.session.resolve.side_effect = [86, None]
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_mode(telemetry(), cap, "Off")
+        self.session.write_verified.assert_not_called()
+
+    def test_write_rejects_unknown_layout(self):
+        cap = self.api.discover(telemetry())[UID]
+        self.session.read.return_value = 12345
+        self.session.resolve.return_value = 1
         with self.assertRaises(parameters.VBusError):
             self.api.set_mode(telemetry(), cap, "Off")
         self.session.write_verified.assert_not_called()
@@ -105,7 +113,7 @@ class ParameterTests(unittest.TestCase):
     def test_auto_noop_uses_observed_value(self):
         cap = self.api.discover(telemetry())[UID]
         self.session.read.side_effect = [12345, 12345, 2]
-        self.session.resolve.return_value = 2019
+        self.session.resolve.side_effect = [86, 2019]
         self.assertEqual(self.api.set_mode(telemetry(), cap, "Auto").value, 2)
         self.session.write_verified.assert_not_called()
 
@@ -116,6 +124,6 @@ class ParameterTests(unittest.TestCase):
         cap = self.api.discover(telemetry())[UID]
         self.assertIsNone(cap.current_option)
         self.session.read.side_effect = [12345, 12345, 1]
-        self.session.resolve.return_value = 2019
+        self.session.resolve.side_effect = [86, 2019]
         self.session.write_verified.return_value = 2
         self.assertEqual(self.api.set_mode(telemetry(), cap, "Auto").current_option, "Auto")

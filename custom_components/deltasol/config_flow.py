@@ -16,9 +16,10 @@ from homeassistant.const import (
     CONF_SCAN_INTERVAL,
     CONF_USERNAME,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError, IntegrationError
-from homeassistant.helpers import config_validation as cv, selector
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import selector
 
 from .const import (
     CONF_VBUS_PASSWORD,
@@ -105,6 +106,7 @@ class ResolConfigFlow(ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
     @staticmethod
+    @callback
     def async_get_options_flow(config_entry):
         return ResolOptionsFlow()
     _title: str

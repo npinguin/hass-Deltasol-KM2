@@ -113,21 +113,26 @@ class RelayParameters:
             != (capability.number, capability.index)
         ):
             raise VBusError("Relay capability or controller identity changed")
-        with self._lock, open_vbus(self.host, self.password) as session:
-            with session.bus(BX_PLUS_ADDRESS):
-                if session.read(BX_PLUS_ADDRESS, 0) != capability.changeset:
-                    raise VBusError("Controller changeset changed; rediscover first")
-                index = session.resolve(BX_PLUS_ADDRESS, capability.name)
-                if index != capability.index:
-                    raise VBusError("Relay parameter is no longer supported")
-                if session.read(BX_PLUS_ADDRESS, 0) != capability.changeset:
-                    raise VBusError("Controller changeset changed before write")
-                current = session.read(BX_PLUS_ADDRESS, index)
-                if current not in OBSERVED_MODES:
-                    raise VBusError("Unsupported current relay mode")
-                wanted = MODE_VALUES[option]
-                if current != wanted:
-                    current = session.write_verified(
-                        BX_PLUS_ADDRESS, index, wanted, capability.changeset
-                    )
+        with (
+            self._lock,
+            open_vbus(self.host, self.password) as session,
+            session.bus(BX_PLUS_ADDRESS),
+        ):
+            if session.read(BX_PLUS_ADDRESS, 0) != capability.changeset:
+                raise VBusError("Controller changeset changed; rediscover first")
+            if session.resolve(BX_PLUS_ADDRESS, "Schema") != SCHEMA_INDEX:
+                raise VBusError("Unrecognized BX Plus parameter layout")
+            index = session.resolve(BX_PLUS_ADDRESS, capability.name)
+            if index != capability.index:
+                raise VBusError("Relay parameter is no longer supported")
+            if session.read(BX_PLUS_ADDRESS, 0) != capability.changeset:
+                raise VBusError("Controller changeset changed before write")
+            current = session.read(BX_PLUS_ADDRESS, index)
+            if current not in OBSERVED_MODES:
+                raise VBusError("Unsupported current relay mode")
+            wanted = MODE_VALUES[option]
+            if current != wanted:
+                current = session.write_verified(
+                    BX_PLUS_ADDRESS, index, wanted, capability.changeset
+                )
         return replace(capability, value=current)

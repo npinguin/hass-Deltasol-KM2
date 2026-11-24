@@ -22,7 +22,7 @@ def response(command, index=0, value=0, source=ADDRESS):
 
 def live_packet():
     header = bytes.fromhex("1000127110000100")
-    return b"\\xaa" + header + bytes([127 - (sum(header) & 127)])
+    return b"\xaa" + header + bytes([127 - (sum(header) & 127)])
 
 
 class VBusTests(unittest.TestCase):
