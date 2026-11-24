@@ -75,6 +75,7 @@ jobs:
           zip -j "$PACKAGE" LICENSE
           unzip -t "$PACKAGE"
           unzip -Z1 "$PACKAGE" | grep -Fx select.py
+          unzip -Z1 "$PACKAGE" | grep -Fx diagnostics.py
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
           gh release download 1.2.6 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
           sha256sum "$PACKAGE" "$Q/rollback/deltasol.zip"
@@ -86,6 +87,7 @@ jobs:
           }
           run_phase() {
             timeout 180 docker run --rm --entrypoint python3 \
+              -e PYTHONDONTWRITEBYTECODE=1 \
               -v "$Q/config:/qualification" \
               -v "$GITHUB_WORKSPACE/tests/qualify_ha.py:/qualify.py:ro" \
               "$HA_IMAGE" /qualify.py /qualification "$1"
@@ -168,5 +170,5 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "DeltaSol $VERSION TEST" \
             --prerelease \
-            --notes "TEST: local BX Plus relay modes (Auto/Off/On) and capability discovery. Configure the separate VBus remote-access password. Existing telemetry retained. Isolated HA lifecycle and loopback protocol checks passed; physical RESOL acceptance remains open. Manual overrides may persist; restore Auto after safe supervised tests. Do not test on a hot solid-fuel installation."
+            --notes "TEST: local BX Plus relay modes (Auto/Off/On) and capability discovery and native redacted diagnostics. Configure the separate VBus remote-access password. Existing telemetry retained. Isolated HA lifecycle and loopback protocol checks passed; physical RESOL acceptance remains open. Manual overrides may persist; restore Auto after safe supervised tests. Do not test on a hot solid-fuel installation."
           echo "Published $VERSION with deltasol.zip for HACS."

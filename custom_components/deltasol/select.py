@@ -16,6 +16,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     if not telemetry.api.supports_parameter_access:
         return
     coordinator = DeltasolRelayCoordinator(hass, telemetry)
+    entry.runtime_data.relay_coordinator = coordinator
     registered = set()
 
     @callback

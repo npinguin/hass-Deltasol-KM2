@@ -209,6 +209,21 @@ async def qualify(directory, phase):
         assert select, "R4 native select was not discovered"
         assert hass.states.get(select).state == "Auto"
         assert Peer.writes == 0
+        from custom_components.deltasol.diagnostics import (
+            async_get_config_entry_diagnostics,
+        )
+
+        diagnostic = await async_get_config_entry_diagnostics(hass, entry)
+        encoded = json.dumps(diagnostic)
+        for secret in ("local-test", "http-test", "127.0.0.1", "isolated-gateway"):
+            assert secret not in encoded
+        assert diagnostic["telemetry"]["available"]
+        access = diagnostic["parameter_access"]
+        assert access["status"] == "supported"
+        assert access["relays"]["R4"]["mode"] == "Auto"
+        assert access["relays"]["R4"]["writable_options"] == ["Auto", "Off", "On"]
+        assert access["relays"]["R1"]["writable_options"] == []
+        assert Peer.writes == 0
         for number in (1, 2, 3, 5):
             assert not registry.async_get_entity_id(
                 "select", "deltasol", f"isolated-gateway_7112_R{number}_mode"
@@ -250,6 +265,14 @@ async def qualify(directory, phase):
         assert Peer.writes == 3
         assert hass.states.get(select).state == "unavailable"
         assert float(hass.states.get(sensor).state) == 42
+        diagnostic = await async_get_config_entry_diagnostics(hass, entry)
+        access = diagnostic["parameter_access"]
+        assert access["status"] == "unavailable"
+        assert access["last_error"] == "authentication"
+        assert access["relays"]["R4"]["mode"] is None
+        assert access["relays"]["R4"]["last_observed_mode"] == "Auto"
+        assert access["relays"]["R4"]["writable_options"] == []
+        assert Peer.writes == 3
         Peer.deny = False
         assert await hass.config_entries.async_reload(entry.entry_id)
         await hass.async_block_till_done()
