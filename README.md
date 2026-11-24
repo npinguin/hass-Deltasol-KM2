@@ -134,6 +134,8 @@ logger:
 
 Discovery uses the observed controller address, its changeset and hashed semantic parameter identifiers to resolve current indices and read current values. Readable parameters are not automatically writable; verified model-specific enum semantics are required before exposing controls. Discovery never writes parameters.
 
+Capability gating (DS-REL-01/03): create and enable a control only when the current controller positively resolves the named parameter, returns a valid value and has verified writable mode semantics for that controller/changeset. Unknown, unsupported, read-only or ambiguous parameters must not be offered as enabled controls or accepted by the write path, even if called directly. Temporary communication failure on a previously supported control makes it unavailable; preserve its entity identity and restore availability only after successful rediscovery/readback. Existing telemetry must remain independent. Acceptance: mixed supported/unsupported parameters, unknown firmware, stale capability after reconnect and invalid options; prove that no write datagram is sent for any rejected target.
+
 The API owns parameter communication and verified metadata, the coordinator owns refresh/availability, and native HA Select is the consumer. No generic parameter editor or separate runtime. Exact BX Plus 2.08 mode encoding and physical acceptance remain qualification work; no claim of usable relay control until the end-to-end scope passes.
 
 ## Development
