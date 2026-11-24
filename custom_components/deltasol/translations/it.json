@@ -53,5 +53,18 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Accesso locale ai parametri VBus (KM2/DL2 Plus). Lasciare vuoto per mantenere la sola lettura. Il modo manuale può restare attivo dopo la disconnessione; ripristinare Auto dopo l'uso.",
+        "data": {
+          "vbus_password": "Password VBus per accesso remoto"
+        },
+        "data_description": {
+          "vbus_password": "Separata dalla password HTTP/web. Impostarla nella configurazione di accesso remoto del gateway RESOL."
+        }
+      }
+    }
   }
 }

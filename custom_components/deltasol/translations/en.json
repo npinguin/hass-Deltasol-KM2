@@ -53,5 +53,18 @@
         }
       }
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "description": "Local VBus parameter access (KM2/DL2 Plus). Leave blank to keep the existing read-only integration. Manual override may persist after HA disconnects; restore Auto after use.",
+        "data": {
+          "vbus_password": "VBus remote-access password"
+        },
+        "data_description": {
+          "vbus_password": "Separate from the HTTP/web password. Set it in the RESOL gateway's Remote access configuration."
+        }
+      }
+    }
   }
 }

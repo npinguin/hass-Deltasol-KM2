@@ -7,7 +7,7 @@ from datetime import timedelta
 from typing import Any
 
 import voluptuous as vol
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import ConfigFlow, ConfigFlowResult, OptionsFlow
 from homeassistant.const import (
     CONF_API_KEY,
     CONF_HOST,
@@ -18,9 +18,10 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError, IntegrationError
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, selector
 
 from .const import (
+    CONF_VBUS_PASSWORD,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_USERNAME,
@@ -102,6 +103,10 @@ class ResolConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Resol integration."""
 
     VERSION = 1
+
+    @staticmethod
+    def async_get_options_flow(config_entry):
+        return ResolOptionsFlow()
     _title: str
     _product: str
     _input_data: dict[str, Any]
@@ -350,3 +355,28 @@ class CannotConnect(HomeAssistantError):
 
 class InvalidAuth(HomeAssistantError):
     """Error to indicate there is invalid auth."""
+
+
+class ResolOptionsFlow(OptionsFlow):
+    """Optional, separate local VBus credentials; existing reads are unchanged."""
+
+    async def async_step_init(self, user_input=None):
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={
+                    **self.config_entry.options,
+                    CONF_VBUS_PASSWORD: user_input.get(CONF_VBUS_PASSWORD, ""),
+                },
+            )
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_VBUS_PASSWORD,
+                    default=self.config_entry.options.get(CONF_VBUS_PASSWORD, ""),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+                ),
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

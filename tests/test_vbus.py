@@ -1,9 +1,9 @@
 """Test the real VBus protocol implementation without physical equipment."""
 
 import importlib.util
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 from unittest.mock import Mock
 
 SOURCE = Path(__file__).resolve().parents[1] / "custom_components/deltasol/vbus.py"
@@ -18,6 +18,11 @@ NAME = "Relais_Regler_R4_Handbetrieb"
 
 def response(command, index=0, value=0, source=ADDRESS):
     return vbus.Datagram(0x20, source, command, index, value).encode()
+
+
+def live_packet():
+    header = bytes.fromhex("1000127110000100")
+    return b"\\xaa" + header + bytes([127 - (sum(header) & 127)])
 
 
 class VBusTests(unittest.TestCase):
@@ -42,8 +47,10 @@ class VBusTests(unittest.TestCase):
                 response(0x0500),
                 response(0x0100, 0, 12345),
                 response(0x0100, 1321, vbus.parameter_hash(NAME)),
-                response(0x0100, 1321, 2),
                 response(0x1101, 0, vbus.parameter_hash(unsupported)),
+                response(0x0100, 0, 12345),
+                response(0x0100, 1321, 2),
+                live_packet(),
             )
         )
         conn.recv.side_effect = [stream[:19], stream[19:]]
@@ -58,13 +65,13 @@ class VBusTests(unittest.TestCase):
         ]
         self.assertEqual(
             [p.command for p in sent],
-            [0x0300, 0x1100, 0x0300, 0x1100, 0x0600],
+            [0x0300, 0x1100, 0x1100, 0x0300, 0x0300, 0x0600],
         )
         self.assertTrue(all(p.destination == ADDRESS for p in sent))
 
     def test_discovery_releases_bus_on_failure(self):
         conn = Mock()
-        conn.recv.side_effect = [response(0x0500), b""]
+        conn.recv.side_effect = [response(0x0500), b"", live_packet()]
         session = vbus.VBusSession(conn)
         with self.assertRaises(vbus.VBusError):
             session.discover(ADDRESS, [NAME])
@@ -77,6 +84,7 @@ class VBusTests(unittest.TestCase):
             b"+HELLO\r\n",
             b"+OK\r\n",
             b"+DATA\r\n" + response(0x0500),
+            live_packet(),
         ]
         session = vbus.VBusSession(conn)
         session.authenticate("test")
@@ -94,20 +102,26 @@ class VBusTests(unittest.TestCase):
 
     def test_write_requires_independent_readback_and_is_not_retried(self):
         conn = Mock()
-        conn.recv.return_value = response(0x0100, 1321, 2) + response(
-            0x0100, 1321, 0
+        conn.recv.return_value = (
+            response(0x0100, 1321, 2)
+            + response(0x0100, 0, 12345)
+            + response(0x0100, 1321, 0)
         )
         session = vbus.VBusSession(conn)
         with self.assertRaises(vbus.VBusError):
-            session.write_verified(ADDRESS, 1321, 2)
+            session.write_verified(ADDRESS, 1321, 2, 12345)
         sent = [
             vbus.Datagram.decode(call.args[0])
             for call in conn.sendall.call_args_list
         ]
-        self.assertEqual([p.command for p in sent], [0x0200, 0x0300])
+        self.assertEqual([p.command for p in sent], [0x0200, 0x0300, 0x0300])
 
     def test_write_readback_success(self):
         conn = Mock()
-        conn.recv.return_value = response(0x0100, 1321, 2) * 2
+        conn.recv.return_value = (
+            response(0x0100, 1321, 2)
+            + response(0x0100, 0, 12345)
+            + response(0x0100, 1321, 2)
+        )
         session = vbus.VBusSession(conn)
-        self.assertEqual(session.write_verified(ADDRESS, 1321, 2), 2)
+        self.assertEqual(session.write_verified(ADDRESS, 1321, 2, 12345), 2)

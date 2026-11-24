@@ -23,21 +23,23 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady, IntegrationError
+from homeassistant.exceptions import ConfigEntryNotReady, HomeAssistantError, IntegrationError
 from homeassistant.helpers import config_validation as cv
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
+    CONF_VBUS_PASSWORD,
     DEFAULT_NAME,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TIMEOUT,
     MIN_SCAN_INTERVAL,
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
+from .vbus import VBusError
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT]
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA_BASE.extend(
     {
@@ -91,12 +93,18 @@ async def async_setup_entry(
     # accessible throughout your integration
     config_entry.runtime_data = RuntimeData(coordinator)
 
+    config_entry.async_on_unload(config_entry.add_update_listener(_async_reload_entry))
+
     # Setup platforms (based on the list of entity types in PLATFORMS defined above)
     # This calls the async_setup method in each of your entity type files.
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
 
     # Return true to denote a successful setup.
     return True
+
+
+async def _async_reload_entry(hass, entry):
+    await hass.config_entries.async_reload(entry.entry_id)
 
 
 async def async_unload_entry(
@@ -124,6 +132,7 @@ class DeltasolCoordinator(DataUpdateCoordinator):
             username=config.data.get(CONF_USERNAME),
             password=config.data.get(CONF_PASSWORD),
             api_key=config.data.get(CONF_API_KEY),
+            vbus_password=config.options.get(CONF_VBUS_PASSWORD),
         )
         super().__init__(
             hass,
@@ -151,3 +160,55 @@ class DeltasolCoordinator(DataUpdateCoordinator):
                 raise
             else:
                 return data
+
+
+class DeltasolRelayCoordinator(DataUpdateCoordinator):
+    """Independent native refresh for the slower VBus parameter channel.
+
+    Shares the existing API and observed telemetry identity. A parameter
+    outage must not delay or invalidate HTTP sensor updates.
+    """
+
+    def __init__(self, hass, telemetry):
+        self.telemetry = telemetry
+        self.api = telemetry.api
+        self._lock = asyncio.Lock()
+        super().__init__(
+            hass,
+            _LOGGER,
+            name="deltasol_relay_modes",
+            update_interval=max(telemetry.update_interval, timedelta(seconds=60)),
+        )
+
+    async def _async_update_data(self):
+        async with self._lock:
+            if not self.telemetry.last_update_success:
+                raise UpdateFailed("Controller telemetry is unavailable")
+            try:
+                return await self.hass.async_add_executor_job(
+                    self.api.fetch_relay_modes, self.telemetry.data
+                )
+            except VBusError as error:
+                raise UpdateFailed(str(error)) from error
+
+    async def async_set_mode(self, unique_id, option):
+        """Do not accept calls that bypass entity availability."""
+        async with self._lock:
+            if (
+                not self.last_update_success
+                or not self.telemetry.last_update_success
+                or not self.data
+                or unique_id not in self.data
+            ):
+                raise HomeAssistantError("Relay capability is unavailable")
+            try:
+                capability = await self.hass.async_add_executor_job(
+                    self.api.set_relay_mode,
+                    self.telemetry.data,
+                    self.data[unique_id],
+                    option,
+                )
+            except VBusError as error:
+                self.async_set_update_error(error)
+                raise HomeAssistantError(str(error)) from error
+            self.async_set_updated_data({**self.data, unique_id: capability})

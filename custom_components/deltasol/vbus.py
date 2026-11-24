@@ -4,10 +4,10 @@ Protocol reference: resol-vbus, Daniel Wippermann (MIT), connection.js,
 datagram.js and examples/customizer2/src/utils.js. See VBUS-LICENSE.txt.
 """
 
-from contextlib import contextmanager
-from dataclasses import dataclass
 import socket
 import struct
+from contextlib import contextmanager
+from dataclasses import dataclass
 from time import monotonic
 
 SELF_ADDRESS = 0x0020
@@ -165,7 +165,48 @@ class VBusSession:
 
     def read(self, address, index):
         """Read a parameter without modifying the installed program."""
-        return self.request(address, 0x0300, index).value
+        reply = self.request(address, 0x0300, index, replies=(0x0100, 0x4300))
+        if reply.command != 0x0100:
+            raise VBusError("Controller refused parameter read")
+        return reply.value
+
+    def _wait_for_master(self, address):
+        """Confirm a valid live-data packet from the controller after release."""
+        deadline = monotonic() + 3
+        while True:
+            if monotonic() >= deadline:
+                raise VBusError("VBus release not confirmed")
+            start = self.buffer.find(b"\\xaa")
+            if start == -1:
+                self.buffer.clear()
+            elif start:
+                del self.buffer[:start]
+            if len(self.buffer) >= 10:
+                header = self.buffer[:10]
+                if (
+                    header[5] == 0x10
+                    and all(byte < 128 for byte in header[1:])
+                    and (sum(header[1:]) & 127) == 127
+                ):
+                    size = 10 + 6 * header[8]
+                    if len(self.buffer) < size:
+                        self.buffer.extend(self._receive(deadline))
+                        continue
+                    frame = self.buffer[:size]
+                    del self.buffer[:size]
+                    if (
+                        int.from_bytes(header[3:5], "little") == address
+                        and all(
+                            all(byte < 128 for byte in frame[i : i + 6])
+                            and (sum(frame[i : i + 6]) & 127) == 127
+                            for i in range(10, size, 6)
+                        )
+                    ):
+                        return
+                else:
+                    del self.buffer[0]
+                continue
+            self.buffer.extend(self._receive(deadline))
 
     @contextmanager
     def bus(self, address):
@@ -183,6 +224,7 @@ class VBusSession:
         finally:
             self.connection.settimeout(2)
             self.connection.sendall(Datagram(address, SELF_ADDRESS, 0x0600).encode())
+            self._wait_for_master(address)
 
     def discover(self, address, names):
         """Read changeset and resolve/read supported named parameters.
@@ -194,14 +236,17 @@ class VBusSession:
             changeset = self.read(address, 0)
             if not changeset:
                 raise VBusError("Controller changeset is unknown")
-            parameters = {}
-            for name in names:
-                index = self.resolve(address, name)
-                if index is not None:
-                    parameters[name] = (index, self.read(address, index))
+            indices = {name: self.resolve(address, name) for name in names}
+            if self.read(address, 0) != changeset:
+                raise VBusError("Controller changeset changed during discovery")
+            parameters = {
+                name: (index, self.read(address, index))
+                for name, index in indices.items()
+                if index is not None
+            }
         return changeset, parameters
 
-    def write_verified(self, address, index, value):
+    def write_verified(self, address, index, value, changeset):
         """Internal volatile write primitive; caller must hold the bus.
 
         Only a verified semantic mapping may invoke this primitive. Do not
@@ -210,6 +255,8 @@ class VBusSession:
         ack = self.request(address, 0x0200, index, value)
         if ack.value != value:
             raise VBusError("VBus write acknowledgement differs")
+        if self.read(address, 0) != changeset:
+            raise VBusError("Controller changeset changed during write")
         if self.read(address, index) != value:
             raise VBusError("VBus write readback differs")
         return value

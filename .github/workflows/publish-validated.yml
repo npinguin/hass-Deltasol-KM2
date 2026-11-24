@@ -22,26 +22,6 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Inspect exact BX Plus 2.08 RPT metadata (temporary development evidence)
-        if: matrix.python-version == '3.13'
-        continue-on-error: true
-        run: |
-          python - <<'PY'
-          import io, urllib.request, zipfile, hashlib, xml.etree.ElementTree as ET
-          url = "https://www.mastersolar.rs/wp-content/uploads/2021/02/BXPLUS_2.08.zip"
-          req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-          with urllib.request.urlopen(req, timeout=20) as response:
-              data = response.read(4000000)
-          print("RPT ZIP sha256:", hashlib.sha256(data).hexdigest())
-          with zipfile.ZipFile(io.BytesIO(data)) as archive:
-              print("Device definition:", archive.read("BXPLUS_2.08/bxplus_208.xml").decode("utf-8-sig", errors="replace"))
-              root = ET.fromstring(archive.read("BXPLUS_2.08/BXPlus_208-Menu.xml"))
-              print("ROOT", root.tag, root.attrib)
-              for elem in root.iter():
-                  ident = elem.get("id", "")
-                  if (elem.tag == "type" and ("Handbetrieb" in ident and ("{0}" in ident or ident == "Handbetrieb"))) or (elem.tag == "value" and (ident in ("Softwareversion", "Schema", "ShortChangesetId") or (ident.startswith("Relais_Regler_R") and (ident.endswith("_Handbetrieb") or ident.endswith("_Status") or ident.endswith("_Verfuegbar"))))) or (elem.tag == "mask" and "Verfuegbar" in str(elem.attrib) and "Relais" in str(elem.attrib)):
-                      print("META", ET.tostring(elem, encoding="unicode")[:10000])
-          PY
       - name: Regression tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
       - name: Ruff check

@@ -53,5 +53,18 @@
                 }
             }
         }
+    },
+    "options": {
+        "step": {
+            "init": {
+                "description": "Accès local aux paramètres VBus (KM2/DL2 Plus). Laissez vide pour conserver la lecture actuelle. Le mode manuel peut rester actif après la déconnexion ; rétablissez Auto après utilisation.",
+                "data": {
+                    "vbus_password": "Mot de passe VBus pour accès distant"
+                },
+                "data_description": {
+                    "vbus_password": "Distinct du mot de passe HTTP/web. Configurez-le dans les paramètres d'accès distant de la passerelle RESOL."
+                }
+            }
+        }
     }
 }
