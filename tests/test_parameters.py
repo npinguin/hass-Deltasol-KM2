@@ -56,16 +56,18 @@ class ParameterTests(unittest.TestCase):
         return {name: self.values[name] for name in names if name in self.values}
 
     def activate_modules(self):
-        self.values.update({
-            "Modul1_Aktiviert": (191, 1),
-            "Modul1_Vorhanden": (193, 1),
-            M1_NAME: (2173, 2),
-            M1_SPEED: (2169, 1),
-            "Modul2_Aktiviert": (197, 1),
-            "Modul2_Vorhanden": (199, 1),
-            M2_NAME: (2299, 2),
-            M2_SPEED: (2295, 0),
-        })
+        self.values.update(
+            {
+                "Modul1_Aktiviert": (191, 1),
+                "Modul1_Vorhanden": (193, 1),
+                M1_NAME: (2173, 2),
+                M1_SPEED: (2169, 1),
+                "Modul2_Aktiviert": (197, 1),
+                "Modul2_Vorhanden": (199, 1),
+                M2_NAME: (2299, 2),
+                M2_SPEED: (2295, 0),
+            }
+        )
 
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
@@ -114,7 +116,9 @@ class ParameterTests(unittest.TestCase):
         with self.assertRaises(parameters.VBusError):
             self.api.set_mode(telemetry(), cap, "On")
         self.session.write_verified.return_value = 1
-        self.assertEqual(self.api.set_mode(telemetry(), cap, "Min").current_option, "Min")
+        self.assertEqual(
+            self.api.set_mode(telemetry(), cap, "Min").current_option, "Min"
+        )
         self.session.write_verified.assert_called_once_with(0x7112, 2019, 1, 12345)
 
     def test_actual_ein_mode_is_on(self):
@@ -160,7 +164,9 @@ class ParameterTests(unittest.TestCase):
         cap = self.discover()[UID]
         self.assertIsNone(cap.current_option)
         self.session.write_verified.return_value = 2
-        self.assertEqual(self.api.set_mode(telemetry(), cap, "Auto").current_option, "Auto")
+        self.assertEqual(
+            self.api.set_mode(telemetry(), cap, "Auto").current_option, "Auto"
+        )
 
     def test_write_rechecks_speed_setting(self):
         cap = self.discover()[UID]

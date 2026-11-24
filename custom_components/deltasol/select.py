@@ -16,7 +16,8 @@ def relay_name(hass, telemetry, capability):
     keys = device_inventory(telemetry).get(capability.device, ())
     names = {f"relay_{capability.number}", f"relais_{capability.number}"}
     matches = [
-        key for key in keys
+        key
+        for key in keys
         if telemetry[key].name.lower() in names and telemetry[key].unit == "%"
     ]
     if len(matches) == 1:
@@ -69,7 +70,9 @@ class DeltasolRelaySelect(CoordinatorEntity, SelectEntity):
         self._attr_unique_id = capability.unique_id
         self._attr_name = name
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{capability.device.serial}_{capability.device.source}")},
+            identifiers={
+                (DOMAIN, f"{capability.device.serial}_{capability.device.source}")
+            },
         )
 
     @property

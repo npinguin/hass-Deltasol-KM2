@@ -46,13 +46,21 @@ PROFILES = (
         0x7112,
         86,
         (
-            RelayGroup("controller", 0x7112, "Relais_Regler", (1977, 1991, 2005, 2019, 2033)),
             RelayGroup(
-                "M1", 0x6651, "Relais_Modul1", (2173, 2187, 2201, 2215, 2229),
+                "controller", 0x7112, "Relais_Regler", (1977, 1991, 2005, 2019, 2033)
+            ),
+            RelayGroup(
+                "M1",
+                0x6651,
+                "Relais_Modul1",
+                (2173, 2187, 2201, 2215, 2229),
                 (("Modul1_Aktiviert", 191), ("Modul1_Vorhanden", 193)),
             ),
             RelayGroup(
-                "M2", 0x6652, "Relais_Modul2", (2243, 2257, 2271, 2285, 2299),
+                "M2",
+                0x6652,
+                "Relais_Modul2",
+                (2243, 2257, 2271, 2285, 2299),
                 (("Modul2_Aktiviert", 197), ("Modul2_Vorhanden", 199)),
             ),
         ),
@@ -133,7 +141,11 @@ class RelayCapability:
 
     @property
     def options(self):
-        return ("Auto", "Off", "Min", "Max") if self.speed_control else ("Auto", "Off", "On")
+        return (
+            ("Auto", "Off", "Min", "Max")
+            if self.speed_control
+            else ("Auto", "Off", "On")
+        )
 
     @property
     def current_option(self):
@@ -168,7 +180,9 @@ def _read_group(session, profile, changeset, group, controller, device, numbers)
     """Read presence and registration before any module relay parameters."""
     if group.flags:
         flags = _checked_parameters(session, profile, changeset, dict(group.flags))
-        if len(flags) != len(group.flags) or any(v not in (0, 1) for v in flags.values()):
+        if len(flags) != len(group.flags) or any(
+            v not in (0, 1) for v in flags.values()
+        ):
             return "registration_unknown", {}
         if any(v != 1 for v in flags.values()):
             return "not_registered_or_present", {}
@@ -187,7 +201,14 @@ def _read_group(session, profile, changeset, group, controller, device, numbers)
         if value not in OBSERVED_MODES or speed not in (0, 1):
             continue
         cap = RelayCapability(
-            group, number, expected[name], changeset, controller, device, bool(speed), value
+            group,
+            number,
+            expected[name],
+            changeset,
+            controller,
+            device,
+            bool(speed),
+            value,
         )
         capabilities[cap.unique_id] = cap
     return ("supported" if capabilities else "no_supported_relays"), capabilities
@@ -226,7 +247,12 @@ class RelayParameters:
                     status[group.key] = "not_observed_or_ambiguous"
                     continue
                 status[group.key], relays = _read_group(
-                    session, profile, changeset, group, controller, device,
+                    session,
+                    profile,
+                    changeset,
+                    group,
+                    controller,
+                    device,
                     range(1, len(group.indices) + 1),
                 )
                 capabilities.update(relays)
@@ -257,8 +283,13 @@ class RelayParameters:
             ):
                 raise VBusError("Unrecognized controller parameter layout")
             _, relays = _read_group(
-                session, profile, changeset, capability.group, controller,
-                capability.device, (capability.number,),
+                session,
+                profile,
+                changeset,
+                capability.group,
+                controller,
+                capability.device,
+                (capability.number,),
             )
             current = relays.get(capability.unique_id)
             if current is None or current.index != capability.index:

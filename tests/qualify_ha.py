@@ -150,19 +150,26 @@ class HttpHandler(BaseHTTPRequestHandler):
                         ],
                     }
                 ],
-                "headersets": [{
-                    "packets": [{"field_values": [{"raw_value": 42.0}, {"raw_value": 100}]}]
-                }],
-
+                "headersets": [
+                    {
+                        "packets": [
+                            {"field_values": [{"raw_value": 42.0}, {"raw_value": 100}]}
+                        ]
+                    }
+                ],
             }
             if Peer.em_present:
-                result["headers"].append({
-                    "id": "00_7112_6651_0100",
-                    "description": "EM #1",
-                    "destination_name": "BX Plus",
-                    "source_name": "EM #1",
-                    "fields": [{"id": "000_4_0", "name": "Temperature S1", "unit": "°C"}],
-                })
+                result["headers"].append(
+                    {
+                        "id": "00_7112_6651_0100",
+                        "description": "EM #1",
+                        "destination_name": "BX Plus",
+                        "source_name": "EM #1",
+                        "fields": [
+                            {"id": "000_4_0", "name": "Temperature S1", "unit": "°C"}
+                        ],
+                    }
+                )
                 result["headersets"][0]["packets"].append(
                     {"field_values": [{"raw_value": 30.0}]}
                 )
@@ -246,8 +253,10 @@ async def qualify(directory, phase):
         assert json.loads(baseline.read_text(encoding="utf-8")) == identity
         if phase == "rollback":
             em = registry.async_get_entity_id("select", "deltasol", EM_UID)
-            assert not em or hass.states.get(em) is None or hass.states.get(em).state in (
-                "unavailable", "unknown"
+            assert (
+                not em
+                or hass.states.get(em) is None
+                or hass.states.get(em).state in ("unavailable", "unknown")
             )
             assert Peer.writes == 0
             return
@@ -256,8 +265,15 @@ async def qualify(directory, phase):
         assert hass.states.get(select).attributes["options"] == ["Auto", "Off", "On"]
         em = registry.async_get_entity_id("select", "deltasol", EM_UID)
         assert em and hass.states.get(em).state == "Auto"
-        assert hass.states.get(em).attributes["options"] == ["Auto", "Off", "Min", "Max"]
-        assert registry.async_get(em).device_id == registry.async_get(em_sensor).device_id
+        assert hass.states.get(em).attributes["options"] == [
+            "Auto",
+            "Off",
+            "Min",
+            "Max",
+        ]
+        assert (
+            registry.async_get(em).device_id == registry.async_get(em_sensor).device_id
+        )
         assert Peer.writes == 0
         from custom_components.deltasol.diagnostics import (
             async_get_config_entry_diagnostics,
@@ -273,7 +289,12 @@ async def qualify(directory, phase):
         assert access["relays"]["R4"]["mode"] == "On"
         assert access["relays"]["R4"]["mode_value"] == 4
         assert access["relays"]["R1"]["writable_options"] == []
-        assert access["relays"]["M1_R1"]["writable_options"] == ["Auto", "Off", "Min", "Max"]
+        assert access["relays"]["M1_R1"]["writable_options"] == [
+            "Auto",
+            "Off",
+            "Min",
+            "Max",
+        ]
         assert access["relays"]["M2_R1"]["writable_options"] == []
         assert any(d["source_address"] == "0x6651" for d in access["devices"])
         assert Peer.writes == 0

@@ -56,7 +56,10 @@ async def async_get_config_entry_diagnostics(hass, entry):
     profile, controller = find_profile(inventory)
     discovery = relay.data if relay else None
     current = bool(
-        relay and relay.last_update_success and telemetry.last_update_success and controller
+        relay
+        and relay.last_update_success
+        and telemetry.last_update_success
+        and controller
     )
     if not configured:
         status = "not_configured"
@@ -77,42 +80,60 @@ async def async_get_config_entry_diagnostics(hass, entry):
     for device, keys in sorted(
         inventory.items(), key=lambda item: (item[0].channel, item[0].address)
     ):
-        group = next(
-            (g for g in profile.groups if g.address == device.address), None
-        ) if profile else None
-        devices.append({
-            "channel": f"{device.channel:02X}",
-            "source_address": f"0x{device.address:04X}",
-            "telemetry_fields": len(keys),
-            "profile_group": group.key if group else None,
-            "status": (
-                discovery.group_status.get(group.key, "not_confirmed")
-                if current and discovery and group
-                else "observed_only" if telemetry.last_update_success else "stale"
-            ),
-        })
+        group = (
+            next((g for g in profile.groups if g.address == device.address), None)
+            if profile
+            else None
+        )
+        devices.append(
+            {
+                "channel": f"{device.channel:02X}",
+                "source_address": f"0x{device.address:04X}",
+                "telemetry_fields": len(keys),
+                "profile_group": group.key if group else None,
+                "status": (
+                    discovery.group_status.get(group.key, "not_confirmed")
+                    if current and discovery and group
+                    else "observed_only"
+                    if telemetry.last_update_success
+                    else "stale"
+                ),
+            }
+        )
 
-    cached = {
-        cap.key: cap for cap in discovery.capabilities.values()
-    } if discovery else {}
+    cached = (
+        {cap.key: cap for cap in discovery.capabilities.values()} if discovery else {}
+    )
     relays = {}
     if profile:
         for group in profile.groups:
             for number in range(1, len(group.indices) + 1):
-                key = f"R{number}" if group.key == "controller" else f"{group.key}_R{number}"
+                key = (
+                    f"R{number}"
+                    if group.key == "controller"
+                    else f"{group.key}_R{number}"
+                )
                 cap = cached.get(key)
                 valid = bool(current and cap and cap.matches(inventory))
                 relays[key] = {
                     "parameter": group.parameter(number, "Handbetrieb"),
                     "device_address": f"0x{group.address:04X}",
-                    "status": "supported" if valid else (
+                    "status": "supported"
+                    if valid
+                    else (
                         discovery.group_status.get(group.key, "not_discovered")
-                        if current and discovery and discovery.group_status.get(group.key) != "supported"
-                        else "not_discovered" if current else "not_confirmed"
+                        if current
+                        and discovery
+                        and discovery.group_status.get(group.key) != "supported"
+                        else "not_discovered"
+                        if current
+                        else "not_confirmed"
                     ),
                     "writable_options": list(cap.options) if valid else [],
                     "mode": OBSERVED_MODES.get(cap.value) if valid else None,
-                    "last_observed_mode": OBSERVED_MODES.get(cap.value) if cap else None,
+                    "last_observed_mode": OBSERVED_MODES.get(cap.value)
+                    if cap
+                    else None,
                     "mode_value": cap.value if valid else None,
                     "speed_control": cap.speed_control if valid else None,
                     "changeset": f"{cap.changeset & 0xFFFFFFFF:08X}" if valid else None,
@@ -137,7 +158,9 @@ async def async_get_config_entry_diagnostics(hass, entry):
         "parameter_access": {
             "configured": configured,
             "status": status,
-            "observed_controller_address": f"0x{controller.address:04X}" if controller else None,
+            "observed_controller_address": f"0x{controller.address:04X}"
+            if controller
+            else None,
             "reference_profile": profile.name if profile else None,
             "devices": devices,
             "last_error": last_error,

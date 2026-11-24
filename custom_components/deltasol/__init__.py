@@ -220,5 +220,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 self.async_set_update_error(error)
                 raise HomeAssistantError(str(error)) from error
             self.async_set_updated_data(
-                replace(self.data, capabilities={**self.data.capabilities, unique_id: capability})
+                replace(
+                    self.data,
+                    capabilities={**self.data.capabilities, unique_id: capability},
+                )
             )
