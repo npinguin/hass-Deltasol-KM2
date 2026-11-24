@@ -13,6 +13,9 @@ import requests
 from homeassistant.exceptions import IntegrationError
 from requests.exceptions import RequestException
 
+from .parameters import RelayParameters
+from .vbus import VBusError
+
 _LOGGER = logging.getLogger(__name__)
 
 DeltasolEndpoint = namedtuple(
@@ -24,7 +27,9 @@ DeltasolEndpoint = namedtuple(
 class DeltasolApi:
     """Wrapper class for Resol KM1/KM2, DL2/DL2Plus/DL3, VBus/LAN, VBus/USB."""
 
-    def __init__(self, host, port, username=None, password=None, api_key=None) -> None:
+    def __init__(
+        self, host, port, username=None, password=None, api_key=None, vbus_password=None
+    ) -> None:
         """Initialise api."""
         self.data = None
         self.host = host
@@ -34,6 +39,9 @@ class DeltasolApi:
         self.api_key = api_key
         self.product = None
         self.product_details = None
+        self._parameters = (
+            RelayParameters(host, vbus_password) if vbus_password else None
+        )
 
     def __parse_data(self, response) -> dict[str, DeltasolEndpoint]:
         data = {}
@@ -132,6 +140,23 @@ class DeltasolApi:
             raise IntegrationError(error)
 
         return self.__parse_data(response)
+
+    @property
+    def supports_parameter_access(self):
+        """Parameter access is separate from the existing HTTP credentials."""
+        return self._parameters is not None and self.product in ("km2", "dl2plus")
+
+    def fetch_relay_modes(self, telemetry):
+        """Discover available relay parameters without altering any setting."""
+        if not self.supports_parameter_access:
+            return {}
+        return self._parameters.discover(telemetry)
+
+    def set_relay_mode(self, telemetry, capability, option):
+        """Use the same capability-checked writer for all HA consumers."""
+        if not self.supports_parameter_access:
+            raise VBusError("VBus parameter access is not configured")
+        return self._parameters.set_mode(telemetry, capability, option)
 
     def fetch_data_km2(self):
         _LOGGER.debug("Retrieving data from km2")

@@ -125,6 +125,23 @@ logger:
     custom_components.deltasol: debug
 ```
 
+
+### Relay mode control (development scope, issue #5)
+
+- **DS-REL-01:** Discover supported controller relay parameters without changing settings. Show observed relay mode separately from actual output; retain all sensor identities, values and history.
+- **DS-REL-02:** An engineer explicitly selects Auto, Off or On (maximum) for a supported relay. Use one authenticated local VBus transaction, confirm parameter readback and preserve every other relay and the installed program. Manual override may persist after HA loss; restoring Auto gives control back to the controller.
+- **DS-REL-03:** Reject unknown controller/parameter identity, ambiguous mode encoding, denied auth, bus contention, invalid target and stale/missing/mismatched readback. Release the bus and report failure without optimistic state or blind write retry. Keep existing sensor polling available independently. No physical test on a hot solid-fuel installation.
+
+Discovery uses the observed controller address, its changeset and hashed semantic parameter identifiers to resolve current indices and read current values. Readable parameters are not automatically writable; verified model-specific enum semantics are required before exposing controls. Discovery never writes parameters.
+
+Capability gating (DS-REL-01/03): create and enable a control only when the current controller positively resolves the named parameter, returns a valid value and has verified writable mode semantics for that controller/changeset. Unknown, unsupported, read-only or ambiguous parameters must not be offered as enabled controls or accepted by the write path, even if called directly. Temporary communication failure on a previously supported control makes it unavailable; preserve its entity identity and restore availability only after successful rediscovery/readback. Existing telemetry must remain independent. Acceptance: mixed supported/unsupported parameters, unknown firmware, stale capability after reconnect and invalid options; prove that no write datagram is sent for any rejected target.
+
+The API owns parameter communication and verified metadata, the coordinator owns refresh/availability, and native HA Select is the consumer. No generic parameter editor or separate runtime. The initial controller profile uses the RESOL BX Plus 2.08 RPT device definition (address 0x7112) and menu metadata (Handbetrieb enum Off=0, Min=1, Auto=2, Max=3, Ein=4). The three writable choices are Auto, Off and On (Max). A known out-of-scope mode is reported in the observed_mode attribute rather than misrepresented. The exact reference parameter layout must match dynamically resolved indices; missing or incompatible controls are not created. Actual changeset is rechecked before each write. This is source-level compatibility evidence, not physical acceptance.
+
+To enable parameter discovery on an existing KM2/DL2 Plus entry, use Settings → Devices & services → RESOL → Configure and enter the gateway's separate local VBus remote-access password. Blank retains sensor-only operation. No existing credentials or entity IDs change. The HTTP sensor refresh and slower VBus parameter refresh are independent native HA coordinators sharing one API. Manual overrides may persist when HA disconnects; return to Auto after use.
+
+Reference: RESOL BXPLUS_2.08 RPT package, SHA256 1bcc59cac3d4176c68de255fced3b95840bada06db33b0bdae0cddb007a9f079, inspected in PR validation job 138837397481. The ZIP is not redistributed. Hardware qualification remains required.
+
 ## Development
 
 If you want to support the development, you can find AI generated development [documentation](https://deepwiki.com/dm82m/hass-Deltasol-KM2) that will help you start contributing to this project.
