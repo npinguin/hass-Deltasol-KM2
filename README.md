@@ -1,6 +1,6 @@
 > [!NOTE]
 > **npinguin development fork.** `master` mirrors upstream exactly; fork changes live on `dev`. Existing HACS releases are preserved. Install only a validated fork release from `npinguin/hass-Deltasol-KM2` (same `deltasol` domain; do not install both). Upstream now incorporates the UTC and missing-field fixes. See [open work](https://github.com/npinguin/hass-Deltasol-KM2/issues).
-> Fork publication is explicit: an authorized `release: ...` commit on `dev`, with a new manifest version, must pass the existing release checks. Ordinary development pushes only validate.
+> Fork publication is explicit: an authorized `release: ...` commit on `dev`, with a new manifest version, must pass the existing release checks. Ordinary development pushes only validate. TEST releases are GitHub prereleases; enable prereleases in Marketplace. The shipped ZIP must pass the isolated Home Assistant lifecycle and network-protocol contract checks, including upgrade and rollback to the retained 1.2.6 artifact. Isolated protocol-peer evidence is not physical RESOL acceptance. Do not test manual overrides on a hot solid-fuel installation.
 
 [![version](https://img.shields.io/github/v/release/dm82m/hass-deltasol-km2?style=for-the-badge)](https://github.com/dm82m/hass-Deltasol-KM2)
 [![downloads_total](https://img.shields.io/github/downloads/dm82m/hass-deltasol-km2/total?style=for-the-badge)](https://github.com/dm82m/hass-Deltasol-KM2/releases)
@@ -131,6 +131,8 @@ logger:
 - **DS-REL-01:** Discover supported controller relay parameters without changing settings. Show observed relay mode separately from actual output; retain all sensor identities, values and history.
 - **DS-REL-02:** An engineer explicitly selects Auto, Off or On (maximum) for a supported relay. Use one authenticated local VBus transaction, confirm parameter readback and preserve every other relay and the installed program. Manual override may persist after HA loss; restoring Auto gives control back to the controller.
 - **DS-REL-03:** Reject unknown controller/parameter identity, ambiguous mode encoding, denied auth, bus contention, invalid target and stale/missing/mismatched readback. Release the bus and report failure without optimistic state or blind write retry. Keep existing sensor polling available independently. No physical test on a hot solid-fuel installation.
+
+- **DS-REL-04:** Native Home Assistant Download diagnostics exports cached gateway model/version, sensor health, discovered controller profile, changeset, per-relay support and last observed mode, plus sanitized error state. No network calls or writes on export. No credentials, host, serial, device names, raw payloads or arbitrary exception text. Distinguish not configured, unsupported, unavailable and supported; stale observations must not be presented as current.
 
 Discovery uses the observed controller address, its changeset and hashed semantic parameter identifiers to resolve current indices and read current values. Readable parameters are not automatically writable; verified model-specific enum semantics are required before exposing controls. Discovery never writes parameters.
 

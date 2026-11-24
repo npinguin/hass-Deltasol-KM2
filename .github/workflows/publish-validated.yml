@@ -5,6 +5,7 @@ on:
     branches:
       - dev
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 permissions:
   contents: read
@@ -49,6 +50,65 @@ jobs:
         with:
           category: integration
 
+  qualify-ha:
+    name: Qualify actual HA lifecycle and packaged bytes
+    if: >-
+      (github.event_name == 'pull_request' && !github.event.pull_request.draft) ||
+      (github.event_name == 'push' && github.ref == 'refs/heads/dev' &&
+      startsWith(github.event.head_commit.message, 'release:'))
+    needs: [test-and-lint, validate-hassfest, validate-hacs]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      HA_IMAGE: ghcr.io/home-assistant/home-assistant:2026.11.0
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Assemble and qualify candidate, upgrade and rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          Q="$RUNNER_TEMP/deltasol-qualification"
+          mkdir -p "$Q/config/custom_components/deltasol" "$Q/rollback"
+          PACKAGE="$Q/deltasol.zip"
+          (cd custom_components/deltasol && zip -qr "$PACKAGE" . -x '*__pycache__*' '*.pyc')
+          zip -j "$PACKAGE" LICENSE
+          unzip -t "$PACKAGE"
+          unzip -Z1 "$PACKAGE" | grep -Fx select.py
+          unzip -Z1 "$PACKAGE" | grep -Fx diagnostics.py
+          unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
+          gh release download 1.2.6 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
+          sha256sum "$PACKAGE" "$Q/rollback/deltasol.zip"
+          docker pull "$HA_IMAGE"
+          install_zip() {
+            rm -rf "$Q/config/custom_components/deltasol"
+            mkdir -p "$Q/config/custom_components/deltasol"
+            unzip -q "$1" -d "$Q/config/custom_components/deltasol"
+          }
+          run_phase() {
+            timeout 180 docker run --rm --entrypoint python3 \
+              -e PYTHONDONTWRITEBYTECODE=1 \
+              -v "$Q/config:/qualification" \
+              -v "$GITHUB_WORKSPACE/tests/qualify_ha.py:/qualify.py:ro" \
+              "$HA_IMAGE" /qualify.py /qualification "$1"
+          }
+          install_zip "$Q/rollback/deltasol.zip"
+          run_phase baseline
+          install_zip "$PACKAGE"
+          run_phase upgrade
+          run_phase restart
+          install_zip "$Q/rollback/deltasol.zip"
+          run_phase rollback
+          (cd "$Q" && sha256sum deltasol.zip > deltasol.zip.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qualified-deltasol
+          path: |
+            ${{ runner.temp }}/deltasol-qualification/deltasol.zip
+            ${{ runner.temp }}/deltasol-qualification/deltasol.zip.sha256
+          if-no-files-found: error
+          retention-days: 7
+
   publish:
     name: Publish version and HACS artifact
     if: >-
@@ -58,6 +118,7 @@ jobs:
       - test-and-lint
       - validate-hassfest
       - validate-hacs
+      - qualify-ha
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -66,6 +127,10 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7.0.1
+      - uses: actions/download-artifact@v4
+        with:
+          name: qualified-deltasol
+          path: ${{ runner.temp }}/qualified-deltasol
       - name: Publish only a validated, not-yet-released dev version
         env:
           GH_TOKEN: ${{ github.token }}
@@ -95,14 +160,15 @@ jobs:
             exit 1
           fi
 
-          PACKAGE="$RUNNER_TEMP/deltasol.zip"
-          (cd custom_components/deltasol && zip -qr "$PACKAGE" . -x '*__pycache__*' '*.pyc')
+          PACKAGE="$RUNNER_TEMP/qualified-deltasol/deltasol.zip"
+          (cd "$RUNNER_TEMP/qualified-deltasol" && sha256sum -c deltasol.zip.sha256)
           unzip -Z1 "$PACKAGE" | grep -Eq '(^|/)manifest.json$'
           unzip -Z1 "$PACKAGE" | grep -Eq '(^|/)sensor.py$'
 
           gh release create "$VERSION" "$PACKAGE" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
-            --title "DeltaSol $VERSION" \
-            --generate-notes
+            --title "DeltaSol $VERSION TEST" \
+            --prerelease \
+            --notes "TEST: local BX Plus relay modes (Auto/Off/On) and capability discovery and native redacted diagnostics. Configure the separate VBus remote-access password. Existing telemetry retained. Isolated HA lifecycle and loopback protocol checks passed; physical RESOL acceptance remains open. Manual overrides may persist; restore Auto after safe supervised tests. Do not test on a hot solid-fuel installation."
           echo "Published $VERSION with deltasol.zip for HACS."

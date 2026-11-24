@@ -70,6 +70,7 @@ class RuntimeData:
     """Class to hold your data."""
 
     coordinator: DataUpdateCoordinator
+    relay_coordinator: "DeltasolRelayCoordinator | None" = None
 
 
 async def async_setup(hass: HomeAssistant, config):
