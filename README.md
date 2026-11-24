@@ -125,6 +125,15 @@ logger:
     custom_components.deltasol: debug
 ```
 
+
+### Relay mode control (development scope, issue #5)
+
+- **DS-REL-01:** Discover supported controller relay parameters without changing settings. Show observed relay mode separately from actual output; retain all sensor identities, values and history.
+- **DS-REL-02:** An engineer explicitly selects Auto, Off or On (maximum) for a supported relay. Use one authenticated local VBus transaction, confirm parameter readback and preserve every other relay and the installed program. Manual override may persist after HA loss; restoring Auto gives control back to the controller.
+- **DS-REL-03:** Reject unknown controller/parameter identity, ambiguous mode encoding, denied auth, bus contention, invalid target and stale/missing/mismatched readback. Release the bus and report failure without optimistic state or blind write retry. Keep existing sensor polling available independently. No physical test on a hot solid-fuel installation.
+
+The API owns parameter communication and verified metadata, the coordinator owns refresh/availability, and native HA Select is the consumer. No generic parameter editor or separate runtime. Exact BX Plus 2.08 mode encoding and physical acceptance remain qualification work; no claim of usable relay control until the end-to-end scope passes.
+
 ## Development
 
 If you want to support the development, you can find AI generated development [documentation](https://deepwiki.com/dm82m/hass-Deltasol-KM2) that will help you start contributing to this project.
