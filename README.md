@@ -1,9 +1,6 @@
-> [!IMPORTANT]
-> **npinguin fork (1.2.5)** — based on [dm82m/hass-Deltasol-KM2](https://github.com/dm82m/hass-Deltasol-KM2).
-> Fixes crashes when a previously discovered VBus sensor field temporarily disappears.
-> For HACS, select this fork (`npinguin/hass-Deltasol-KM2`) as a **custom repository** once release 1.2.5 is published.
-> This fork uses the same `deltasol` integration and preserves existing HA entity/unique IDs. Do not install two copies side by side.
-> See [fork patch notes](FORK_PATCH_NOTES.md) for tests and safe upgrade guidance.
+> [!NOTE]
+> **npinguin development fork.** `master` mirrors upstream exactly; fork changes live on `dev`. Existing HACS releases are preserved. Install only a validated fork release from `npinguin/hass-Deltasol-KM2` (same `deltasol` domain; do not install both). Upstream now incorporates the UTC and missing-field fixes. See [open work](https://github.com/npinguin/hass-Deltasol-KM2/issues).
+> Fork publication is explicit: an authorized `release: ...` commit on `dev`, with a new manifest version, must pass the existing release checks. Ordinary development pushes only validate.
 
 [![version](https://img.shields.io/github/v/release/dm82m/hass-deltasol-km2?style=for-the-badge)](https://github.com/dm82m/hass-Deltasol-KM2)
 [![downloads_total](https://img.shields.io/github/downloads/dm82m/hass-deltasol-km2/total?style=for-the-badge)](https://github.com/dm82m/hass-Deltasol-KM2/releases)
@@ -56,7 +53,7 @@ Component uses webservice to get all the sensor data and makes it available in [
 
 ### HACS (preferred method)
 
-- [![add_resol](https://img.shields.io/badge/Add%20Integration-Home%20Assistant-blue?style=flat)](https://my.home-assistant.io/redirect/hacs_repository/?owner=npinguin&repository=hass-Deltasol-KM2&category=integration) or go to your HACS store and add `npinguin/hass-Deltasol-KM2` as a custom integration repository.
+- [![add_resol](https://img.shields.io/badge/Add%20Integration-Home%20Assistant-blue?style=flat)](https://my.home-assistant.io/redirect/hacs_repository/?owner=npinguin&repository=hass-Deltasol-KM2&category=integration) or go to your HACS store and search for `dm82m/hass-Deltasol-KM2`.
 - Click `Download` in the lower right side and install it.
 - Restart Home Assistant Core.
 - [![configure_resol](https://img.shields.io/badge/Configure%20Integration-Home%20Assistant-blue?style=flat)](https://my.home-assistant.io/redirect/config_flow_start/?domain=deltasol) or configure the integration by adding it via UI `Settings` -> `Devices & Services` -> `Add Integration` -> `Resol KM1/KM2, DL2/DL2Plus/DL3, VBus/LAN, VBus/USB`. Then follow the configuration steps below.
@@ -101,7 +98,7 @@ It works out-of-the-box, the only thing that is needed is the configuration desc
 - `Port`: Port of your Resol KM2 or DL2/DL2Plus/DL3. Defaults to 80. Do not change that, unless you know what you do.
 - `Username`: Username used for logging in to Resol KM2 or DL2/DL2Plus/DL3.
 - `Password`: Password used for logging in to Resol KM2 or DL2/DL2Plus/DL3.
-- `Scan interval` (Optional): Defines update frequency. Optional and in seconds. Defaults to 300 (5 min), minimum value is 60 (1 min).
+- `Scan interval` (Optional): Defines update frequency. Optional and in seconds. Defaults to 300 (5 min), minimum value is 5 (5 sec).
 - `API key` (Optional):  Only applicable if you are using DL2/DL3 device. Applies the filter defined on the DL2/DL3. Use the id of the DL2/DL3 defined filter here.
 
 ### KM1, VBus/LAN and VBus/USB
@@ -116,7 +113,7 @@ If your json-live-data-server is successfully running, lets continue here.
 
 - `Host`: If you went with point 1 it is `127.0.0.1` and if you went with point 2 it is `hostname_or_ip_of_your_json-live-data-server`.
 - `Port`: Within default `json-live-data-server` it is port `3333`. If you have changed that, you need to use this port here aswell. Otherweise set it to `3333`.
-- `Scan interval` (Optional): Defines update frequency. Optional and in seconds. Defaults to 300 (5 min), minimum value is 60 (1 min).
+- `Scan interval` (Optional): Defines update frequency. Optional and in seconds. Defaults to 300 (5 min), minimum value is 5 (5 sec).
 - Do not set `Username`, `Password` or `API key` here, they are not needed.
 
 ## Troubleshooting

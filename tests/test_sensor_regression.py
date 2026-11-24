@@ -57,6 +57,7 @@ def load_sensor_properties():
         "UnitOfTemperature": SimpleNamespace(CELSIUS="°C"),
         "UnitOfEnergy": SimpleNamespace(WATT_HOUR="Wh"),
         "UnitOfPower": SimpleNamespace(WATT="W"),
+        "UnitOfVolumeFlowRate": SimpleNamespace(LITERS_PER_HOUR="L/h"),
         "PERCENTAGE": "%",
     }
     # Only our checked-in sensor.py methods are executed in this test harness.
@@ -76,10 +77,19 @@ class DeltasolSensorRegressionTests(unittest.TestCase):
     def setUpClass(cls):
         cls.sensor_type = load_sensor_properties()
 
-    def make_sensor(self, data, *, success=True, initial_value=14, unit=""):
+    def make_sensor(
+        self,
+        data,
+        *,
+        success=True,
+        initial_value: int | date = 14,
+        unit="",
+        attr_name="test_sensor",
+    ):
         sensor = self.sensor_type()
         sensor.unique_id = "vbus-field-1"
         sensor.name = "test_sensor"
+        sensor._attr_name = attr_name
         sensor.coordinator = SimpleNamespace(
             last_update_success=success,
             data=data,
@@ -97,8 +107,8 @@ class DeltasolSensorRegressionTests(unittest.TestCase):
         self.assertIsNone(sensor.native_value)
         self.assertIsNone(sensor.device_class)
 
-    def test_zero_false_and_empty_string_are_not_synthesized(self):
-        for value in (0, False, ""):
+    def test_zero_and_false_values_are_preserved(self):
+        for value in (0, False):
             with self.subTest(value=value):
                 sensor = self.make_sensor(
                     {"vbus-field-1": SimpleNamespace(value=value)}
@@ -106,6 +116,31 @@ class DeltasolSensorRegressionTests(unittest.TestCase):
                 self.assertTrue(sensor.available)
                 self.assertEqual(sensor.native_value, value)
                 self.assertEqual(type(sensor.native_value), type(value))
+
+    def test_empty_string_returns_none(self):
+        sensor = self.make_sensor({"vbus-field-1": SimpleNamespace(value="")})
+        self.assertTrue(sensor.available)
+        self.assertIsNone(sensor.native_value)
+
+    def test_time_minutes_are_formatted_as_hh_mm(self):
+        for attr_name in ("system_time", "heure"):
+            for minutes, expected in (
+                (61, "01:01"),
+                (9, "00:09"),
+                (1440, "24:00"),
+            ):
+                with self.subTest(attr_name=attr_name, minutes=minutes):
+                    sensor = self.make_sensor(
+                        {"vbus-field-1": SimpleNamespace(value=minutes)},
+                        attr_name=attr_name,
+                    )
+                    self.assertEqual(sensor.native_value, expected)
+
+    def test_datetime_class_is_stable_while_field_missing(self):
+        timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+        sensor = self.make_sensor({}, initial_value=timestamp)
+        self.assertFalse(sensor.available)
+        self.assertEqual(sensor.device_class, SensorDeviceClass.DATE)
 
     def test_missing_update_preserves_last_seen_and_recovers(self):
         sensor = self.make_sensor({})

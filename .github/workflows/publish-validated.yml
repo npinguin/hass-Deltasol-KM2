@@ -3,9 +3,8 @@ name: Publish validated version
 on:
   push:
     branches:
-      - master
+      - dev
   pull_request:
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -52,7 +51,9 @@ jobs:
 
   publish:
     name: Publish version and HACS artifact
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master'
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/dev' &&
+      startsWith(github.event.head_commit.message, 'release:')
     needs:
       - test-and-lint
       - validate-hassfest
@@ -65,7 +66,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7.0.1
-      - name: Publish only a validated, not-yet-released master version
+      - name: Publish only a validated, not-yet-released dev version
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -77,10 +78,10 @@ jobs:
             exit 1
           fi
 
-          # An older workflow run must not publish from an outdated master.
-          MASTER_SHA="$(gh api "repos/$GITHUB_REPOSITORY/branches/master" --jq '.commit.sha')"
-          if [[ "$MASTER_SHA" != "$GITHUB_SHA" ]]; then
-            echo "Master advanced since this run started; skip stale release."
+          # An older workflow run must not publish from an outdated dev.
+          DEV_SHA="$(gh api "repos/$GITHUB_REPOSITORY/branches/dev" --jq '.commit.sha')"
+          if [[ "$DEV_SHA" != "$GITHUB_SHA" ]]; then
+            echo "Dev advanced since this run started; skip stale release."
             exit 0
           fi
 

@@ -12,7 +12,13 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import SOURCE_IMPORT
-from homeassistant.const import PERCENTAGE, UnitOfEnergy, UnitOfPower, UnitOfTemperature
+from homeassistant.const import (
+    PERCENTAGE,
+    UnitOfEnergy,
+    UnitOfPower,
+    UnitOfTemperature,
+    UnitOfVolumeFlowRate,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
@@ -138,12 +144,20 @@ class DeltasolSensor(CoordinatorEntity, SensorEntity):
         if not self.available:
             return None
 
-        return self.coordinator.data[self.unique_id].value
+        value = self.coordinator.data[self.unique_id].value
+        # ggf. hier noch die anderen sprachen?
+        if self._attr_name in ("system_time", "heure"):
+            hours, minutes = divmod(value, 60)
+            value = f"{hours:02d}:{minutes:02d}"
+        return None if value == "" else value
 
     @property
     def native_unit_of_measurement(self) -> str | None:
         """Return the unit of measurement of this entity, if any."""
-        return self._endpoint.unit
+        if self._endpoint.unit == UnitOfVolumeFlowRate.LITERS_PER_HOUR.lower():
+            return UnitOfVolumeFlowRate.LITERS_PER_HOUR
+        else:
+            return None if self._endpoint.unit == "" else self._endpoint.unit
 
     @property
     def device_class(self) -> SensorDeviceClass | None:
@@ -156,17 +170,25 @@ class DeltasolSensor(CoordinatorEntity, SensorEntity):
             return SensorDeviceClass.ENERGY
         if self._unit == UnitOfPower.WATT:
             return SensorDeviceClass.POWER
-        # Device metadata must remain stable even when a VBus field disappears.
-        if isinstance(self._endpoint.value, date):
+        if self._unit == UnitOfVolumeFlowRate.LITERS_PER_HOUR.lower():
+            return SensorDeviceClass.VOLUME_FLOW_RATE
+        # Use the current value when the field is present. Fall back to the creation-time value when it disappears.
+        current = (
+            self.coordinator.data.get(self.unique_id) if self.coordinator.data else None
+        )
+        value = current.value if current is not None else self._endpoint.value
+        if isinstance(value, date):
             return SensorDeviceClass.DATE
         return None
 
     @property
     def state_class(self) -> SensorStateClass | str | None:
         """Return the state class of this entity, if any."""
-        if self._unit == UnitOfTemperature.CELSIUS:
-            return SensorStateClass.MEASUREMENT
-        if self._unit == UnitOfPower.WATT:
+        if self._unit in (
+            UnitOfTemperature.CELSIUS,
+            UnitOfPower.WATT,
+            UnitOfVolumeFlowRate.LITERS_PER_HOUR.lower(),
+        ):
             return SensorStateClass.MEASUREMENT
         if self._unit == UnitOfEnergy.WATT_HOUR:
             return SensorStateClass.TOTAL_INCREASING
