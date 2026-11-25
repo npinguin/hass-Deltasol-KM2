@@ -3,6 +3,7 @@
 import re
 
 from .const import CONF_VBUS_PASSWORD
+from .discovery import compare_captures
 from .parameters import (
     OBSERVED_MODES,
     device_inventory,
@@ -162,7 +163,23 @@ async def async_get_config_entry_diagnostics(hass, entry):
     last_error = None
     if relay and not relay.last_update_success:
         last_error = ERROR_CODES.get(str(relay.last_exception), "parameter_error")
+    capture = runtime.capture
+    capture_current = bool(
+        current
+        and capture
+        and capture.controller == controller
+        and discovery
+        and discovery.changeset == capture.changeset
+    )
+    configuration = (
+        capture.export(capture_current) if capture else {"status": "not_started"}
+    )
+    if capture and capture_current:
+        configuration["comparison"] = compare_captures(
+            runtime.previous_capture, capture
+        )
     return {
+        "configuration_discovery": configuration,
         "gateway": {
             "type": api.product
             if api.product in ("km2", "dl2plus", "dl2", "dl3")

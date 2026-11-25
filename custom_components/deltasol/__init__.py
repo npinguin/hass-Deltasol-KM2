@@ -6,7 +6,7 @@ https://github.com/dm82m/hass-Deltasol-KM2"""
 
 import asyncio
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field as dataclass_field, replace
 from datetime import timedelta
 
 import voluptuous as vol
@@ -34,6 +34,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
+from .catalog import CatalogError, load_catalog
 from .const import (
     CONF_VBUS_PASSWORD,
     DEFAULT_NAME,
@@ -42,11 +43,12 @@ from .const import (
     MIN_SCAN_INTERVAL,
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
+from .discovery import ConfigurationCapture, capture_identity
 from .vbus import VBusError
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT, Platform.BUTTON]
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA_BASE.extend(
     {
@@ -71,6 +73,11 @@ class RuntimeData:
 
     coordinator: DataUpdateCoordinator
     relay_coordinator: "DeltasolRelayCoordinator | None" = None
+    capture: ConfigurationCapture | None = None
+    previous_capture: ConfigurationCapture | None = None
+    capture_task: asyncio.Task | None = None
+    capture_lock: asyncio.Lock = dataclass_field(default_factory=asyncio.Lock)
+    stop_capture: bool = False
 
 
 async def async_setup(hass: HomeAssistant, config):
@@ -123,7 +130,80 @@ async def async_unload_entry(
     # If you have created any custom services, they need to be removed here too.
 
     # Unload platforms and return result
+    runtime = config_entry.runtime_data
+    runtime.stop_capture = True
+    if runtime.capture_task and not runtime.capture_task.done():
+        await runtime.capture_task
     return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
+
+
+async def async_toggle_configuration_capture(hass, entry):
+    """Start/resume or request a stop at the next batch boundary."""
+    runtime = entry.runtime_data
+    async with runtime.capture_lock:
+        await _async_toggle_capture_locked(hass, entry, runtime)
+
+
+async def _async_toggle_capture_locked(hass, entry, runtime):
+    if runtime.capture_task and not runtime.capture_task.done():
+        runtime.stop_capture = True
+        return
+    telemetry = runtime.coordinator
+    if not telemetry.last_update_success or not telemetry.api.supports_parameter_access:
+        raise HomeAssistantError("Controller parameter access is unavailable")
+    try:
+        controller = capture_identity(telemetry.data)
+        catalog = await hass.async_add_executor_job(
+            load_catalog, hass.config.path("deltasol", "BXPLUS_2.08.zip")
+        )
+    except (CatalogError, VBusError) as err:
+        raise HomeAssistantError(str(err)) from err
+    capture = runtime.capture
+    if (
+        capture is None
+        or capture.status == "complete"
+        or capture.controller != controller
+        or capture.catalog.digest != catalog.digest
+    ):
+        if capture and capture.status == "complete":
+            runtime.previous_capture = capture
+        capture = ConfigurationCapture(catalog, controller)
+        runtime.capture = capture
+    capture.status = "running"
+    capture.error = None
+    runtime.stop_capture = False
+    runtime.capture_task = entry.async_create_background_task(
+        hass, _async_capture_configuration(runtime), "deltasol_configuration_capture"
+    )
+
+
+async def _async_capture_configuration(runtime):
+    """Release the bus and the coordinator lock between batches."""
+    capture = runtime.capture
+    telemetry = runtime.coordinator
+    try:
+        while not runtime.stop_capture:
+            if not telemetry.last_update_success:
+                raise VBusError("Controller telemetry is unavailable")
+            batch = capture.next_batch()
+            if not batch:
+                capture.status = "complete"
+                return
+            observations = await telemetry.hass.async_add_executor_job(
+                telemetry.api.read_configuration_batch,
+                telemetry.data,
+                capture.controller,
+                [definition.name for definition in batch],
+                capture.changeset,
+            )
+            capture.apply(batch, observations)
+            if capture.status == "complete":
+                return
+            await asyncio.sleep(0)
+        capture.status = "paused"
+    except VBusError as err:
+        capture.status = "incomplete"
+        capture.error = str(err)
 
 
 class DeltasolCoordinator(DataUpdateCoordinator):

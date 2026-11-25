@@ -168,6 +168,10 @@ Owner-approved sequencing (25 Nov 2026): 1.2.10 Discovery TEST delivers the comp
 - **DS-PAR-04:** keep volatile write and persistent save distinct within the same transport. Require authoritative readback, no repeat writes for unchanged values, no blind retry after uncertain outcome. Verify persistence after reconnect and isolated peer restart; physical power-cycle retention is separate site evidence.
 - **DS-PAR-05:** preserve all existing telemetry and relay controls/identities; test discovery, validation, rejection, readback, persistence, reconnect/recovery and rollback to actual 1.2.9. No public raw parameter writer, second bus engine, new service or automatic optimization.
 
+### Discovery TEST operation
+
+Download the BX Plus 2.08 RPT import archive from RESOL's [RPT page](https://www.resol.de/en/produkt/169) and put the exact supported ZIP at `/config/deltasol/BXPLUS_2.08.zip` (SHA256 above). The archive is used locally as data only; no vendor binaries are loaded or redistributed. No firmware update is required. Configure VBus access, then press the native **Discover configuration (start/pause/resume)** button. Press again to pause at the next batch boundary; press again to resume. Download native integration diagnostics to see the capture and per-parameter status. A second completed capture in the same loaded entry includes a comparison. A restart/reload discards the in-memory capture; keep downloaded snapshots for your records. Discovery does not run during setup, does not send writes, and does not replace the controller's autonomous program. Catalogue coverage is not proof of installed function applicability or write permission.
+
 ## Development
 
 If you want to support the development, you can find AI generated development [documentation](https://deepwiki.com/dm82m/hass-Deltasol-KM2) that will help you start contributing to this project.

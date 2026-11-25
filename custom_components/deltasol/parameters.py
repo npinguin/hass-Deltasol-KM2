@@ -313,6 +313,22 @@ class RelayParameters:
             datetime.now(UTC),
         )
 
+    def read_configuration_batch(self, telemetry, controller, names, changeset):
+        """One bounded read batch using the existing session and identity gates."""
+        profile, actual = find_profile(device_inventory(telemetry))
+        if profile is None or actual != controller:
+            raise VBusError("Controller identity changed during discovery")
+        with self._session(profile.address) as session:
+            if session.read(profile.address, 0) != changeset:
+                raise VBusError("Controller changeset changed during discovery")
+            if "Schema" not in _checked_parameters(
+                session, profile, changeset, {"Schema": profile.schema_index}
+            ):
+                raise VBusError("Unrecognized controller parameter layout")
+            return session.read_parameter_observations(
+                profile.address, names, changeset
+            )
+
     def set_mode(self, telemetry, capability, option):
         inventory = device_inventory(telemetry)
         profile, controller = find_profile(inventory)
