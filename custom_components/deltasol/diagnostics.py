@@ -3,6 +3,7 @@
 import re
 
 from .const import CONF_VBUS_PASSWORD
+from .discovery import compare_captures
 from .parameters import (
     OBSERVED_MODES,
     device_inventory,
@@ -146,10 +147,42 @@ async def async_get_config_entry_diagnostics(hass, entry):
                     "parameter_index": cap.index if valid else None,
                 }
 
+    module_flags = {}
+    if discovery:
+        flags_current = bool(current and discovery.controller == controller)
+        for group, flags in discovery.module_flags.items():
+            module_flags[group] = {
+                name: {
+                    "status": observation.status if flags_current else "stale",
+                    "parameter_index": observation.index if flags_current else None,
+                    "raw_value": observation.value if flags_current else None,
+                }
+                for name, observation in flags.items()
+            }
+
     last_error = None
     if relay and not relay.last_update_success:
         last_error = ERROR_CODES.get(str(relay.last_exception), "parameter_error")
+    capture = runtime.capture
+    capture_current = bool(
+        telemetry.last_update_success
+        and capture
+        and capture.controller == controller
+        and (
+            not discovery
+            or discovery.changeset is None
+            or discovery.changeset == capture.changeset
+        )
+    )
+    configuration = (
+        capture.export(capture_current) if capture else {"status": "not_started"}
+    )
+    if capture and capture_current:
+        configuration["comparison"] = compare_captures(
+            runtime.previous_capture, capture
+        )
     return {
+        "configuration_discovery": configuration,
         "gateway": {
             "type": api.product
             if api.product in ("km2", "dl2plus", "dl2", "dl3")
@@ -171,5 +204,12 @@ async def async_get_config_entry_diagnostics(hass, entry):
             "devices": devices,
             "last_error": last_error,
             "relays": relays,
+            "module_flags": module_flags,
+            "discovery_observed_at": discovery.observed_at.isoformat()
+            if discovery and discovery.observed_at
+            else None,
+            "discovery_changeset": f"{discovery.changeset & 0xFFFFFFFF:08X}"
+            if discovery and discovery.changeset is not None
+            else None,
         },
     }

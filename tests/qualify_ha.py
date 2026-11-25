@@ -12,6 +12,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 from homeassistant import bootstrap, loader
 from homeassistant.config_entries import ConfigEntryState
@@ -246,18 +247,21 @@ async def qualify(directory, phase):
         em_sensor = registry.async_get_entity_id("sensor", "deltasol", EM_SENSOR_UID)
         assert em_sensor and float(hass.states.get(em_sensor).state) == 30
         identity["em_sensor"] = em_sensor
+        em = registry.async_get_entity_id("select", "deltasol", EM_UID)
+        assert em and hass.states.get(em).state == "Auto"
+        identity["em_select"] = em
         if phase == "baseline":
             baseline.write_text(json.dumps(identity), encoding="utf-8")
             assert Peer.writes == 0
             return
         assert json.loads(baseline.read_text(encoding="utf-8")) == identity
         if phase == "rollback":
-            em = registry.async_get_entity_id("select", "deltasol", EM_UID)
-            assert (
-                not em
-                or hass.states.get(em) is None
-                or hass.states.get(em).state in ("unavailable", "unknown")
-            )
+            assert hass.states.get(em).attributes["options"] == [
+                "Auto",
+                "Off",
+                "Min",
+                "Max",
+            ]
             assert Peer.writes == 0
             return
 
@@ -297,7 +301,69 @@ async def qualify(directory, phase):
         ]
         assert access["relays"]["M2_R1"]["writable_options"] == []
         assert any(d["source_address"] == "0x6651" for d in access["devices"])
+        flags = access["module_flags"]["M1"]
+        assert flags["Modul1_Aktiviert"]["raw_value"] == 1
+        assert flags["Modul1_Vorhanden"]["status"] == "read"
         assert Peer.writes == 0
+        from custom_components.deltasol.catalog import Catalog, Definition
+
+        fixture = Catalog(
+            "isolated-test-catalogue",
+            (
+                Definition(
+                    "Schema", 86, "unspecified", "Number", {"type_chain": ["Number"]}
+                ),
+                Definition(
+                    "Relais_Regler_R4_Handbetrieb", RELAY, "volatile", "Handbetrieb", {}
+                ),
+                Definition("Missing", 123, "unspecified", None, {}),
+                Definition("Password", 124, "persistent", "Number", {}, "sensitive"),
+            ),
+        )
+        button = registry.async_get_entity_id(
+            "button", "deltasol", f"{entry.entry_id}_configuration_discovery"
+        )
+        assert button
+        assert diagnostic["configuration_discovery"]["status"] == "not_started"
+        with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+            # A real transport failure is resumable and never becomes a write.
+            Peer.deny = True
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            await entry.runtime_data.capture_task
+            capture = (await async_get_config_entry_diagnostics(hass, entry))[
+                "configuration_discovery"
+            ]
+            assert capture["status"] == "incomplete", capture
+            assert capture["scanned_count"] == 0
+            assert Peer.writes == 0
+            Peer.deny = False
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            await entry.runtime_data.capture_task
+            capture = (await async_get_config_entry_diagnostics(hass, entry))[
+                "configuration_discovery"
+            ]
+            assert capture["status"] == "complete", capture
+            assert capture["scanned_count"] == 3
+            assert capture["parameters"]["Schema"]["decoded_value"] == 1
+            assert capture["parameters"]["Missing"]["status"] == "not_resolved"
+            assert "Password" not in capture["parameters"]
+            assert Peer.writes == 0
+            Peer.mode = 2
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            await entry.runtime_data.capture_task
+            capture = (await async_get_config_entry_diagnostics(hass, entry))[
+                "configuration_discovery"
+            ]
+            change = capture["comparison"]["changes"]["Relais_Regler_R4_Handbetrieb"]
+            assert change["after_raw"] == 2
+            assert Peer.writes == 0
+            Peer.mode = 4
         select_file = directory / "qualification-select.json"
         if phase == "restart":
             assert em == json.loads(select_file.read_text(encoding="utf-8"))

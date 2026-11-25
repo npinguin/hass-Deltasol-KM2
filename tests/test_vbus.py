@@ -126,3 +126,90 @@ class VBusTests(unittest.TestCase):
         )
         session = vbus.VBusSession(conn)
         self.assertEqual(session.write_verified(ADDRESS, 1321, 2, 12345), 2)
+
+    def test_persistent_save_uses_distinct_command_and_readback(self):
+        conn = Mock()
+        conn.recv.return_value = (
+            response(0x0100, 1321, 2)
+            + response(0x0100, 0, 12345)
+            + response(0x0100, 1321, 2)
+        )
+        session = vbus.VBusSession(conn)
+        self.assertEqual(session.write_verified(ADDRESS, 1321, 2, 12345, save=True), 2)
+        sent = [
+            vbus.Datagram.decode(call.args[0]) for call in conn.sendall.call_args_list
+        ]
+        self.assertEqual([p.command for p in sent], [0x0400, 0x0300, 0x0300])
+
+    def test_persistent_save_timeout_never_retries(self):
+        conn = Mock()
+        conn.recv.side_effect = TimeoutError()
+        session = vbus.VBusSession(conn)
+        with self.assertRaisesRegex(vbus.VBusError, "write outcome uncertain"):
+            session.write_verified(ADDRESS, 1321, 2, 12345, save=True)
+        self.assertEqual(conn.sendall.call_count, 1)
+        self.assertEqual(
+            vbus.Datagram.decode(conn.sendall.call_args.args[0]).command, 0x0400
+        )
+
+    def test_persistent_send_failure_is_uncertain(self):
+        conn = Mock()
+        conn.sendall.side_effect = OSError()
+        session = vbus.VBusSession(conn)
+        with self.assertRaisesRegex(vbus.VBusError, "write outcome uncertain"):
+            session.write_verified(ADDRESS, 1321, 2, 12345, save=True)
+        self.assertEqual(conn.sendall.call_count, 1)
+
+
+class ObservationTests(unittest.TestCase):
+    def test_read_batch_preserves_zero_missing_refused_and_other_values(self):
+        conn = Mock()
+        names = ("Schema", "Missing", "Refused", NAME)
+        conn.recv.return_value = b"".join(
+            (
+                response(0x0100, 86, vbus.parameter_hash(names[0])),
+                response(0x1101, 0, vbus.parameter_hash(names[1])),
+                response(0x0100, 99, vbus.parameter_hash(names[2])),
+                response(0x0100, 2019, vbus.parameter_hash(names[3])),
+                response(0x0100, 0, 12345),
+                response(0x0100, 86, 0),
+                response(0x4300, 99),
+                response(0x0100, 2019, 2),
+                response(0x0100, 0, 12345),
+            )
+        )
+        result = vbus.VBusSession(conn).read_parameter_observations(
+            ADDRESS, names, 12345
+        )
+        self.assertEqual(
+            result,
+            {
+                "Schema": vbus.ParameterObservation(86, 0, "read"),
+                "Missing": vbus.ParameterObservation(None, None, "not_resolved"),
+                "Refused": vbus.ParameterObservation(99, None, "read_refused"),
+                NAME: vbus.ParameterObservation(2019, 2, "read"),
+            },
+        )
+        sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+        self.assertTrue(all(p.command in (0x1100, 0x0300) for p in sent))
+
+    def test_changeset_change_invalidates_batch(self):
+        conn = Mock()
+        conn.recv.return_value = (
+            response(0x0100, 86, vbus.parameter_hash("Schema"))
+            + response(0x0100, 0, 12345)
+            + response(0x0100, 86, 0)
+            + response(0x0100, 0, 12346)
+        )
+        with self.assertRaisesRegex(vbus.VBusError, "changeset changed"):
+            vbus.VBusSession(conn).read_parameter_observations(
+                ADDRESS, ["Schema"], 12345
+            )
+
+    def test_transport_error_is_not_refusal(self):
+        conn = Mock()
+        conn.recv.side_effect = TimeoutError()
+        with self.assertRaisesRegex(vbus.VBusError, "response failed"):
+            vbus.VBusSession(conn).read_parameter_observations(
+                ADDRESS, ["Schema"], 12345
+            )

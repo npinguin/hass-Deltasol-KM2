@@ -8,11 +8,12 @@ The BX Plus manual specifies five local relays and two EM slots.
 """
 
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from threading import Lock
 from time import monotonic, sleep
 
-from .vbus import VBusError, open_vbus
+from .vbus import ParameterObservation, VBusError, open_vbus
 
 # Initial conservative reconnect guard; tune against physical KM2 evidence.
 SESSION_GAP_SECONDS = 1.5
@@ -171,6 +172,12 @@ class RelayDiscovery:
     profile: ControllerProfile | None
     capabilities: dict[str, RelayCapability]
     group_status: dict[str, str]
+    module_flags: dict[str, dict[str, ParameterObservation]] = field(
+        default_factory=dict
+    )
+    controller: DeviceIdentity | None = None
+    changeset: int | None = None
+    observed_at: datetime | None = None
 
 
 def _checked_parameters(session, profile, changeset, expected):
@@ -181,10 +188,30 @@ def _checked_parameters(session, profile, changeset, expected):
     return {name: value for name, (_, value) in found.items()}
 
 
-def _read_group(session, profile, changeset, group, controller, device, numbers):
+def _read_group(
+    session, profile, changeset, group, controller, device, numbers, module_flags=None
+):
     """Read presence and registration before any module relay parameters."""
     if group.flags:
-        flags = _checked_parameters(session, profile, changeset, dict(group.flags))
+        if module_flags is None:
+            flags = _checked_parameters(session, profile, changeset, dict(group.flags))
+        else:
+            observed = session.read_parameter_observations(
+                profile.address, dict(group.flags), changeset
+            )
+            evidence = {}
+            flags = {}
+            for name, expected_index in group.flags:
+                result = observed[name]
+                if result.index is not None and result.index != expected_index:
+                    result = replace(result, status="layout_mismatch")
+                elif result.status == "read":
+                    if result.value in (0, 1):
+                        flags[name] = result.value
+                    else:
+                        result = replace(result, status="invalid_value")
+                evidence[name] = result
+            module_flags[group.key] = evidence
         if len(flags) != len(group.flags) or any(
             v not in (0, 1) for v in flags.values()
         ):
@@ -251,6 +278,7 @@ class RelayParameters:
             return RelayDiscovery(None, {}, {})
         capabilities = {}
         status = {}
+        module_flags = {}
         with self._session(profile.address) as session:
             changeset = session.read(profile.address, 0)
             if not changeset:
@@ -272,9 +300,34 @@ class RelayParameters:
                     controller,
                     device,
                     range(1, len(group.indices) + 1),
+                    module_flags,
                 )
                 capabilities.update(relays)
-        return RelayDiscovery(profile, capabilities, status)
+        return RelayDiscovery(
+            profile,
+            capabilities,
+            status,
+            module_flags,
+            controller,
+            changeset,
+            datetime.now(UTC),
+        )
+
+    def read_configuration_batch(self, telemetry, controller, names, changeset):
+        """One bounded read batch using the existing session and identity gates."""
+        profile, actual = find_profile(device_inventory(telemetry))
+        if profile is None or actual != controller:
+            raise VBusError("Controller identity changed during discovery")
+        with self._session(profile.address) as session:
+            if session.read(profile.address, 0) != changeset:
+                raise VBusError("Controller changeset changed during discovery")
+            if "Schema" not in _checked_parameters(
+                session, profile, changeset, {"Schema": profile.schema_index}
+            ):
+                raise VBusError("Unrecognized controller parameter layout")
+            return session.read_parameter_observations(
+                profile.address, names, changeset
+            )
 
     def set_mode(self, telemetry, capability, option):
         inventory = device_inventory(telemetry)
