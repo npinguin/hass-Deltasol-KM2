@@ -177,6 +177,10 @@ async def async_get_config_entry_diagnostics(hass, entry):
     configuration = (
         capture.export(capture_current) if capture else {"status": "not_started"}
     )
+    if capture and configuration.get("error"):
+        configuration["error"] = ERROR_CODES.get(
+            configuration["error"], "parameter_error"
+        )
     if capture and capture_current:
         configuration["comparison"] = compare_captures(
             runtime.previous_capture, capture

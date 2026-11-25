@@ -193,6 +193,25 @@ class ObservationTests(unittest.TestCase):
         sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
         self.assertTrue(all(p.command in (0x1100, 0x0300) for p in sent))
 
+    def test_layout_mismatch_is_not_read(self):
+        conn = Mock()
+        conn.recv.return_value = b"".join(
+            (
+                response(0x1101, 86, vbus.parameter_hash("Schema")),
+                response(0x1101, 55, vbus.parameter_hash(NAME)),
+                response(0x0100, 0, 12345),
+                response(0x0100, 86, 1),
+                response(0x0100, 0, 12345),
+            )
+        )
+        result = vbus.VBusSession(conn).read_parameter_observations(
+            ADDRESS, {NAME: 2019}, 12345, expected={NAME: 2019}, schema=86
+        )
+        self.assertEqual(result[NAME], vbus.ParameterObservation(55, None, "layout_mismatch"))
+        sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+        self.assertNotIn(55, [p.index for p in sent if p.command == 0x0300])
+        self.assertEqual(len(sent), 5)
+
     def test_changeset_change_invalidates_batch(self):
         conn = Mock()
         conn.recv.return_value = (

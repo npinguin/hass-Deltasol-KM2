@@ -2,8 +2,9 @@
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from functools import cached_property
 
-from .catalog import BX_PLUS_CHANGESET, decoded_value
+from .catalog import BX_PLUS_CHANGESET, decoded_value, is_sensitive
 from .parameters import device_inventory, find_profile
 from .vbus import ParameterObservation, VBusError
 
@@ -24,20 +25,57 @@ class ConfigurationCapture:
     results: dict = field(default_factory=dict)
     offset: int = 0
 
-    @property
+    @cached_property
+    def sensitive_indices(self):
+        return {
+            d.index for d in self.catalog.definitions if is_sensitive(d)
+        }
+
+    @cached_property
     def candidates(self):
-        return tuple(d for d in self.catalog.definitions if d.excluded is None)
+        """Useful physical/configuration evidence first; keep full safe coverage."""
+        def priority(definition):
+            name = definition.name
+            if name == "Schema":
+                return 0
+            if name.startswith(("Modul1_", "Modul2_")):
+                return 1
+            if name.startswith("Relais_") and name.endswith(
+                ("_Handbetrieb", "_ODrehzahl")
+            ):
+                return 2
+            if name.startswith("Error_Modul"):
+                return 3
+            if definition.storage == "persistent":
+                return 4
+            if definition.storage == "unspecified":
+                return 5
+            return 6
+
+        return tuple(
+            sorted(
+                (
+                    d
+                    for d in self.catalog.definitions
+                    if d.excluded is None
+                    and not is_sensitive(d)
+                    and d.index not in self.sensitive_indices
+                ),
+                key=priority,
+            )
+        )
 
     def next_batch(self):
         return self.candidates[self.offset : self.offset + BATCH_SIZE]
 
     def apply(self, batch, observations):
         for definition in batch:
+            if is_sensitive(definition) or definition.index in self.sensitive_indices:
+                continue
             result = observations[definition.name]
-            if (
-                result.index is not None
-                and definition.index is not None
-                and result.index != definition.index
+            if result.index is not None and (
+                result.index in self.sensitive_indices
+                or result.index != definition.index
             ):
                 result = ParameterObservation(result.index, None, "layout_mismatch")
             self.results[definition.name] = result
@@ -48,8 +86,10 @@ class ConfigurationCapture:
 
     def export(self, current):
         parameters = {}
+        counts = {}
         for definition in self.catalog.definitions:
-            if definition.excluded == "sensitive":
+            if is_sensitive(definition) or definition.index in self.sensitive_indices:
+                counts["sensitive_redacted"] = counts.get("sensitive_redacted", 0) + 1
                 continue
             observed = self.results.get(definition.name)
             status = definition.excluded or (
@@ -57,12 +97,23 @@ class ConfigurationCapture:
             )
             if observed and not current:
                 status = "stale"
-            raw = observed.value if observed and current else None
-            decoded = decoded_value(definition, raw)
-            parameters[definition.name] = {
+            counts[status] = counts.get(status, 0) + 1
+            item = {
                 "status": status,
                 "reference_index": definition.index,
-                "resolved_index": observed.index if observed and current else None,
+                "storage": definition.storage,
+                "type": definition.type_id,
+            }
+            parameters[definition.name] = item
+            if observed is None or not current:
+                continue
+            if observed.index not in self.sensitive_indices:
+                item["resolved_index"] = observed.index
+            if observed.status != "read" or observed.index in self.sensitive_indices:
+                continue
+            raw = observed.value
+            decoded = decoded_value(definition, raw)
+            item.update({
                 "raw_value": raw,
                 "decoded_value": decoded,
                 "decode_status": (
@@ -72,24 +123,18 @@ class ConfigurationCapture:
                     if raw is not None
                     else "not_available"
                 ),
-                "type": definition.type_id,
-                "storage": definition.storage,
                 "metadata": definition.metadata,
-                "access": "read_observed"
-                if observed and current and observed.status == "read"
-                else "unknown",
+                "access": "read_observed",
                 "write_access": "not_assessed",
                 "applicability": "not_assessed",
-            }
-        counts = {}
-        for item in parameters.values():
-            status = item["status"]
-            counts[status] = counts.get(status, 0) + 1
-        counts["sensitive_redacted"] = sum(
-            d.excluded == "sensitive" for d in self.catalog.definitions
-        )
+            })
+        counts.setdefault("sensitive_redacted", 0)
         return {
             "status": self.status if current else "stale",
+            "export_format": 2,
+            "metadata_scope": "read_values_only",
+            "unread_access": "unknown",
+            "unread_write_access": "not_assessed",
             "value_semantics": "observations_during_capture_not_live_poll",
             "catalog_digest": self.catalog.digest,
             "controller_address": f"0x{self.controller.address:04X}",
@@ -120,8 +165,14 @@ def compare_captures(previous, current):
     ):
         return {"status": "not_comparable", "changes": {}}
     changes = {}
-    for name, observation in current.results.items():
+    for definition in current.candidates:
+        name = definition.name
+        observation = current.results.get(name)
         old = previous.results.get(name)
+        if observation is None or observation.index in current.sensitive_indices:
+            continue
+        if old and old.index in previous.sensitive_indices:
+            continue
         if old != observation:
             changes[name] = {
                 "before_status": old.status if old else "not_scanned",

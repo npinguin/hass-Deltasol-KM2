@@ -79,6 +79,11 @@ class RuntimeData:
     capture_task: asyncio.Task | None = None
     capture_lock: asyncio.Lock = dataclass_field(default_factory=asyncio.Lock)
     stop_capture: bool = False
+    capture_listeners: set = dataclass_field(default_factory=set)
+
+    def notify_capture(self):
+        for listener in tuple(self.capture_listeners):
+            listener()
 
 
 async def async_setup(hass: HomeAssistant, config):
@@ -149,6 +154,7 @@ async def async_toggle_configuration_capture(hass, entry):
 async def _async_toggle_capture_locked(hass, entry, runtime):
     if runtime.capture_task and not runtime.capture_task.done():
         runtime.stop_capture = True
+        runtime.notify_capture()
         return
     telemetry = runtime.coordinator
     if not telemetry.last_update_success or not telemetry.api.supports_parameter_access:
@@ -174,6 +180,7 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
     capture.status = "running"
     capture.error = None
     runtime.stop_capture = False
+    runtime.notify_capture()
     runtime.capture_task = entry.async_create_background_task(
         hass, _async_capture_configuration(runtime), "deltasol_configuration_capture"
     )
@@ -195,10 +202,11 @@ async def _async_capture_configuration(runtime):
                 telemetry.api.read_configuration_batch,
                 telemetry.data,
                 capture.controller,
-                [definition.name for definition in batch],
+                {definition.name: definition.index for definition in batch},
                 capture.changeset,
             )
             capture.apply(batch, observations)
+            runtime.notify_capture()
             if capture.status == "complete":
                 return
             await asyncio.sleep(0)
@@ -210,6 +218,8 @@ async def _async_capture_configuration(runtime):
         capture.status = "incomplete"
         capture.error = "capture_cancelled"
         raise
+    finally:
+        runtime.notify_capture()
 
 
 class DeltasolCoordinator(DataUpdateCoordinator):

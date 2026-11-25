@@ -318,12 +318,17 @@ async def qualify(directory, phase):
                 ),
                 Definition("Missing", 123, "unspecified", None, {}),
                 Definition("Password", 124, "persistent", "Number", {}, "sensitive"),
+                Definition("Bedienercode", 55, "unspecified", "Number", {}),
             ),
         )
         button = registry.async_get_entity_id(
             "button", "deltasol", f"{entry.entry_id}_configuration_discovery"
         )
         assert button
+        progress = registry.async_get_entity_id(
+            "sensor", "deltasol", f"{entry.entry_id}_configuration_discovery_status"
+        )
+        assert progress and hass.states.get(progress).state == "not_started"
         assert diagnostic["configuration_discovery"]["status"] == "not_started"
         with patch("custom_components.deltasol.load_catalog", return_value=fixture):
             # A real transport failure is resumable and never becomes a write.
@@ -336,6 +341,7 @@ async def qualify(directory, phase):
                 "configuration_discovery"
             ]
             assert capture["status"] == "incomplete", capture
+            assert hass.states.get(progress).state == "incomplete"
             assert capture["scanned_count"] == 0
             assert Peer.writes == 0
             Peer.deny = False
@@ -351,6 +357,10 @@ async def qualify(directory, phase):
             assert capture["parameters"]["Schema"]["decoded_value"] == 1
             assert capture["parameters"]["Missing"]["status"] == "not_resolved"
             assert "Password" not in capture["parameters"]
+            assert "Bedienercode" not in capture["parameters"]
+            assert "metadata" not in capture["parameters"]["Missing"]
+            assert hass.states.get(progress).state == "complete"
+            assert hass.states.get(progress).attributes["progress_percent"] == 100
             assert Peer.writes == 0
             Peer.mode = 2
             await hass.services.async_call(

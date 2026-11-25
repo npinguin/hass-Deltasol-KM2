@@ -66,9 +66,10 @@ class DiscoveryTests(unittest.TestCase):
         exported = capture.export(True)
         self.assertEqual(exported["scanned_count"], 2)
         self.assertNotIn("Password", exported["parameters"])
-        self.assertIsNone(
-            capture.export(False)["parameters"]["TemperatureLimit"]["raw_value"]
+        self.assertNotIn(
+            "raw_value", capture.export(False)["parameters"]["TemperatureLimit"]
         )
+        self.assertNotIn("metadata", exported["parameters"]["UnknownType"])
         new = discovery.ConfigurationCapture(parsed, controller)
         new.apply(
             new.next_batch(),
@@ -114,6 +115,29 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(capture.offset, 35)
         self.assertEqual(capture.export(True)["parameters"]["Test34"]["raw_value"], 0)
 
+    def test_sensitive_filter_and_priority(self):
+        definitions = (
+            catalog.Definition("WsuMenu_Test", 3, "volatile", None, {}),
+            catalog.Definition("Bedienercode", 55, "unspecified", None, {}),
+            catalog.Definition("Alias", 55, "persistent", None, {}),
+            catalog.Definition("MesseModus_BedienercodeReset", 18225, "persistent", None, {}),
+            catalog.Definition("Schema", 86, "unspecified", None, {}),
+            catalog.Definition("Modul1_Status", 194, "volatile", None, {}),
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", definitions), SimpleNamespace(address=0x7112)
+        )
+        self.assertEqual(
+            [d.name for d in capture.candidates],
+            ["Schema", "Modul1_Status", "WsuMenu_Test"],
+        )
+        capture.results["Bedienercode"] = vbus.ParameterObservation(55, 1234, "read")
+        exported = capture.export(True)
+        self.assertEqual(exported["counts"]["sensitive_redacted"], 3)
+        self.assertNotIn("Bedienercode", exported["parameters"])
+        self.assertNotIn("Alias", exported["parameters"])
+        self.assertNotIn("metadata", exported["parameters"]["Schema"])
+
     def test_invalid_xml_and_archive_rejected(self):
         with self.assertRaises(catalog.CatalogError):
             catalog.parse_menu(b"<!DOCTYPE x><x/>", "test")
@@ -127,6 +151,15 @@ class DiscoveryTests(unittest.TestCase):
         definitions = {d.name: d for d in parsed.definitions}
         self.assertGreater(len(definitions), 7000)
         self.assertEqual(definitions["Schema"].index, 86)
+        self.assertEqual(definitions["Bedienercode"].excluded, "sensitive")
+        self.assertEqual(
+            definitions["MesseModus_BedienercodeReset"].excluded, "sensitive"
+        )
+        capture = discovery.ConfigurationCapture(
+            parsed, SimpleNamespace(address=0x7112)
+        )
+        self.assertEqual(capture.next_batch()[0].name, "Schema")
+        self.assertNotIn("Bedienercode", capture.export(True)["parameters"])
         self.assertEqual(definitions["Relais_Regler_R4_Handbetrieb"].index, 2019)
         self.assertEqual(definitions["Modul1_Vorhanden"].storage, "volatile")
         self.assertEqual(

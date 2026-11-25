@@ -18,6 +18,8 @@ MAX_XML = 64 * 1024 * 1024
 SENSITIVE = re.compile(
     r"passw|kennwort|pin(code)?|secret|credential|auth|token|api.?key|"
     r"zugangscode|zugriffscode|servicecode|installercode|access.?code|"
+    r"bediener.?code|benutzer.?code|operator.?code|freigabe.?code|"
+    r"installateur.?code|kundendienst.?code|sicherheits.?code|login|"
     r"serial|seriennummer|macaddr|ipaddr|hostname|email|e.mail|"
     r"telefon|phone|benutzer|username|user.?id|standort|location|"
     r"longitude|latitude|ssid|wlan|wifi|network|netzwerk|adresse|address",
@@ -39,6 +41,20 @@ class Definition:
     type_id: str | None
     metadata: dict
     excluded: str | None = None
+
+
+def is_sensitive(definition):
+    """Shared fail-closed classifier for discovery, export and comparison."""
+    return definition.excluded == "sensitive" or any(
+        SENSITIVE.search(str(value))
+        for value in (
+            definition.name,
+            definition.type_id,
+            definition.metadata.get("struct_ref"),
+            *definition.metadata.get("type_chain", []),
+        )
+        if value
+    )
 
 
 @dataclass(frozen=True)
@@ -124,15 +140,7 @@ def parse_menu(xml, digest):
         if node.get("priority"):
             metadata["priority"] = node.get("priority")
         excluded = None
-        if SENSITIVE.search(name) or any(
-            SENSITIVE.search(str(x))
-            for x in (
-                type_id,
-                metadata.get("struct_ref"),
-                *metadata.get("type_chain", []),
-            )
-            if x
-        ):
+        if is_sensitive(Definition(name, index, storage, type_id, metadata)):
             excluded = "sensitive"
         elif storage in ("abstract", "struct"):
             excluded = "non_value_definition"
