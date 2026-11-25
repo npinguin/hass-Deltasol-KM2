@@ -27,13 +27,12 @@ class ConfigurationCapture:
 
     @cached_property
     def sensitive_indices(self):
-        return {
-            d.index for d in self.catalog.definitions if is_sensitive(d)
-        }
+        return {d.index for d in self.catalog.definitions if is_sensitive(d)}
 
     @cached_property
     def candidates(self):
         """Useful physical/configuration evidence first; keep full safe coverage."""
+
         def priority(definition):
             name = definition.name
             if name == "Schema":
@@ -113,21 +112,23 @@ class ConfigurationCapture:
                 continue
             raw = observed.value
             decoded = decoded_value(definition, raw)
-            item.update({
-                "raw_value": raw,
-                "decoded_value": decoded,
-                "decode_status": (
-                    "decoded"
-                    if decoded is not None
-                    else "raw_only"
-                    if raw is not None
-                    else "not_available"
-                ),
-                "metadata": definition.metadata,
-                "access": "read_observed",
-                "write_access": "not_assessed",
-                "applicability": "not_assessed",
-            })
+            item.update(
+                {
+                    "raw_value": raw,
+                    "decoded_value": decoded,
+                    "decode_status": (
+                        "decoded"
+                        if decoded is not None
+                        else "raw_only"
+                        if raw is not None
+                        else "not_available"
+                    ),
+                    "metadata": definition.metadata,
+                    "access": "read_observed",
+                    "write_access": "not_assessed",
+                    "applicability": "not_assessed",
+                }
+            )
         counts.setdefault("sensitive_redacted", 0)
         return {
             "status": self.status if current else "stale",

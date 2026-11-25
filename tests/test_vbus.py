@@ -207,7 +207,9 @@ class ObservationTests(unittest.TestCase):
         result = vbus.VBusSession(conn).read_parameter_observations(
             ADDRESS, {NAME: 2019}, 12345, expected={NAME: 2019}, schema=86
         )
-        self.assertEqual(result[NAME], vbus.ParameterObservation(55, None, "layout_mismatch"))
+        self.assertEqual(
+            result[NAME], vbus.ParameterObservation(55, None, "layout_mismatch")
+        )
         sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
         self.assertNotIn(55, [p.index for p in sent if p.command == 0x0300])
         self.assertEqual(len(sent), 5)

@@ -132,7 +132,9 @@ class DiscoveryStatusSensor(SensorEntity):
         return {
             "scanned_count": capture.offset,
             "candidate_count": total,
-            "progress_percent": round(100 * capture.offset / total, 2) if total else 100,
+            "progress_percent": round(100 * capture.offset / total, 2)
+            if total
+            else 100,
             "read_count": sum(o.status == "read" for o in capture.results.values()),
         }
 

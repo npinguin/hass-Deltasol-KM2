@@ -276,9 +276,7 @@ class VBusSession:
                 raise VBusError("Unrecognized controller parameter layout")
             indices["Schema"] = index
         indices.update(
-            (name, self.resolve(address, name))
-            for name in names
-            if name not in indices
+            (name, self.resolve(address, name)) for name in names if name not in indices
         )
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during discovery")
@@ -295,7 +293,9 @@ class VBusSession:
                 observations[name] = ParameterObservation(None, None, "not_resolved")
                 continue
             if expected is not None and index != expected.get(name):
-                observations[name] = ParameterObservation(index, None, "layout_mismatch")
+                observations[name] = ParameterObservation(
+                    index, None, "layout_mismatch"
+                )
                 continue
             try:
                 value = self.read(address, index)

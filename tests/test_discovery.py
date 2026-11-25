@@ -120,7 +120,9 @@ class DiscoveryTests(unittest.TestCase):
             catalog.Definition("WsuMenu_Test", 3, "volatile", None, {}),
             catalog.Definition("Bedienercode", 55, "unspecified", None, {}),
             catalog.Definition("Alias", 55, "persistent", None, {}),
-            catalog.Definition("MesseModus_BedienercodeReset", 18225, "persistent", None, {}),
+            catalog.Definition(
+                "MesseModus_BedienercodeReset", 18225, "persistent", None, {}
+            ),
             catalog.Definition("Schema", 86, "unspecified", None, {}),
             catalog.Definition("Modul1_Status", 194, "volatile", None, {}),
         )
