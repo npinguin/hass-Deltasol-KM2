@@ -38,6 +38,7 @@ class Peer:
     em_present = True
     deny = False
     writes = 0
+    drop_discovery_response = False
 
 
 def datagram(destination, source, command, index=0, value=0):
@@ -71,6 +72,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
             )
             index, value = struct.unpack("<Hi", payload)
             if command == 0x1100:
+                if value == 613666522 and Peer.drop_discovery_response:
+                    Peer.drop_discovery_response = False
+                    return
                 index = {
                     1222011281: 86,
                     463603356: RELAY,
@@ -345,6 +349,10 @@ async def qualify(directory, phase):
             assert capture["scanned_count"] == 0
             assert Peer.writes == 0
             Peer.deny = False
+            # Only the new candidate has automatic recovery; 1.2.11 rollback
+            # retains the previously qualified manual-resume behavior.
+            resilient = hasattr(entry.runtime_data.capture, "retry_count")
+            Peer.drop_discovery_response = resilient
             await hass.services.async_call(
                 "button", "press", {"entity_id": button}, blocking=True
             )
@@ -354,6 +362,12 @@ async def qualify(directory, phase):
             ]
             assert capture["status"] == "complete", capture
             assert capture["scanned_count"] == 3
+            if resilient:
+                assert capture["retry_count"] == 1
+                assert capture["consecutive_failures"] == 0
+                assert capture["last_failure"]["phase"] == "response"
+                assert capture["last_failure"]["reference_index"] == 123
+                assert not Peer.drop_discovery_response
             assert capture["parameters"]["Schema"]["decoded_value"] == 1
             assert capture["parameters"]["Missing"]["status"] == "not_resolved"
             assert "Password" not in capture["parameters"]

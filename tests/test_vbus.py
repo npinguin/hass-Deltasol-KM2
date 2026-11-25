@@ -230,7 +230,12 @@ class ObservationTests(unittest.TestCase):
     def test_transport_error_is_not_refusal(self):
         conn = Mock()
         conn.recv.side_effect = TimeoutError()
-        with self.assertRaisesRegex(vbus.VBusError, "response failed"):
+        with self.assertRaises(vbus.VBusTransientError) as raised:
             vbus.VBusSession(conn).read_parameter_observations(
-                ADDRESS, ["Schema"], 12345
+                ADDRESS, ["Schema"], 12345, expected={"Schema": 86}
             )
+        self.assertEqual(
+            raised.exception.evidence(),
+            {"phase": "response", "command": "0x1100", "reference_index": 86},
+        )
+        self.assertEqual(conn.sendall.call_count, 1)

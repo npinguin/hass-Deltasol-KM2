@@ -1,5 +1,6 @@
 """Tests for catalogue parsing, read coverage and snapshot comparison."""
 
+import asyncio
 import importlib
 import os
 import sys
@@ -10,6 +11,7 @@ import zipfile
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 PACKAGE = "_deltasol_discovery_tests"
 package = types.ModuleType(PACKAGE)
@@ -322,3 +324,126 @@ class DiscoveryTests(unittest.TestCase):
                 )
             ),
         )
+
+
+class RecoveryTests(unittest.IsolatedAsyncioTestCase):
+    def runtime(self, operation):
+        definitions = tuple(
+            catalog.Definition(f"Test{n}", n + 1, "unspecified", None, {})
+            for n in range(35)
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", definitions), SimpleNamespace(address=0x7112)
+        )
+
+        async def execute(function, *args):
+            return function(*args)
+
+        return SimpleNamespace(
+            capture=capture,
+            stop_capture=False,
+            capture_wakeup=asyncio.Event(),
+            notify_capture=lambda: None,
+            coordinator=SimpleNamespace(
+                last_update_success=True,
+                data={},
+                hass=SimpleNamespace(async_add_executor_job=execute),
+                api=SimpleNamespace(read_configuration_batch=operation),
+            ),
+        )
+
+    def observations_for(self, names):
+        return {
+            name: vbus.ParameterObservation(index, 0, "read")
+            for name, index in names.items()
+        }
+
+    async def test_retries_same_batch_without_losing_checkpoint(self):
+        attempts = []
+
+        def operation(data, controller, names, changeset):
+            attempts.append(tuple(names))
+            if len(attempts) in (2, 4):
+                raise vbus.VBusTransientError(
+                    "VBus parameter response failed", "response", command=0x0300, index=17
+                )
+            return self.observations_for(names)
+
+        runtime = self.runtime(operation)
+        with patch.object(discovery, "RETRY_DELAYS", (0,)):
+            await discovery.capture_batches(runtime)
+        self.assertEqual(runtime.capture.status, "complete")
+        self.assertEqual(runtime.capture.offset, 35)
+        self.assertEqual(runtime.capture.retry_count, 2)
+        self.assertEqual(attempts[1], attempts[2])
+        self.assertEqual(attempts[3], attempts[4])
+        self.assertEqual(runtime.capture.consecutive_failures, 0)
+        self.assertIsNone(runtime.capture.error)
+
+    async def test_exhausted_retries_keep_offset_and_failure(self):
+        def operation(*args):
+            raise vbus.VBusTransientError("VBus gateway connection failed", "connect")
+
+        runtime = self.runtime(operation)
+        with patch.object(discovery, "RETRY_DELAYS", (0, 0)):
+            await discovery.capture_batches(runtime)
+        capture = runtime.capture
+        self.assertEqual(capture.status, "incomplete")
+        self.assertEqual(capture.offset, 0)
+        self.assertEqual(capture.retry_count, 2)
+        self.assertEqual(capture.consecutive_failures, 3)
+        self.assertEqual(capture.last_failure["phase"], "connect")
+
+    async def test_pause_interrupts_backoff(self):
+        def operation(*args):
+            raise vbus.VBusTransientError("VBus gateway connection failed", "connect")
+
+        runtime = self.runtime(operation)
+        recovering = asyncio.Event()
+
+        def notify():
+            if runtime.capture.status == "recovering":
+                recovering.set()
+
+        runtime.notify_capture = notify
+        with patch.object(discovery, "RETRY_DELAYS", (60,)):
+            task = asyncio.create_task(discovery.capture_batches(runtime))
+            await asyncio.wait_for(recovering.wait(), timeout=1)
+            runtime.stop_capture = True
+            runtime.capture_wakeup.set()
+            await asyncio.wait_for(task, timeout=1)
+        self.assertEqual(runtime.capture.status, "paused")
+        self.assertEqual(runtime.capture.offset, 0)
+        self.assertIsNone(runtime.capture.retry_in_seconds)
+
+    async def test_hard_failures_are_not_retried(self):
+        for message in (
+            "VBus gateway rejected connection or credentials",
+            "Controller identity changed during discovery",
+            "Controller changeset changed during discovery",
+            "Unrecognized controller parameter layout",
+        ):
+            with self.subTest(message=message):
+                def operation(*args):
+                    raise vbus.VBusError(message)
+
+                runtime = self.runtime(operation)
+                await discovery.capture_batches(runtime)
+                self.assertEqual(runtime.capture.status, "incomplete")
+                self.assertEqual(runtime.capture.retry_count, 0)
+                self.assertEqual(runtime.capture.error, message)
+
+    async def test_temporary_telemetry_loss_recovers(self):
+        runtime = self.runtime(lambda data, controller, names, changeset: self.observations_for(names))
+        runtime.coordinator.last_update_success = False
+
+        def notify():
+            if runtime.capture.status == "recovering":
+                runtime.coordinator.last_update_success = True
+
+        runtime.notify_capture = notify
+        with patch.object(discovery, "RETRY_DELAYS", (0,)):
+            await discovery.capture_batches(runtime)
+        self.assertEqual(runtime.capture.status, "complete")
+        self.assertEqual(runtime.capture.retry_count, 1)
+        self.assertEqual(runtime.capture.last_failure["phase"], "telemetry")

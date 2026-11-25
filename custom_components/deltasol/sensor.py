@@ -119,7 +119,7 @@ class DiscoveryStatusSensor(SensorEntity):
         capture = self.runtime.capture
         if not capture:
             return "not_started"
-        if self.runtime.stop_capture and capture.status == "running":
+        if self.runtime.stop_capture and capture.status in ("running", "recovering"):
             return "pausing"
         return capture.status
 
@@ -136,6 +136,10 @@ class DiscoveryStatusSensor(SensorEntity):
             if total
             else 100,
             "read_count": sum(o.status == "read" for o in capture.results.values()),
+            "retry_count": capture.retry_count,
+            "consecutive_failures": capture.consecutive_failures,
+            "retry_in_seconds": capture.retry_in_seconds,
+            "last_failure": capture.last_failure,
         }
 
 

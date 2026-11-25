@@ -44,7 +44,7 @@ from .const import (
     MIN_SCAN_INTERVAL,
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
-from .discovery import ConfigurationCapture, capture_identity
+from .discovery import ConfigurationCapture, capture_batches, capture_identity
 from .vbus import VBusError
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,6 +79,7 @@ class RuntimeData:
     capture_task: asyncio.Task | None = None
     capture_lock: asyncio.Lock = dataclass_field(default_factory=asyncio.Lock)
     stop_capture: bool = False
+    capture_wakeup: asyncio.Event = dataclass_field(default_factory=asyncio.Event)
     capture_listeners: set = dataclass_field(default_factory=set)
 
     def notify_capture(self):
@@ -139,6 +140,7 @@ async def async_unload_entry(
     runtime = config_entry.runtime_data
     async with runtime.capture_lock:
         runtime.stop_capture = True
+        runtime.capture_wakeup.set()
         if runtime.capture_task and not runtime.capture_task.done():
             await runtime.capture_task
     return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
@@ -154,6 +156,7 @@ async def async_toggle_configuration_capture(hass, entry):
 async def _async_toggle_capture_locked(hass, entry, runtime):
     if runtime.capture_task and not runtime.capture_task.done():
         runtime.stop_capture = True
+        runtime.capture_wakeup.set()
         runtime.notify_capture()
         return
     telemetry = runtime.coordinator
@@ -180,46 +183,12 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
     capture.status = "running"
     capture.error = None
     runtime.stop_capture = False
+    runtime.capture_wakeup.clear()
+    capture.consecutive_failures = 0
     runtime.notify_capture()
     runtime.capture_task = entry.async_create_background_task(
-        hass, _async_capture_configuration(runtime), "deltasol_configuration_capture"
+        hass, capture_batches(runtime), "deltasol_configuration_capture"
     )
-
-
-async def _async_capture_configuration(runtime):
-    """Release the shared VBus session between batches."""
-    capture = runtime.capture
-    telemetry = runtime.coordinator
-    try:
-        while not runtime.stop_capture:
-            if not telemetry.last_update_success:
-                raise VBusError("Controller telemetry is unavailable")
-            batch = capture.next_batch()
-            if not batch:
-                capture.apply((), {})
-                return
-            observations = await telemetry.hass.async_add_executor_job(
-                telemetry.api.read_configuration_batch,
-                telemetry.data,
-                capture.controller,
-                {definition.name: definition.index for definition in batch},
-                capture.changeset,
-            )
-            capture.apply(batch, observations)
-            runtime.notify_capture()
-            if capture.status == "complete":
-                return
-            await asyncio.sleep(0)
-        capture.status = "paused"
-    except VBusError as err:
-        capture.status = "incomplete"
-        capture.error = str(err)
-    except asyncio.CancelledError:
-        capture.status = "incomplete"
-        capture.error = "capture_cancelled"
-        raise
-    finally:
-        runtime.notify_capture()
 
 
 class DeltasolCoordinator(DataUpdateCoordinator):

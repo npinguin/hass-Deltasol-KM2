@@ -1,5 +1,6 @@
 """On-demand inventory using the existing VBus owner, never a second writer."""
 
+import asyncio
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cached_property
@@ -11,9 +12,10 @@ from .catalog import (
     is_sensitive,
 )
 from .parameters import device_inventory, find_profile
-from .vbus import ParameterObservation, VBusError
+from .vbus import ParameterObservation, VBusError, VBusTransientError
 
 BATCH_SIZE = 16
+RETRY_DELAYS = (2, 5, 10, 20, 30, 60)
 
 
 @dataclass
@@ -29,6 +31,10 @@ class ConfigurationCapture:
     error: str | None = None
     results: dict = field(default_factory=dict)
     offset: int = 0
+    retry_count: int = 0
+    consecutive_failures: int = 0
+    retry_in_seconds: int | None = None
+    last_failure: dict | None = None
 
     @cached_property
     def sensitive_indices(self):
@@ -149,6 +155,10 @@ class ConfigurationCapture:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "error": self.error,
+            "retry_count": self.retry_count,
+            "consecutive_failures": self.consecutive_failures,
+            "retry_in_seconds": self.retry_in_seconds,
+            "last_failure": self.last_failure,
             "catalog_count": len(self.catalog.definitions),
             "scanned_count": self.offset,
             "coverage": "all_catalogue_candidates_attempted"
@@ -198,3 +208,74 @@ def capture_identity(telemetry):
     if profile is None or profile.address != 0x7112:
         raise VBusError("Unsupported or ambiguous discovery controller")
     return controller
+
+
+async def capture_batches(runtime):
+    """Retry only uncommitted read batches through the existing session owner."""
+    capture = runtime.capture
+    telemetry = runtime.coordinator
+    try:
+        while not runtime.stop_capture:
+            batch = capture.next_batch()
+            if not batch:
+                capture.apply((), {})
+                return
+            try:
+                if not telemetry.last_update_success:
+                    raise VBusTransientError(
+                        "Controller telemetry is unavailable", "telemetry"
+                    )
+                observations = await telemetry.hass.async_add_executor_job(
+                    telemetry.api.read_configuration_batch,
+                    telemetry.data,
+                    capture.controller,
+                    {definition.name: definition.index for definition in batch},
+                    capture.changeset,
+                )
+            except VBusTransientError as error:
+                capture.consecutive_failures += 1
+                capture.error = str(error)
+                capture.last_failure = {
+                    **error.evidence(),
+                    "batch_offset": capture.offset,
+                    "observed_at": datetime.now(UTC).isoformat(),
+                }
+                if runtime.stop_capture:
+                    break
+                if capture.consecutive_failures > len(RETRY_DELAYS):
+                    capture.status = "incomplete"
+                    return
+                delay = RETRY_DELAYS[capture.consecutive_failures - 1]
+                capture.retry_count += 1
+                capture.retry_in_seconds = delay
+                capture.status = "recovering"
+                runtime.notify_capture()
+                try:
+                    await asyncio.wait_for(runtime.capture_wakeup.wait(), timeout=delay)
+                except TimeoutError:
+                    pass
+                capture.retry_in_seconds = None
+                continue
+            capture.apply(batch, observations)
+            capture.consecutive_failures = 0
+            capture.error = None
+            capture.retry_in_seconds = None
+            if capture.status != "complete":
+                capture.status = "running"
+            runtime.notify_capture()
+            if capture.status == "complete":
+                return
+            await asyncio.sleep(0)
+        capture.status = "paused"
+    except VBusError as error:
+        # Authentication rejection, identity/layout changes and explicit hard
+        # failures require intervention. Do not advance or disguise as absence.
+        capture.status = "incomplete"
+        capture.error = str(error)
+    except asyncio.CancelledError:
+        capture.status = "incomplete"
+        capture.error = "capture_cancelled"
+        raise
+    finally:
+        capture.retry_in_seconds = None
+        runtime.notify_capture()
