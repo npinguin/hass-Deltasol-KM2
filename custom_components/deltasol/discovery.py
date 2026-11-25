@@ -58,12 +58,20 @@ class ConfigurationCapture:
             if observed and not current:
                 status = "stale"
             raw = observed.value if observed and current else None
+            decoded = decoded_value(definition, raw)
             parameters[definition.name] = {
                 "status": status,
                 "reference_index": definition.index,
                 "resolved_index": observed.index if observed and current else None,
                 "raw_value": raw,
-                "decoded_value": decoded_value(definition, raw),
+                "decoded_value": decoded,
+                "decode_status": (
+                    "decoded"
+                    if decoded is not None
+                    else "raw_only"
+                    if raw is not None
+                    else "not_available"
+                ),
                 "type": definition.type_id,
                 "storage": definition.storage,
                 "metadata": definition.metadata,

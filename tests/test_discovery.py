@@ -87,7 +87,9 @@ class DiscoveryTests(unittest.TestCase):
             for n in range(35)
         )
         parsed = catalog.Catalog("test", definitions)
-        capture = discovery.ConfigurationCapture(parsed, SimpleNamespace(address=0x7112))
+        capture = discovery.ConfigurationCapture(
+            parsed, SimpleNamespace(address=0x7112)
+        )
         batch = capture.next_batch()
         self.assertEqual(len(batch), discovery.BATCH_SIZE)
         capture.apply(
@@ -106,10 +108,7 @@ class DiscoveryTests(unittest.TestCase):
             batch = capture.next_batch()
             capture.apply(
                 batch,
-                {
-                    d.name: vbus.ParameterObservation(d.index, 0, "read")
-                    for d in batch
-                },
+                {d.name: vbus.ParameterObservation(d.index, 0, "read") for d in batch},
             )
         self.assertEqual(capture.status, "complete")
         self.assertEqual(capture.offset, 35)

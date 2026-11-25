@@ -326,6 +326,19 @@ async def qualify(directory, phase):
         assert button
         assert diagnostic["configuration_discovery"]["status"] == "not_started"
         with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+            # A real transport failure is resumable and never becomes a write.
+            Peer.deny = True
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            await entry.runtime_data.capture_task
+            capture = (await async_get_config_entry_diagnostics(hass, entry))[
+                "configuration_discovery"
+            ]
+            assert capture["status"] == "incomplete", capture
+            assert capture["scanned_count"] == 0
+            assert Peer.writes == 0
+            Peer.deny = False
             await hass.services.async_call(
                 "button", "press", {"entity_id": button}, blocking=True
             )
