@@ -76,6 +76,7 @@ class ConfigurationCapture:
         )
         return {
             "status": self.status if current else "stale",
+            "value_semantics": "observations_during_capture_not_live_poll",
             "catalog_digest": self.catalog.digest,
             "controller_address": f"0x{self.controller.address:04X}",
             "changeset": f"{self.changeset:08X}",
@@ -91,7 +92,7 @@ class ConfigurationCapture:
 
 
 def compare_captures(previous, current):
-    """Compare comparable successful reads, not missing/stale as changed values."""
+    """Compare captured values and changes in availability separately."""
     if (
         previous is None
         or previous.status != "complete"

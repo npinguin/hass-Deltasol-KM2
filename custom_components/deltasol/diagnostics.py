@@ -165,11 +165,14 @@ async def async_get_config_entry_diagnostics(hass, entry):
         last_error = ERROR_CODES.get(str(relay.last_exception), "parameter_error")
     capture = runtime.capture
     capture_current = bool(
-        current
+        telemetry.last_update_success
         and capture
         and capture.controller == controller
-        and discovery
-        and discovery.changeset == capture.changeset
+        and (
+            not discovery
+            or discovery.changeset is None
+            or discovery.changeset == capture.changeset
+        )
     )
     configuration = (
         capture.export(capture_current) if capture else {"status": "not_started"}

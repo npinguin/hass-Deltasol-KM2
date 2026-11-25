@@ -180,7 +180,7 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
 
 
 async def _async_capture_configuration(runtime):
-    """Release the bus and the coordinator lock between batches."""
+    """Release the shared VBus session between batches."""
     capture = runtime.capture
     telemetry = runtime.coordinator
     try:

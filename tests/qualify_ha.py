@@ -10,9 +10,9 @@ import socketserver
 import struct
 import sys
 import threading
-from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from unittest.mock import patch
 
 from homeassistant import bootstrap, loader
 from homeassistant.config_entries import ConfigEntryState

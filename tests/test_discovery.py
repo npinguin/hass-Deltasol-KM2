@@ -96,5 +96,9 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(definitions["Schema"].index, 86)
         self.assertEqual(definitions["Relais_Regler_R4_Handbetrieb"].index, 2019)
         self.assertEqual(definitions["Modul1_Vorhanden"].storage, "volatile")
+        self.assertEqual(
+            catalog.decoded_value(definitions["Relais_Regler_R4_Handbetrieb"], 2),
+            "Auto",
+        )
         self.assertGreater(sum(d.excluded is None for d in definitions.values()), 1000)
         print("Exact vendor archive: definitions", len(definitions))

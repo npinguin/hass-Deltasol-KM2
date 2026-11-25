@@ -99,7 +99,9 @@ def _metadata(type_node, types):
 
 def parse_menu(xml, digest):
     """Parse data-only RPT menu XML; retain non-readable definitions as evidence."""
-    if len(xml) > MAX_XML or re.search(br"<!\s*(DOCTYPE|ENTITY)", xml, re.I):
+    if len(xml) > MAX_XML or re.search(
+        rb"<!\s*(DOCTYPE|ENTITY)", xml, re.IGNORECASE
+    ):
         raise CatalogError("Unsafe RPT XML")
     try:
         root = ET.fromstring(xml)
@@ -116,6 +118,7 @@ def parse_menu(xml, digest):
         type_node = node.find("type")
         type_id = type_node.get("id") if type_node is not None else None
         metadata = _metadata(type_node, types)
+        metadata["applicability"] = "not_assessed"
         if node.get("structValueRef"):
             metadata["struct_ref"] = node.get("structValueRef")
         if node.get("priority"):
@@ -162,7 +165,13 @@ def load_catalog(path):
 def decoded_value(definition, raw):
     """Decode numeric scaling only when the catalogue establishes it."""
     chain = definition.metadata.get("type_chain", [])
-    if raw is None or "Number" not in chain:
+    if raw is None:
+        return None
+    if "Boolean" in chain:
+        return bool(raw) if raw in (0, 1) else None
+    if "Handbetrieb" in chain:
+        return {0: "Off", 1: "Min", 2: "Auto", 3: "Max", 4: "On"}.get(raw)
+    if "Number" not in chain:
         return None
     factor = _number(definition.metadata.get("storeFactor", "1"))
     if factor is None:
