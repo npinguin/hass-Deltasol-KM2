@@ -44,6 +44,7 @@ class ParameterTests(unittest.TestCase):
         self.session.read.return_value = 12345
         self.values = {"Schema": (86, 0), NAME: (2019, 2), SPEED: (2015, 0)}
         self.session.read_parameters.side_effect = self.read_parameters
+        self.session.read_parameter_observations.side_effect = self.observe_parameters
         self.ctx = MagicMock()
         self.ctx.__enter__.return_value = self.session
         self.patcher = patch.object(parameters, "open_vbus", return_value=self.ctx)
@@ -60,6 +61,15 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(address, 0x7112)
         self.assertEqual(changeset, 12345)
         return {name: self.values[name] for name in names if name in self.values}
+
+    def observe_parameters(self, address, names, changeset):
+        found = self.read_parameters(address, names, changeset)
+        return {
+            name: parameters.ParameterObservation(*found[name], "read")
+            if name in found
+            else parameters.ParameterObservation(None, None, "not_resolved")
+            for name in names
+        }
 
     def activate_modules(self):
         self.values.update(
@@ -240,3 +250,26 @@ class ParameterTests(unittest.TestCase):
         self.ctx.__enter__.side_effect = None
         self.discover()
         self.sleep.assert_called_once_with(parameters.SESSION_GAP_SECONDS)
+
+    def test_module_flag_evidence_preserves_controller_controls(self):
+        self.activate_modules()
+        del self.values["Modul1_Vorhanden"]
+        data = {**telemetry(), **module(1)}
+        result = self.api.discover(data)
+        self.assertEqual(set(result.capabilities), {UID})
+        self.assertEqual(result.group_status["M1"], "registration_unknown")
+        flags = result.module_flags["M1"]
+        self.assertEqual(flags["Modul1_Aktiviert"].value, 1)
+        self.assertEqual(flags["Modul1_Vorhanden"].status, "not_resolved")
+        self.values["Modul1_Vorhanden"] = (193, 3)
+        result = self.api.discover(data)
+        self.assertEqual(
+            result.module_flags["M1"]["Modul1_Vorhanden"].status, "invalid_value"
+        )
+        self.values["Modul1_Vorhanden"] = (192, 1)
+        result = self.api.discover(data)
+        self.assertEqual(
+            result.module_flags["M1"]["Modul1_Vorhanden"].status, "layout_mismatch"
+        )
+        self.assertEqual(set(result.capabilities), {UID})
+        self.session.write_verified.assert_not_called()

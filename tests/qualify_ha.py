@@ -246,18 +246,21 @@ async def qualify(directory, phase):
         em_sensor = registry.async_get_entity_id("sensor", "deltasol", EM_SENSOR_UID)
         assert em_sensor and float(hass.states.get(em_sensor).state) == 30
         identity["em_sensor"] = em_sensor
+        em = registry.async_get_entity_id("select", "deltasol", EM_UID)
+        assert em and hass.states.get(em).state == "Auto"
+        identity["em_select"] = em
         if phase == "baseline":
             baseline.write_text(json.dumps(identity), encoding="utf-8")
             assert Peer.writes == 0
             return
         assert json.loads(baseline.read_text(encoding="utf-8")) == identity
         if phase == "rollback":
-            em = registry.async_get_entity_id("select", "deltasol", EM_UID)
-            assert (
-                not em
-                or hass.states.get(em) is None
-                or hass.states.get(em).state in ("unavailable", "unknown")
-            )
+            assert hass.states.get(em).attributes["options"] == [
+                "Auto",
+                "Off",
+                "Min",
+                "Max",
+            ]
             assert Peer.writes == 0
             return
 
@@ -297,6 +300,9 @@ async def qualify(directory, phase):
         ]
         assert access["relays"]["M2_R1"]["writable_options"] == []
         assert any(d["source_address"] == "0x6651" for d in access["devices"])
+        flags = access["module_flags"]["M1"]
+        assert flags["Modul1_Aktiviert"]["raw_value"] == 1
+        assert flags["Modul1_Vorhanden"]["status"] == "read"
         assert Peer.writes == 0
         select_file = directory / "qualification-select.json"
         if phase == "restart":

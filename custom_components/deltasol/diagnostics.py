@@ -146,6 +146,18 @@ async def async_get_config_entry_diagnostics(hass, entry):
                     "parameter_index": cap.index if valid else None,
                 }
 
+    module_flags = {}
+    if discovery:
+        for group, flags in discovery.module_flags.items():
+            module_flags[group] = {
+                name: {
+                    "status": observation.status if current else "stale",
+                    "parameter_index": observation.index if current else None,
+                    "raw_value": observation.value if current else None,
+                }
+                for name, observation in flags.items()
+            }
+
     last_error = None
     if relay and not relay.last_update_success:
         last_error = ERROR_CODES.get(str(relay.last_exception), "parameter_error")
@@ -171,5 +183,6 @@ async def async_get_config_entry_diagnostics(hass, entry):
             "devices": devices,
             "last_error": last_error,
             "relays": relays,
+            "module_flags": module_flags,
         },
     }

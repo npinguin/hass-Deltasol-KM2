@@ -18,6 +18,19 @@ class VBusError(Exception):
     """VBus operation failed."""
 
 
+class VBusReadRefused(VBusError):
+    """A correlated negative reply, distinct from transport failure."""
+
+
+@dataclass(frozen=True)
+class ParameterObservation:
+    """Raw read evidence; metadata and write access are separate concerns."""
+
+    index: int | None
+    value: int | None
+    status: str
+
+
 @dataclass(frozen=True)
 class Datagram:
     """VBus 2.0 parameter datagram."""
@@ -176,7 +189,7 @@ class VBusSession:
         """Read a parameter without modifying the installed program."""
         reply = self.request(address, 0x0300, index, replies=(0x0100, 0x4300))
         if reply.command != 0x0100:
-            raise VBusError("Controller refused parameter read")
+            raise VBusReadRefused("Controller refused parameter read")
         return reply.value
 
     def _wait_for_master(self, address):
@@ -248,19 +261,42 @@ class VBusSession:
         except (OSError, VBusError) as error:
             raise VBusError("VBus release not confirmed") from error
 
-    def read_parameters(self, address, names, changeset):
-        """Resolve/read a batch inside an acquired bus, without mutation."""
+    def read_parameter_observations(self, address, names, changeset, *, strict=False):
+        """Resolve and read known IDs; a refused value is not a bus outage.
+
+        Caller owns the bus and bounds the batch. Transport or changeset
+        failures invalidate the batch, not individual parameter capabilities.
+        """
         indices = {name: self.resolve(address, name) for name in names}
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during discovery")
-        parameters = {
-            name: (index, self.read(address, index))
-            for name, index in indices.items()
-            if index is not None
-        }
+        observations = {}
+        for name, index in indices.items():
+            if index is None:
+                observations[name] = ParameterObservation(None, None, "not_resolved")
+                continue
+            try:
+                value = self.read(address, index)
+            except VBusReadRefused:
+                if strict:
+                    raise
+                observations[name] = ParameterObservation(index, None, "read_refused")
+            else:
+                observations[name] = ParameterObservation(index, value, "read")
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during discovery")
-        return parameters
+        return observations
+
+    def read_parameters(self, address, names, changeset):
+        """Existing strict capability read, backed by the same observation path."""
+        observations = self.read_parameter_observations(
+            address, names, changeset, strict=True
+        )
+        return {
+            name: (result.index, result.value)
+            for name, result in observations.items()
+            if result.status == "read"
+        }
 
     def write_verified(self, address, index, value, changeset, *, save=False):
         """Internal write primitive; caller must hold the bus.
