@@ -261,19 +261,41 @@ class VBusSession:
         except (OSError, VBusError) as error:
             raise VBusError("VBus release not confirmed") from error
 
-    def read_parameter_observations(self, address, names, changeset, *, strict=False):
+    def read_parameter_observations(
+        self, address, names, changeset, *, strict=False, expected=None, schema=None
+    ):
         """Resolve and read known IDs; a refused value is not a bus outage.
 
         Caller owns the bus and bounds the batch. Transport or changeset
         failures invalidate the batch, not individual parameter capabilities.
         """
-        indices = {name: self.resolve(address, name) for name in names}
+        indices = {}
+        if schema is not None:
+            index = self.resolve(address, "Schema")
+            if index != schema:
+                raise VBusError("Unrecognized controller parameter layout")
+            indices["Schema"] = index
+        indices.update(
+            (name, self.resolve(address, name)) for name in names if name not in indices
+        )
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during discovery")
         observations = {}
+        if schema is not None:
+            # Read the known layout anchor once before other values.
+            observations["Schema"] = ParameterObservation(
+                schema, self.read(address, schema), "read"
+            )
         for name, index in indices.items():
+            if name in observations:
+                continue
             if index is None:
                 observations[name] = ParameterObservation(None, None, "not_resolved")
+                continue
+            if expected is not None and index != expected.get(name):
+                observations[name] = ParameterObservation(
+                    index, None, "layout_mismatch"
+                )
                 continue
             try:
                 value = self.read(address, index)
@@ -285,7 +307,7 @@ class VBusSession:
                 observations[name] = ParameterObservation(index, value, "read")
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during discovery")
-        return observations
+        return {name: observations[name] for name in names}
 
     def read_parameters(self, address, names, changeset):
         """Existing strict capability read, backed by the same observation path."""

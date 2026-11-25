@@ -29,6 +29,7 @@ from homeassistant.util import dt as dt_util
 from . import DeltasolConfigEntry, DeltasolCoordinator
 from .const import DOMAIN
 from .deltasolapi import DeltasolEndpoint
+from .parameters import device_inventory, find_profile
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,6 +88,55 @@ async def async_setup_entry(
 
     config.async_on_unload(coordinator.async_add_listener(discover_entities))
     discover_entities()
+    if coordinator.api.supports_parameter_access:
+        _, controller = find_profile(device_inventory(coordinator.data))
+        if controller:
+            async_add_entities([DiscoveryStatusSensor(config, controller)])
+
+
+class DiscoveryStatusSensor(SensorEntity):
+    """Push-only status of the existing capture; no extra bus traffic."""
+
+    _attr_name = "Configuration discovery status"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_should_poll = False
+
+    def __init__(self, entry, controller):
+        self.runtime = entry.runtime_data
+        self._attr_unique_id = f"{entry.entry_id}_configuration_discovery_status"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{controller.serial}_{controller.source}")}
+        )
+
+    async def async_added_to_hass(self):
+        self.runtime.capture_listeners.add(self.async_write_ha_state)
+        self.async_on_remove(
+            lambda: self.runtime.capture_listeners.discard(self.async_write_ha_state)
+        )
+
+    @property
+    def native_value(self):
+        capture = self.runtime.capture
+        if not capture:
+            return "not_started"
+        if self.runtime.stop_capture and capture.status == "running":
+            return "pausing"
+        return capture.status
+
+    @property
+    def extra_state_attributes(self):
+        capture = self.runtime.capture
+        if not capture:
+            return {}
+        total = len(capture.candidates)
+        return {
+            "scanned_count": capture.offset,
+            "candidate_count": total,
+            "progress_percent": round(100 * capture.offset / total, 2)
+            if total
+            else 100,
+            "read_count": sum(o.status == "read" for o in capture.results.values()),
+        }
 
 
 class DeltasolSensor(CoordinatorEntity, SensorEntity):
