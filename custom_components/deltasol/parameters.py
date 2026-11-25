@@ -9,6 +9,7 @@ The BX Plus manual specifies five local relays and two EM slots.
 
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from threading import Lock
 from time import monotonic, sleep
 
@@ -171,7 +172,12 @@ class RelayDiscovery:
     profile: ControllerProfile | None
     capabilities: dict[str, RelayCapability]
     group_status: dict[str, str]
-    module_flags: dict[str, dict[str, ParameterObservation]] = field(default_factory=dict)
+    module_flags: dict[str, dict[str, ParameterObservation]] = field(
+        default_factory=dict
+    )
+    controller: DeviceIdentity | None = None
+    changeset: int | None = None
+    observed_at: datetime | None = None
 
 
 def _checked_parameters(session, profile, changeset, expected):
@@ -297,7 +303,15 @@ class RelayParameters:
                     module_flags,
                 )
                 capabilities.update(relays)
-        return RelayDiscovery(profile, capabilities, status, module_flags)
+        return RelayDiscovery(
+            profile,
+            capabilities,
+            status,
+            module_flags,
+            controller,
+            changeset,
+            datetime.now(UTC),
+        )
 
     def set_mode(self, telemetry, capability, option):
         inventory = device_inventory(telemetry)

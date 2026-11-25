@@ -148,12 +148,13 @@ async def async_get_config_entry_diagnostics(hass, entry):
 
     module_flags = {}
     if discovery:
+        flags_current = bool(current and discovery.controller == controller)
         for group, flags in discovery.module_flags.items():
             module_flags[group] = {
                 name: {
-                    "status": observation.status if current else "stale",
-                    "parameter_index": observation.index if current else None,
-                    "raw_value": observation.value if current else None,
+                    "status": observation.status if flags_current else "stale",
+                    "parameter_index": observation.index if flags_current else None,
+                    "raw_value": observation.value if flags_current else None,
                 }
                 for name, observation in flags.items()
             }
@@ -184,5 +185,11 @@ async def async_get_config_entry_diagnostics(hass, entry):
             "last_error": last_error,
             "relays": relays,
             "module_flags": module_flags,
+            "discovery_observed_at": discovery.observed_at.isoformat()
+            if discovery and discovery.observed_at
+            else None,
+            "discovery_changeset": f"{discovery.changeset & 0xFFFFFFFF:08X}"
+            if discovery and discovery.changeset is not None
+            else None,
         },
     }
