@@ -6,7 +6,8 @@ https://github.com/dm82m/hass-Deltasol-KM2"""
 
 import asyncio
 import logging
-from dataclasses import dataclass, field as dataclass_field, replace
+from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from datetime import timedelta
 
 import voluptuous as vol
@@ -131,9 +132,10 @@ async def async_unload_entry(
 
     # Unload platforms and return result
     runtime = config_entry.runtime_data
-    runtime.stop_capture = True
-    if runtime.capture_task and not runtime.capture_task.done():
-        await runtime.capture_task
+    async with runtime.capture_lock:
+        runtime.stop_capture = True
+        if runtime.capture_task and not runtime.capture_task.done():
+            await runtime.capture_task
     return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
 
 
@@ -204,6 +206,10 @@ async def _async_capture_configuration(runtime):
     except VBusError as err:
         capture.status = "incomplete"
         capture.error = str(err)
+    except asyncio.CancelledError:
+        capture.status = "incomplete"
+        capture.error = "capture_cancelled"
+        raise
 
 
 class DeltasolCoordinator(DataUpdateCoordinator):

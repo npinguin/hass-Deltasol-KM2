@@ -25,6 +25,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Regression tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Verify exact vendor catalogue (no redistribution)
+        if: matrix.python-version == '3.13'
+        shell: bash
+        run: |
+          set -euo pipefail
+          RPT="$RUNNER_TEMP/BXPLUS_2.08.zip"
+          curl --fail --location --retry 2 --connect-timeout 10 --max-time 60 https://www.mastersolar.rs/wp-content/uploads/2021/02/BXPLUS_2.08.zip -o "$RPT"
+          RPT_ARCHIVE="$RPT" python -m unittest discover -s tests -p "test_discovery.py" -v
       - name: Ruff check
         uses: astral-sh/ruff-action@v4.1.0
         with:

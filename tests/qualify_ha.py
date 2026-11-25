@@ -10,6 +10,7 @@ import socketserver
 import struct
 import sys
 import threading
+from unittest.mock import patch
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -304,6 +305,53 @@ async def qualify(directory, phase):
         assert flags["Modul1_Aktiviert"]["raw_value"] == 1
         assert flags["Modul1_Vorhanden"]["status"] == "read"
         assert Peer.writes == 0
+        from custom_components.deltasol.catalog import Catalog, Definition
+
+        fixture = Catalog(
+            "isolated-test-catalogue",
+            (
+                Definition(
+                    "Schema", 86, "unspecified", "Number", {"type_chain": ["Number"]}
+                ),
+                Definition(
+                    "Relais_Regler_R4_Handbetrieb", RELAY, "volatile", "Handbetrieb", {}
+                ),
+                Definition("Missing", 123, "unspecified", None, {}),
+                Definition("Password", 124, "persistent", "Number", {}, "sensitive"),
+            ),
+        )
+        button = registry.async_get_entity_id(
+            "button", "deltasol", f"{entry.entry_id}_configuration_discovery"
+        )
+        assert button
+        assert diagnostic["configuration_discovery"]["status"] == "not_started"
+        with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            await entry.runtime_data.capture_task
+            capture = (await async_get_config_entry_diagnostics(hass, entry))[
+                "configuration_discovery"
+            ]
+            assert capture["status"] == "complete", capture
+            assert capture["scanned_count"] == 3
+            assert capture["parameters"]["Schema"]["decoded_value"] == 1
+            assert capture["parameters"]["Missing"]["status"] == "not_resolved"
+            assert "Password" not in capture["parameters"]
+            assert Peer.writes == 0
+            Peer.mode = 2
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            await entry.runtime_data.capture_task
+            capture = (await async_get_config_entry_diagnostics(hass, entry))[
+                "configuration_discovery"
+            ]
+            assert capture["comparison"]["changes"][
+                "Relais_Regler_R4_Handbetrieb"
+            ]["after_raw"] == 2
+            assert Peer.writes == 0
+            Peer.mode = 4
         select_file = directory / "qualification-select.json"
         if phase == "restart":
             assert em == json.loads(select_file.read_text(encoding="utf-8"))
