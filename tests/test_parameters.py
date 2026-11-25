@@ -276,7 +276,6 @@ class ParameterTests(unittest.TestCase):
         self.session.write_verified.assert_not_called()
 
 
-
 class RelayRecoveryTests(unittest.IsolatedAsyncioTestCase):
     def coordinator(self, operation):
         async def execute(function, *args):
