@@ -17,6 +17,7 @@ MAX_ARCHIVE = 32 * 1024 * 1024
 MAX_XML = 64 * 1024 * 1024
 SENSITIVE = re.compile(
     r"passw|kennwort|pin(code)?|secret|credential|auth|token|api.?key|"
+    r"zugangscode|zugriffscode|servicecode|installercode|access.?code|"
     r"serial|seriennummer|macaddr|ipaddr|hostname|email|e.mail|"
     r"telefon|phone|benutzer|username|user.?id|standort|location|"
     r"longitude|latitude|ssid|wlan|wifi|network|netzwerk|adresse|address",
@@ -99,9 +100,8 @@ def _metadata(type_node, types):
 
 def parse_menu(xml, digest):
     """Parse data-only RPT menu XML; retain non-readable definitions as evidence."""
-    if len(xml) > MAX_XML or re.search(
-        rb"<!\s*(DOCTYPE|ENTITY)", xml, re.IGNORECASE
-    ):
+    unsafe_xml = re.search(rb"<!\s*(DOCTYPE|ENTITY)", xml, re.IGNORECASE)
+    if len(xml) > MAX_XML or unsafe_xml:
         raise CatalogError("Unsafe RPT XML")
     try:
         root = ET.fromstring(xml)
@@ -126,22 +126,45 @@ def parse_menu(xml, digest):
         excluded = None
         if SENSITIVE.search(name) or any(
             SENSITIVE.search(str(x))
-            for x in (type_id, metadata.get("struct_ref"))
+            for x in (
+                type_id,
+                metadata.get("struct_ref"),
+                *metadata.get("type_chain", []),
+            )
             if x
         ):
             excluded = "sensitive"
         elif storage in ("abstract", "struct"):
             excluded = "non_value_definition"
-        elif index is None or not 0 < index <= 65535:
-            excluded = "no_reference_index"
         elif not name.isascii() or _integer(node.get("idHash")) != parameter_hash(name):
             excluded = "unverified_identifier"
+        elif index is not None and not 0 < index <= 65535:
+            excluded = "invalid_reference_index"
         definition = Definition(name, index, storage, type_id, metadata, excluded)
         if name in result and result[name] != definition:
             raise CatalogError("Conflicting RPT parameter definitions")
         result[name] = definition
     if not result:
         raise CatalogError("Empty RPT catalogue")
+    # A name hash may collide; never read an ambiguous hash as a particular ID.
+    by_hash = {}
+    for definition in result.values():
+        if definition.name.isascii():
+            key = parameter_hash(definition.name)
+            by_hash.setdefault(key, []).append(definition.name)
+    for names in by_hash.values():
+        if len(names) > 1:
+            for name in names:
+                definition = result[name]
+                if definition.excluded is None:
+                    result[name] = Definition(
+                        name,
+                        definition.index,
+                        definition.storage,
+                        definition.type_id,
+                        definition.metadata,
+                        "ambiguous_hash",
+                    )
     return Catalog(digest, tuple(result.values()))
 
 

@@ -40,7 +40,7 @@ jobs:
       - name: Ruff format check
         uses: astral-sh/ruff-action@v4.1.0
         with:
-          args: format --check
+          args: format --check --diff
 
   validate-hassfest:
     name: Hassfest
@@ -84,6 +84,9 @@ jobs:
           unzip -t "$PACKAGE"
           unzip -Z1 "$PACKAGE" | grep -Fx select.py
           unzip -Z1 "$PACKAGE" | grep -Fx diagnostics.py
+          unzip -Z1 "$PACKAGE" | grep -Fx catalog.py
+          unzip -Z1 "$PACKAGE" | grep -Fx discovery.py
+          unzip -Z1 "$PACKAGE" | grep -Fx button.py
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
           gh release download 1.2.9 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
           sha256sum "$PACKAGE" "$Q/rollback/deltasol.zip"
@@ -178,5 +181,5 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "DeltaSol $VERSION TEST" \
             --prerelease \
-            --notes "TEST: profile-driven BX Plus and registered EM relay discovery, correct fixed/speed-controlled relay modes, native device grouping and redacted diagnostics. Configure the separate VBus remote-access password. Existing telemetry retained. Isolated HA lifecycle and loopback protocol checks passed; physical RESOL acceptance remains open. Manual overrides may persist; restore Auto after safe supervised tests. Do not test on a hot solid-fuel installation."
+            --notes "Discovery TEST: native on-demand BX Plus 2.08 configuration inventory, bounded read batches, pause/resume, metadata and redacted snapshot comparison. Place the exact local RPT archive as documented in README; no proprietary metadata is packaged. Existing telemetry and relay controls retained. Isolated HA and protocol qualification passed; physical RESOL acceptance remains open. No new configuration write controls. Manual relay overrides may persist; restore Auto after safe supervised tests."
           echo "Published $VERSION with deltasol.zip for HACS."

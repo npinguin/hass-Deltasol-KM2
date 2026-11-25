@@ -81,6 +81,40 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(diff["changes"]["TemperatureLimit"]["after_raw"], 225)
         self.assertNotIn("UnknownType", diff["changes"])
 
+    def test_bounded_batches_and_layout_mismatch(self):
+        definitions = tuple(
+            catalog.Definition(f"Test{n}", n + 1, "unspecified", None, {})
+            for n in range(35)
+        )
+        parsed = catalog.Catalog("test", definitions)
+        capture = discovery.ConfigurationCapture(parsed, SimpleNamespace(address=0x7112))
+        batch = capture.next_batch()
+        self.assertEqual(len(batch), discovery.BATCH_SIZE)
+        capture.apply(
+            batch,
+            {
+                d.name: vbus.ParameterObservation(d.index + 1, 123, "read")
+                for d in batch
+            },
+        )
+        self.assertEqual(capture.offset, discovery.BATCH_SIZE)
+        self.assertEqual(capture.status, "running")
+        self.assertEqual(capture.next_batch()[0].name, "Test16")
+        self.assertEqual(capture.results["Test0"].status, "layout_mismatch")
+        self.assertIsNone(capture.results["Test0"].value)
+        while capture.next_batch():
+            batch = capture.next_batch()
+            capture.apply(
+                batch,
+                {
+                    d.name: vbus.ParameterObservation(d.index, 0, "read")
+                    for d in batch
+                },
+            )
+        self.assertEqual(capture.status, "complete")
+        self.assertEqual(capture.offset, 35)
+        self.assertEqual(capture.export(True)["parameters"]["Test34"]["raw_value"], 0)
+
     def test_invalid_xml_and_archive_rejected(self):
         with self.assertRaises(catalog.CatalogError):
             catalog.parse_menu(b"<!DOCTYPE x><x/>", "test")
@@ -101,4 +135,8 @@ class DiscoveryTests(unittest.TestCase):
             "Auto",
         )
         self.assertGreater(sum(d.excluded is None for d in definitions.values()), 1000)
-        print("Exact vendor archive: definitions", len(definitions))
+        counts = {}
+        for definition in definitions.values():
+            status = definition.excluded or "candidate"
+            counts[status] = counts.get(status, 0) + 1
+        print("Exact vendor archive: definitions", len(definitions), counts)

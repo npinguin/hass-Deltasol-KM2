@@ -189,7 +189,7 @@ async def _async_capture_configuration(runtime):
                 raise VBusError("Controller telemetry is unavailable")
             batch = capture.next_batch()
             if not batch:
-                capture.status = "complete"
+                capture.apply((), {})
                 return
             observations = await telemetry.hass.async_add_executor_job(
                 telemetry.api.read_configuration_batch,

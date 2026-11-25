@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 
 from .catalog import BX_PLUS_CHANGESET, decoded_value
 from .parameters import device_inventory, find_profile
-from .vbus import VBusError
+from .vbus import ParameterObservation, VBusError
 
 BATCH_SIZE = 16
 
@@ -34,6 +34,12 @@ class ConfigurationCapture:
     def apply(self, batch, observations):
         for definition in batch:
             result = observations[definition.name]
+            if (
+                result.index is not None
+                and definition.index is not None
+                and result.index != definition.index
+            ):
+                result = ParameterObservation(result.index, None, "layout_mismatch")
             self.results[definition.name] = result
         self.offset += len(batch)
         if self.offset == len(self.candidates):
@@ -85,6 +91,9 @@ class ConfigurationCapture:
             "error": self.error,
             "catalog_count": len(self.catalog.definitions),
             "scanned_count": self.offset,
+            "coverage": "all_catalogue_candidates_attempted"
+            if self.status == "complete"
+            else "partial",
             "candidate_count": len(self.candidates),
             "counts": counts,
             "parameters": parameters,

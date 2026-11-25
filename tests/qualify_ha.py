@@ -347,9 +347,8 @@ async def qualify(directory, phase):
             capture = (await async_get_config_entry_diagnostics(hass, entry))[
                 "configuration_discovery"
             ]
-            assert capture["comparison"]["changes"][
-                "Relais_Regler_R4_Handbetrieb"
-            ]["after_raw"] == 2
+            change = capture["comparison"]["changes"]["Relais_Regler_R4_Handbetrieb"]
+            assert change["after_raw"] == 2
             assert Peer.writes == 0
             Peer.mode = 4
         select_file = directory / "qualification-select.json"
