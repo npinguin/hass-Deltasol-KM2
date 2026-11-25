@@ -39,6 +39,7 @@ class Peer:
     deny = False
     writes = 0
     drop_discovery_response = False
+    drop_relay_response = False
 
 
 def datagram(destination, source, command, index=0, value=0):
@@ -72,6 +73,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
             )
             index, value = struct.unpack("<Hi", payload)
             if command == 0x1100:
+                if value == 463603356 and Peer.drop_relay_response:
+                    Peer.drop_relay_response = False
+                    return
                 if value == 613666522 and Peer.drop_discovery_response:
                     Peer.drop_discovery_response = False
                     return
@@ -388,6 +392,14 @@ async def qualify(directory, phase):
             assert change["after_raw"] == 2
             assert Peer.writes == 0
             Peer.mode = 4
+        if resilient:
+            Peer.drop_relay_response = True
+            await entry.runtime_data.relay_coordinator.async_refresh()
+            assert not Peer.drop_relay_response
+            assert entry.runtime_data.relay_coordinator.last_update_success
+            assert hass.states.get(select).state == "On"
+            assert hass.states.get(em).state == "Auto"
+            assert Peer.writes == 0
         select_file = directory / "qualification-select.json"
         if phase == "restart":
             assert em == json.loads(select_file.read_text(encoding="utf-8"))

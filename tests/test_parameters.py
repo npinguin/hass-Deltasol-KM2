@@ -5,6 +5,7 @@ import sys
 import types
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 PACKAGE = "_deltasol_parameter_tests"
@@ -273,3 +274,56 @@ class ParameterTests(unittest.TestCase):
         )
         self.assertEqual(set(result.capabilities), {UID})
         self.session.write_verified.assert_not_called()
+
+
+
+class RelayRecoveryTests(unittest.IsolatedAsyncioTestCase):
+    def coordinator(self, operation):
+        async def execute(function, *args):
+            return function(*args)
+
+        return SimpleNamespace(
+            last_update_success=True,
+            data=telemetry(),
+            hass=SimpleNamespace(async_add_executor_job=execute),
+            api=SimpleNamespace(fetch_relay_modes=operation),
+        )
+
+    async def test_relay_read_recovers_before_update_failure(self):
+        failure = parameters.VBusTransientError(
+            "VBus parameter response failed", "response"
+        )
+        operation = Mock(side_effect=[failure, failure, "verified"])
+        source = self.coordinator(operation)
+        with patch.object(parameters, "RELAY_RETRY_DELAYS", (0, 0)):
+            result = await parameters.refresh_relay_modes(source)
+        self.assertEqual(result, "verified")
+        self.assertEqual(operation.call_count, 3)
+
+    async def test_relay_outage_remains_a_failure(self):
+        failure = parameters.VBusTransientError(
+            "VBus gateway connection failed", "connect"
+        )
+        operation = Mock(side_effect=failure)
+        with (
+            patch.object(parameters, "RELAY_RETRY_DELAYS", (0, 0)),
+            self.assertRaises(parameters.VBusTransientError),
+        ):
+            await parameters.refresh_relay_modes(self.coordinator(operation))
+        self.assertEqual(operation.call_count, 3)
+
+    async def test_relay_authoritative_negative_is_not_retried(self):
+        operation = Mock(return_value={})
+        result = await parameters.refresh_relay_modes(self.coordinator(operation))
+        self.assertEqual(result, {})
+        operation.assert_called_once()
+
+    async def test_relay_authentication_failure_is_not_retried(self):
+        operation = Mock(
+            side_effect=parameters.VBusError(
+                "VBus gateway rejected connection or credentials"
+            )
+        )
+        with self.assertRaises(parameters.VBusError):
+            await parameters.refresh_relay_modes(self.coordinator(operation))
+        operation.assert_called_once()

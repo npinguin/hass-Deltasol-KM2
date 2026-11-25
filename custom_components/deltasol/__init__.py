@@ -45,6 +45,7 @@ from .const import (
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
 from .discovery import ConfigurationCapture, capture_batches, capture_identity
+from .parameters import refresh_relay_modes
 from .vbus import VBusError
 
 _LOGGER = logging.getLogger(__name__)
@@ -255,12 +256,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         async with self._lock:
-            if not self.telemetry.last_update_success:
-                raise UpdateFailed("Controller telemetry is unavailable")
             try:
-                return await self.hass.async_add_executor_job(
-                    self.api.fetch_relay_modes, self.telemetry.data
-                )
+                return await refresh_relay_modes(self.telemetry)
             except VBusError as error:
                 raise UpdateFailed(str(error)) from error
 
