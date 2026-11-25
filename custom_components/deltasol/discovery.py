@@ -209,6 +209,7 @@ def capture_identity(telemetry):
         raise VBusError("Unsupported or ambiguous discovery controller")
     return controller
 
+
 async def capture_batches(runtime):
     """Retry only uncommitted read batches through the existing session owner."""
     capture = runtime.capture

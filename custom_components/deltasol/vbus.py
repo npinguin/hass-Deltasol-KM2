@@ -386,9 +386,7 @@ def open_vbus(host, password):
     try:
         connection = socket.create_connection((host, VBUS_PORT), timeout=5)
     except OSError as error:
-        raise VBusTransientError(
-            "VBus gateway connection failed", "connect"
-        ) from error
+        raise VBusTransientError("VBus gateway connection failed", "connect") from error
     with connection:
         session = VBusSession(connection)
         try:
