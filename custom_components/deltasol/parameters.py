@@ -7,16 +7,18 @@ EM subaddresses use 0x6650 + SA (resol-vbus JSON live-data server).
 The BX Plus manual specifies five local relays and two EM slots.
 """
 
+import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from threading import Lock
 from time import monotonic, sleep
 
-from .vbus import ParameterObservation, VBusError, open_vbus
+from .vbus import ParameterObservation, VBusError, VBusTransientError, open_vbus
 
 # Initial conservative reconnect guard; tune against physical KM2 evidence.
 SESSION_GAP_SECONDS = 1.5
+RELAY_RETRY_DELAYS = (2, 5)
 
 MODE_VALUES = {"Auto": 2, "Off": 0, "On": 4, "Min": 1, "Max": 3}
 OBSERVED_MODES = {value: name for name, value in MODE_VALUES.items()}
@@ -244,6 +246,25 @@ def _read_group(
         )
         capabilities[cap.unique_id] = cap
     return ("supported" if capabilities else "no_supported_relays"), capabilities
+
+
+async def refresh_relay_modes(telemetry):
+    """Short read-only recovery before marking native relay refresh failed."""
+    for delay in (*RELAY_RETRY_DELAYS, None):
+        try:
+            if not telemetry.last_update_success:
+                raise VBusTransientError(
+                    "Controller telemetry is unavailable", "telemetry"
+                )
+            return await telemetry.hass.async_add_executor_job(
+                telemetry.api.fetch_relay_modes, telemetry.data
+            )
+        except VBusTransientError:
+            if delay is None:
+                raise
+            # The shared session is already closed. A fresh attempt uses the
+            # latest telemetry and revalidates identity, layout and registration.
+            await asyncio.sleep(delay)
 
 
 class RelayParameters:

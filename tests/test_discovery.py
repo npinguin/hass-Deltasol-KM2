@@ -1,12 +1,17 @@
 """Tests for catalogue parsing, read coverage and snapshot comparison."""
 
+import asyncio
 import importlib
 import os
 import sys
 import types
 import unittest
+import xml.etree.ElementTree as ET
+import zipfile
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 PACKAGE = "_deltasol_discovery_tests"
 package = types.ModuleType(PACKAGE)
@@ -140,6 +145,90 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn("Alias", exported["parameters"])
         self.assertNotIn("metadata", exported["parameters"]["Schema"])
 
+    def test_exact_numeric_encoding_and_rejection(self):
+        definition = catalog.Definition(
+            "Setpoint",
+            123,
+            "persistent",
+            "Number",
+            {
+                "type_chain": ["Number"],
+                "minimum": "-10",
+                "maximum": "80",
+                "step": "0.5",
+                "storeFactor": "0.1",
+            },
+        )
+        self.assertEqual(catalog.encode_numeric_value(definition, -2.5), -25)
+        self.assertEqual(catalog.encode_numeric_value(definition, 21.5), 215)
+        self.assertEqual(catalog.decoded_value(definition, -25), -2.5)
+        for value in (81, 21.1, "NaN", "Infinity", True):
+            with self.subTest(value=value), self.assertRaises(catalog.CatalogError):
+                catalog.encode_numeric_value(definition, value)
+        metadata = dict(definition.metadata)
+        del metadata["step"]
+        incomplete = catalog.Definition(
+            "Setpoint", 123, "persistent", "Number", metadata
+        )
+        with self.assertRaises(catalog.CatalogError):
+            catalog.encode_numeric_value(incomplete, 21.5)
+
+    def test_preserve_menu_and_quant_evidence(self):
+        name = "Setpoint"
+        xml = f"""
+        <root>
+          <type id="Number"/>
+          <value id="{name}" idHash="{vbus.parameter_hash(name)}" index="23"
+                 allowParameterization="true" compoundValueRef="Parent">
+            <type id="SetpointType" base="Number">
+              <quant step="2">0,5</quant><displayFactor>0.1</displayFactor>
+            </type>
+          </value>
+          <menu id="Example" type="Conditional">
+            <line valueRef="{name}" mask="1" maskVal="1" extraRef="Dependency"/>
+          </menu>
+        </root>""".encode()
+        definition = catalog.parse_menu(xml, "test").definitions[0]
+        self.assertEqual(definition.metadata["quant"], "0,5")
+        self.assertEqual(definition.metadata["quant_step"], "2")
+        self.assertEqual(definition.metadata["allow_parameterization"], "true")
+        self.assertEqual(definition.metadata["compound_ref"], "Parent")
+        self.assertEqual(
+            definition.metadata["menu_refs"],
+            [
+                {
+                    "mask": "1",
+                    "maskVal": "1",
+                    "extraRef": "Dependency",
+                    "menu": "Example",
+                    "menu_type": "Conditional",
+                }
+            ],
+        )
+        with self.assertRaises(catalog.CatalogError):
+            catalog.encode_numeric_value(definition, 20)
+
+    def test_explicit_enum_only(self):
+        definition = catalog.Definition(
+            "Mode",
+            123,
+            "persistent",
+            "Mode",
+            {
+                "value_text": [
+                    {"value": "2", "label": "Normal"},
+                    {"value": "7", "label": "Economy"},
+                ]
+            },
+        )
+        self.assertEqual(
+            catalog.explicit_options(definition), {2: "Normal", 7: "Economy"}
+        )
+        self.assertEqual(catalog.decoded_value(definition, 7), "Economy")
+        self.assertIsNone(catalog.decoded_value(definition, 0))
+        definition.metadata["value_text"].append({"value": None, "label": "Unknown"})
+        self.assertEqual(catalog.explicit_options(definition), {})
+
     def test_invalid_xml_and_archive_rejected(self):
         with self.assertRaises(catalog.CatalogError):
             catalog.parse_menu(b"<!DOCTYPE x><x/>", "test")
@@ -174,3 +263,193 @@ class DiscoveryTests(unittest.TestCase):
             status = definition.excluded or "candidate"
             counts[status] = counts.get(status, 0) + 1
         print("Exact vendor archive: definitions", len(definitions), counts)
+
+        # Aggregate schema evidence only: no vendor data or site values bundled.
+        with zipfile.ZipFile(os.environ["RPT_ARCHIVE"]) as archive:
+            root = ET.fromstring(archive.read(catalog.BX_PLUS_MENU))
+        value_attributes = Counter()
+        value_children = Counter()
+        tags = Counter(node.tag for node in root.iter())
+        for node in root.iter("value"):
+            value_attributes.update(node.attrib.keys())
+            value_children.update(child.tag for child in node)
+        print("RPT value attribute coverage:", sorted(value_attributes.items()))
+        print("RPT value child coverage:", sorted(value_children.items()))
+        print("RPT XML element coverage:", sorted(tags.items()))
+        print(
+            "RPT allowParameterization flags:",
+            sorted(
+                Counter(
+                    node.get("allowParameterization")
+                    for node in root.iter("value")
+                    if node.get("allowParameterization") is not None
+                ).items()
+            ),
+        )
+        print(
+            "RPT explicit parameterization safe candidates:",
+            [
+                (d.name, d.storage, d.type_id)
+                for d in capture.candidates
+                if d.metadata.get("allow_parameterization") == "true"
+            ],
+        )
+        print(
+            "RPT menu type frequencies:",
+            Counter(n.get("type") for n in root.iter("menu")).most_common(12),
+        )
+        print(
+            "RPT line attribute coverage:",
+            sorted(Counter(k for n in root.iter("line") for k in n.attrib).items()),
+        )
+        print(
+            "RPT menu attribute coverage:",
+            sorted(Counter(k for n in root.iter("menu") for k in n.attrib).items()),
+        )
+        print(
+            "RPT quant attribute coverage:",
+            sorted(Counter(k for n in root.iter("quant") for k in n.attrib).items()),
+        )
+        print(
+            "RPT quant value frequencies:",
+            Counter((n.text or "").strip() for n in root.iter("quant")).most_common(12),
+        )
+        print(
+            "RPT typed metadata coverage:",
+            dict(
+                Counter(
+                    key
+                    for definition in capture.candidates
+                    for key in definition.metadata
+                )
+            ),
+        )
+
+
+class RecoveryTests(unittest.IsolatedAsyncioTestCase):
+    def runtime(self, operation):
+        definitions = tuple(
+            catalog.Definition(f"Test{n}", n + 1, "unspecified", None, {})
+            for n in range(35)
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", definitions), SimpleNamespace(address=0x7112)
+        )
+
+        async def execute(function, *args):
+            return function(*args)
+
+        return SimpleNamespace(
+            capture=capture,
+            stop_capture=False,
+            capture_wakeup=asyncio.Event(),
+            notify_capture=lambda: None,
+            coordinator=SimpleNamespace(
+                last_update_success=True,
+                data={},
+                hass=SimpleNamespace(async_add_executor_job=execute),
+                api=SimpleNamespace(read_configuration_batch=operation),
+            ),
+        )
+
+    def observations_for(self, names):
+        return {
+            name: vbus.ParameterObservation(index, 0, "read")
+            for name, index in names.items()
+        }
+
+    async def test_retries_same_batch_without_losing_checkpoint(self):
+        attempts = []
+
+        def operation(data, controller, names, changeset):
+            attempts.append(tuple(names))
+            if len(attempts) in (2, 4):
+                raise vbus.VBusTransientError(
+                    "VBus parameter response failed",
+                    "response",
+                    command=0x0300,
+                    index=17,
+                )
+            return self.observations_for(names)
+
+        runtime = self.runtime(operation)
+        with patch.object(discovery, "RETRY_DELAYS", (0,)):
+            await discovery.capture_batches(runtime)
+        self.assertEqual(runtime.capture.status, "complete")
+        self.assertEqual(runtime.capture.offset, 35)
+        self.assertEqual(runtime.capture.retry_count, 2)
+        self.assertEqual(attempts[1], attempts[2])
+        self.assertEqual(attempts[3], attempts[4])
+        self.assertEqual(runtime.capture.consecutive_failures, 0)
+        self.assertIsNone(runtime.capture.error)
+
+    async def test_exhausted_retries_keep_offset_and_failure(self):
+        def operation(*args):
+            raise vbus.VBusTransientError("VBus gateway connection failed", "connect")
+
+        runtime = self.runtime(operation)
+        with patch.object(discovery, "RETRY_DELAYS", (0, 0)):
+            await discovery.capture_batches(runtime)
+        capture = runtime.capture
+        self.assertEqual(capture.status, "incomplete")
+        self.assertEqual(capture.offset, 0)
+        self.assertEqual(capture.retry_count, 2)
+        self.assertEqual(capture.consecutive_failures, 3)
+        self.assertEqual(capture.last_failure["phase"], "connect")
+
+    async def test_pause_interrupts_backoff(self):
+        def operation(*args):
+            raise vbus.VBusTransientError("VBus gateway connection failed", "connect")
+
+        runtime = self.runtime(operation)
+        recovering = asyncio.Event()
+
+        def notify():
+            if runtime.capture.status == "recovering":
+                recovering.set()
+
+        runtime.notify_capture = notify
+        with patch.object(discovery, "RETRY_DELAYS", (60,)):
+            task = asyncio.create_task(discovery.capture_batches(runtime))
+            await asyncio.wait_for(recovering.wait(), timeout=1)
+            runtime.stop_capture = True
+            runtime.capture_wakeup.set()
+            await asyncio.wait_for(task, timeout=1)
+        self.assertEqual(runtime.capture.status, "paused")
+        self.assertEqual(runtime.capture.offset, 0)
+        self.assertIsNone(runtime.capture.retry_in_seconds)
+
+    async def test_hard_failures_are_not_retried(self):
+        for message in (
+            "VBus gateway rejected connection or credentials",
+            "Controller identity changed during discovery",
+            "Controller changeset changed during discovery",
+            "Unrecognized controller parameter layout",
+        ):
+            with self.subTest(message=message):
+
+                def operation(*args, message=message):
+                    raise vbus.VBusError(message)
+
+                runtime = self.runtime(operation)
+                await discovery.capture_batches(runtime)
+                self.assertEqual(runtime.capture.status, "incomplete")
+                self.assertEqual(runtime.capture.retry_count, 0)
+                self.assertEqual(runtime.capture.error, message)
+
+    async def test_temporary_telemetry_loss_recovers(self):
+        runtime = self.runtime(
+            lambda data, controller, names, changeset: self.observations_for(names)
+        )
+        runtime.coordinator.last_update_success = False
+
+        def notify():
+            if runtime.capture.status == "recovering":
+                runtime.coordinator.last_update_success = True
+
+        runtime.notify_capture = notify
+        with patch.object(discovery, "RETRY_DELAYS", (0,)):
+            await discovery.capture_batches(runtime)
+        self.assertEqual(runtime.capture.status, "complete")
+        self.assertEqual(runtime.capture.retry_count, 1)
+        self.assertEqual(runtime.capture.last_failure["phase"], "telemetry")

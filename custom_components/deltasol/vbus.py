@@ -18,6 +18,24 @@ class VBusError(Exception):
     """VBus operation failed."""
 
 
+class VBusTransientError(VBusError):
+    """Recoverable transport failure; only read-only callers may retry."""
+
+    def __init__(self, message, phase, *, command=None, index=None):
+        super().__init__(message)
+        self.phase = phase
+        self.command = command
+        self.index = index
+
+    def evidence(self):
+        """Fixed protocol context only; never export payloads or credentials."""
+        return {
+            "phase": self.phase,
+            "command": f"0x{self.command:04X}" if self.command is not None else None,
+            "reference_index": self.index,
+        }
+
+
 class VBusReadRefused(VBusError):
     """A correlated negative reply, distinct from transport failure."""
 
@@ -88,11 +106,11 @@ class VBusSession:
     def _receive(self, deadline):
         remaining = deadline - monotonic()
         if remaining <= 0:
-            raise VBusError("VBus response timed out")
+            raise VBusTransientError("VBus response timed out", "receive")
         self.connection.settimeout(remaining)
         data = self.connection.recv(4096)
         if not data:
-            raise VBusError("VBus connection closed")
+            raise VBusTransientError("VBus connection closed", "receive")
         return data
 
     def _line(self, deadline):
@@ -120,7 +138,7 @@ class VBusSession:
     def _datagram(self, deadline):
         while True:
             if monotonic() >= deadline:
-                raise VBusError("VBus response timed out")
+                raise VBusTransientError("VBus response timed out", "receive")
             start = self.buffer.find(b"\xaa")
             if start == -1:
                 self.buffer.clear()
@@ -157,7 +175,9 @@ class VBusSession:
         except OSError as error:
             if command in (0x0200, 0x0400):
                 raise VBusError("VBus write outcome uncertain") from error
-            raise VBusError("VBus command send failed") from error
+            raise VBusTransientError(
+                "VBus command send failed", "send", command=command, index=index
+            ) from error
 
         def matches(packet):
             return (
@@ -176,7 +196,12 @@ class VBusSession:
         except (OSError, VBusError) as error:
             if command in (0x0200, 0x0400):
                 raise VBusError("VBus write outcome uncertain") from error
-            raise VBusError("VBus parameter response failed") from error
+            raise VBusTransientError(
+                "VBus parameter response failed",
+                "response",
+                command=command,
+                index=index,
+            ) from error
 
     def resolve(self, address, name):
         """Resolve a known parameter name to the actual controller index."""
@@ -240,7 +265,9 @@ class VBusSession:
                 20,
             )
         except (OSError, VBusError) as error:
-            raise VBusError("VBus bus acquisition failed") from error
+            raise VBusTransientError(
+                "VBus bus acquisition failed", "acquire"
+            ) from error
         try:
             yield self
         except BaseException as error:
@@ -259,7 +286,9 @@ class VBusSession:
             self.connection.sendall(Datagram(address, SELF_ADDRESS, 0x0600).encode())
             self._wait_for_master(address)
         except (OSError, VBusError) as error:
-            raise VBusError("VBus release not confirmed") from error
+            raise VBusTransientError(
+                "VBus release not confirmed", "release", command=0x0600
+            ) from error
 
     def read_parameter_observations(
         self, address, names, changeset, *, strict=False, expected=None, schema=None
@@ -271,13 +300,23 @@ class VBusSession:
         """
         indices = {}
         if schema is not None:
-            index = self.resolve(address, "Schema")
+            try:
+                index = self.resolve(address, "Schema")
+            except VBusTransientError as error:
+                error.index = schema
+                raise
             if index != schema:
                 raise VBusError("Unrecognized controller parameter layout")
             indices["Schema"] = index
-        indices.update(
-            (name, self.resolve(address, name)) for name in names if name not in indices
-        )
+        for name in names:
+            if name in indices:
+                continue
+            try:
+                indices[name] = self.resolve(address, name)
+            except VBusTransientError as error:
+                # The wire lookup uses a hash; retain only the safe catalogue index.
+                error.index = expected.get(name) if expected is not None else None
+                raise
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during discovery")
         observations = {}
@@ -347,11 +386,13 @@ def open_vbus(host, password):
     try:
         connection = socket.create_connection((host, VBUS_PORT), timeout=5)
     except OSError as error:
-        raise VBusError("VBus gateway connection failed") from error
+        raise VBusTransientError("VBus gateway connection failed", "connect") from error
     with connection:
         session = VBusSession(connection)
         try:
             session.authenticate(password)
-        except OSError as error:
-            raise VBusError("VBus gateway handshake failed") from error
+        except (OSError, VBusTransientError) as error:
+            raise VBusTransientError(
+                "VBus gateway handshake failed", "handshake"
+            ) from error
         yield session
