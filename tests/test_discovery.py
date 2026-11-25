@@ -165,9 +165,46 @@ class DiscoveryTests(unittest.TestCase):
                 catalog.encode_numeric_value(definition, value)
         metadata = dict(definition.metadata)
         del metadata["step"]
-        incomplete = catalog.Definition("Setpoint", 123, "persistent", "Number", metadata)
+        incomplete = catalog.Definition(
+            "Setpoint", 123, "persistent", "Number", metadata
+        )
         with self.assertRaises(catalog.CatalogError):
             catalog.encode_numeric_value(incomplete, 21.5)
+
+    def test_preserve_menu_and_quant_evidence(self):
+        name = "Setpoint"
+        xml = f"""
+        <root>
+          <type id="Number"/>
+          <value id="{name}" idHash="{vbus.parameter_hash(name)}" index="23"
+                 allowParameterization="true" compoundValueRef="Parent">
+            <type id="SetpointType" base="Number">
+              <quant step="2">0,5</quant><displayFactor>0.1</displayFactor>
+            </type>
+          </value>
+          <menu id="Example" type="Conditional">
+            <line valueRef="{name}" mask="1" maskVal="1" extraRef="Dependency"/>
+          </menu>
+        </root>""".encode()
+        definition = catalog.parse_menu(xml, "test").definitions[0]
+        self.assertEqual(definition.metadata["quant"], "0,5")
+        self.assertEqual(definition.metadata["quant_step"], "2")
+        self.assertEqual(definition.metadata["allow_parameterization"], "true")
+        self.assertEqual(definition.metadata["compound_ref"], "Parent")
+        self.assertEqual(
+            definition.metadata["menu_refs"],
+            [
+                {
+                    "mask": "1",
+                    "maskVal": "1",
+                    "extraRef": "Dependency",
+                    "menu": "Example",
+                    "menu_type": "Conditional",
+                }
+            ],
+        )
+        with self.assertRaises(catalog.CatalogError):
+            catalog.encode_numeric_value(definition, 20)
 
     def test_explicit_enum_only(self):
         definition = catalog.Definition(
@@ -246,6 +283,18 @@ class DiscoveryTests(unittest.TestCase):
                     if node.get("allowParameterization") is not None
                 ).items()
             ),
+        )
+        print(
+            "RPT explicit parameterization safe candidates:",
+            [
+                (d.name, d.storage, d.type_id)
+                for d in capture.candidates
+                if d.metadata.get("allow_parameterization") == "true"
+            ],
+        )
+        print(
+            "RPT menu type frequencies:",
+            Counter(n.get("type") for n in root.iter("menu")).most_common(12),
         )
         print(
             "RPT line attribute coverage:",

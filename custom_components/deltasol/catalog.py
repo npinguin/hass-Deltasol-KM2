@@ -100,12 +100,19 @@ def _metadata(type_node, types):
         if node.get("unit") is not None:
             result["unit"] = node.get("unit")
         for tag in (
-            "storeFactor", "displayFactor", "minimum", "maximum", "step", "quant",
+            "storeFactor",
+            "displayFactor",
+            "minimum",
+            "maximum",
+            "step",
+            "quant",
             "default",
         ):
             child = node.find(tag)
             if child is not None:
                 result[tag] = (child.text or "").strip() or None
+                if tag == "quant":
+                    result["quant_step"] = child.get("step")
         options = node.findall("valueText")
         if options:
             result["value_text"] = [
@@ -135,6 +142,24 @@ def parse_menu(xml, digest):
     except ET.ParseError as err:
         raise CatalogError("Invalid RPT XML") from err
     types = {node.get("id"): node for node in root.iter("type") if node.get("id")}
+    # Preserve menu membership and masks as evidence, not evaluated permissions.
+    # A line may be present in several conditional menus.
+    menu_refs = {}
+    for menu in root.iter("menu"):
+        for line in menu.findall("line"):
+            ref = line.get("valueRef")
+            if not ref:
+                continue
+            evidence = {
+                key: line.get(key)
+                for key in ("mask", "maskVal", "extraRef")
+                if line.get(key) is not None
+            }
+            evidence["menu"] = menu.get("id")
+            evidence["menu_type"] = menu.get("type")
+            records = menu_refs.setdefault(ref, [])
+            if evidence not in records:
+                records.append(evidence)
     result = {}
     for node in root.iter("value"):
         name = node.get("id")
@@ -146,6 +171,8 @@ def parse_menu(xml, digest):
         type_id = type_node.get("id") if type_node is not None else None
         metadata = _metadata(type_node, types)
         metadata["applicability"] = "not_assessed"
+        if name in menu_refs:
+            metadata["menu_refs"] = menu_refs[name]
         if node.get("structValueRef"):
             metadata["struct_ref"] = node.get("structValueRef")
         if node.get("compoundValueRef"):
