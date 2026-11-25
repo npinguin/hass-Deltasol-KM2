@@ -51,6 +51,7 @@ def is_sensitive(definition):
             definition.name,
             definition.type_id,
             definition.metadata.get("struct_ref"),
+            definition.metadata.get("compound_ref"),
             *definition.metadata.get("type_chain", []),
         )
         if value
@@ -98,7 +99,10 @@ def _metadata(type_node, types):
     for node in reversed(chain):
         if node.get("unit") is not None:
             result["unit"] = node.get("unit")
-        for tag in ("storeFactor", "minimum", "maximum", "step", "default"):
+        for tag in (
+            "storeFactor", "displayFactor", "minimum", "maximum", "step", "quant",
+            "default",
+        ):
             child = node.find(tag)
             if child is not None:
                 result[tag] = (child.text or "").strip() or None
@@ -144,6 +148,10 @@ def parse_menu(xml, digest):
         metadata["applicability"] = "not_assessed"
         if node.get("structValueRef"):
             metadata["struct_ref"] = node.get("structValueRef")
+        if node.get("compoundValueRef"):
+            metadata["compound_ref"] = node.get("compoundValueRef")
+        if node.get("allowParameterization") is not None:
+            metadata["allow_parameterization"] = node.get("allowParameterization")
         if node.get("priority"):
             metadata["priority"] = node.get("priority")
         excluded = None

@@ -4,7 +4,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cached_property
 
-from .catalog import BX_PLUS_CHANGESET, decoded_value, explicit_options, is_sensitive
+from .catalog import (
+    BX_PLUS_CHANGESET,
+    decoded_value,
+    explicit_options,
+    is_sensitive,
+)
 from .parameters import device_inventory, find_profile
 from .vbus import ParameterObservation, VBusError
 

@@ -2,12 +2,12 @@
 
 import importlib
 import os
-import xml.etree.ElementTree as ET
-import zipfile
-from collections import Counter
 import sys
 import types
 import unittest
+import xml.etree.ElementTree as ET
+import zipfile
+from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -165,9 +165,7 @@ class DiscoveryTests(unittest.TestCase):
                 catalog.encode_numeric_value(definition, value)
         metadata = dict(definition.metadata)
         del metadata["step"]
-        incomplete = catalog.Definition(
-            "Setpoint", 123, "persistent", "Number", metadata
-        )
+        incomplete = catalog.Definition("Setpoint", 123, "persistent", "Number", metadata)
         with self.assertRaises(catalog.CatalogError):
             catalog.encode_numeric_value(incomplete, 21.5)
 
@@ -184,7 +182,9 @@ class DiscoveryTests(unittest.TestCase):
                 ]
             },
         )
-        self.assertEqual(catalog.explicit_options(definition), {2: "Normal", 7: "Economy"})
+        self.assertEqual(
+            catalog.explicit_options(definition), {2: "Normal", 7: "Economy"}
+        )
         self.assertEqual(catalog.decoded_value(definition, 7), "Economy")
         self.assertIsNone(catalog.decoded_value(definition, 0))
         definition.metadata["value_text"].append({"value": None, "label": "Unknown"})
@@ -237,6 +237,32 @@ class DiscoveryTests(unittest.TestCase):
         print("RPT value attribute coverage:", sorted(value_attributes.items()))
         print("RPT value child coverage:", sorted(value_children.items()))
         print("RPT XML element coverage:", sorted(tags.items()))
+        print(
+            "RPT allowParameterization flags:",
+            sorted(
+                Counter(
+                    node.get("allowParameterization")
+                    for node in root.iter("value")
+                    if node.get("allowParameterization") is not None
+                ).items()
+            ),
+        )
+        print(
+            "RPT line attribute coverage:",
+            sorted(Counter(k for n in root.iter("line") for k in n.attrib).items()),
+        )
+        print(
+            "RPT menu attribute coverage:",
+            sorted(Counter(k for n in root.iter("menu") for k in n.attrib).items()),
+        )
+        print(
+            "RPT quant attribute coverage:",
+            sorted(Counter(k for n in root.iter("quant") for k in n.attrib).items()),
+        )
+        print(
+            "RPT quant value frequencies:",
+            Counter((n.text or "").strip() for n in root.iter("quant")).most_common(12),
+        )
         print(
             "RPT typed metadata coverage:",
             dict(
