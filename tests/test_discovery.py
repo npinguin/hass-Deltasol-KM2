@@ -365,7 +365,10 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
             attempts.append(tuple(names))
             if len(attempts) in (2, 4):
                 raise vbus.VBusTransientError(
-                    "VBus parameter response failed", "response", command=0x0300, index=17
+                    "VBus parameter response failed",
+                    "response",
+                    command=0x0300,
+                    index=17,
                 )
             return self.observations_for(names)
 
@@ -424,7 +427,8 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
             "Unrecognized controller parameter layout",
         ):
             with self.subTest(message=message):
-                def operation(*args):
+
+                def operation(*args, message=message):
                     raise vbus.VBusError(message)
 
                 runtime = self.runtime(operation)
@@ -434,7 +438,9 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(runtime.capture.error, message)
 
     async def test_temporary_telemetry_loss_recovers(self):
-        runtime = self.runtime(lambda data, controller, names, changeset: self.observations_for(names))
+        runtime = self.runtime(
+            lambda data, controller, names, changeset: self.observations_for(names)
+        )
         runtime.coordinator.last_update_success = False
 
         def notify():

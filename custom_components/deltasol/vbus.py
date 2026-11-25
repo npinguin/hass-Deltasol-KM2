@@ -197,7 +197,10 @@ class VBusSession:
             if command in (0x0200, 0x0400):
                 raise VBusError("VBus write outcome uncertain") from error
             raise VBusTransientError(
-                "VBus parameter response failed", "response", command=command, index=index
+                "VBus parameter response failed",
+                "response",
+                command=command,
+                index=index,
             ) from error
 
     def resolve(self, address, name):
