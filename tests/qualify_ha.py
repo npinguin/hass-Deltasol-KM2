@@ -353,10 +353,10 @@ async def qualify(directory, phase):
             assert capture["scanned_count"] == 0
             assert Peer.writes == 0
             Peer.deny = False
-            # Only the new candidate has automatic recovery; 1.2.11 rollback
-            # retains the previously qualified manual-resume behavior.
+            # Baseline and rollback have already returned above.
             resilient = hasattr(entry.runtime_data.capture, "retry_count")
-            Peer.drop_discovery_response = resilient
+            assert resilient, "Candidate must implement automatic Discovery recovery"
+            Peer.drop_discovery_response = True
             await hass.services.async_call(
                 "button", "press", {"entity_id": button}, blocking=True
             )
