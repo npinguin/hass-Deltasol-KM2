@@ -82,13 +82,18 @@ def _metadata(type_node, types):
     """Resolve exact inheritance; preserve unsupported expressions as metadata."""
     chain = []
     seen = set()
+    unresolved = None
     while type_node is not None:
         name = type_node.get("id")
         if name in seen:
+            unresolved = name
             break
         seen.add(name)
         chain.append(type_node)
-        type_node = types.get(type_node.get("base"))
+        base = type_node.get("base")
+        type_node = types.get(base)
+        if base and type_node is None:
+            unresolved = base
     result = {}
     for node in reversed(chain):
         if node.get("unit") is not None:
@@ -110,6 +115,8 @@ def _metadata(type_node, types):
                 for option in options
             ]
     result["type_chain"] = [node.get("id") for node in chain]
+    if unresolved:
+        result["unresolved_base"] = unresolved
     # Do not infer implicit enumeration ordinals or defaults.
     return result
 
@@ -193,8 +200,23 @@ def load_catalog(path):
         raise CatalogError("RPT archive missing or invalid") from err
 
 
+def explicit_options(definition):
+    """Return only unambiguous explicitly numbered enum options."""
+    options = definition.metadata.get("value_text", [])
+    result = {}
+    for item in options:
+        value = _integer(item.get("value"))
+        label = item.get("label")
+        if value is None or not label or value in result or label in result.values():
+            return {}
+        if not -(2**31) <= value < 2**31:
+            return {}
+        result[value] = label
+    return result
+
+
 def decoded_value(definition, raw):
-    """Decode numeric scaling only when the catalogue establishes it."""
+    """Decode verified numeric scaling, booleans and enum mappings."""
     chain = definition.metadata.get("type_chain", [])
     if raw is None:
         return None
@@ -203,9 +225,54 @@ def decoded_value(definition, raw):
     if "Handbetrieb" in chain:
         return {0: "Off", 1: "Min", 2: "Auto", 3: "Max", 4: "On"}.get(raw)
     if "Number" not in chain:
-        return None
+        return explicit_options(definition).get(raw)
     factor = _number(definition.metadata.get("storeFactor", "1"))
-    if factor is None:
+    if factor is None or factor <= 0:
         return None
     value = Decimal(raw) * factor
     return int(value) if value == value.to_integral_value() else float(value)
+
+
+def encode_numeric_value(definition, value):
+    """Validate exact static bounds, step and signed wire encoding.
+
+    This is conversion only, not permission to write. Conditional constraints,
+    active function, current mapping and storage still require separate proof.
+    """
+    metadata = definition.metadata
+    chain = metadata.get("type_chain", [])
+    if (
+        is_sensitive(definition)
+        or definition.excluded
+        or "Number" not in chain
+        or "Boolean" in chain
+        or "Handbetrieb" in chain
+        or metadata.get("value_text")
+        or metadata.get("unresolved_base")
+        or isinstance(value, bool)
+    ):
+        raise CatalogError("Numeric encoding not established")
+    factor = _number(metadata.get("storeFactor", "1"))
+    minimum = _number(metadata.get("minimum"))
+    maximum = _number(metadata.get("maximum"))
+    step = _number(metadata.get("step"))
+    number = _number(str(value))
+    if (
+        number is None
+        or factor is None
+        or factor <= 0
+        or minimum is None
+        or maximum is None
+        or step is None
+        or step <= 0
+        or minimum > maximum
+    ):
+        raise CatalogError("Numeric bounds or step not established")
+    if not minimum <= number <= maximum:
+        raise CatalogError("Value outside parameter range")
+    if (number - minimum) % step:
+        raise CatalogError("Value does not match parameter step")
+    raw = number / factor
+    if raw != raw.to_integral_value() or not -(2**31) <= raw < 2**31:
+        raise CatalogError("Value not exactly representable on VBus")
+    return int(raw)

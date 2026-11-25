@@ -2,6 +2,9 @@
 
 import importlib
 import os
+import xml.etree.ElementTree as ET
+import zipfile
+from collections import Counter
 import sys
 import types
 import unittest
@@ -140,6 +143,53 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn("Alias", exported["parameters"])
         self.assertNotIn("metadata", exported["parameters"]["Schema"])
 
+    def test_exact_numeric_encoding_and_rejection(self):
+        definition = catalog.Definition(
+            "Setpoint",
+            123,
+            "persistent",
+            "Number",
+            {
+                "type_chain": ["Number"],
+                "minimum": "-10",
+                "maximum": "80",
+                "step": "0.5",
+                "storeFactor": "0.1",
+            },
+        )
+        self.assertEqual(catalog.encode_numeric_value(definition, -2.5), -25)
+        self.assertEqual(catalog.encode_numeric_value(definition, 21.5), 215)
+        self.assertEqual(catalog.decoded_value(definition, -25), -2.5)
+        for value in (81, 21.1, "NaN", "Infinity", True):
+            with self.subTest(value=value), self.assertRaises(catalog.CatalogError):
+                catalog.encode_numeric_value(definition, value)
+        metadata = dict(definition.metadata)
+        del metadata["step"]
+        incomplete = catalog.Definition(
+            "Setpoint", 123, "persistent", "Number", metadata
+        )
+        with self.assertRaises(catalog.CatalogError):
+            catalog.encode_numeric_value(incomplete, 21.5)
+
+    def test_explicit_enum_only(self):
+        definition = catalog.Definition(
+            "Mode",
+            123,
+            "persistent",
+            "Mode",
+            {
+                "value_text": [
+                    {"value": "2", "label": "Normal"},
+                    {"value": "7", "label": "Economy"},
+                ]
+            },
+        )
+        self.assertEqual(catalog.explicit_options(definition), {2: "Normal", 7: "Economy"})
+        self.assertEqual(catalog.decoded_value(definition, 7), "Economy")
+        self.assertIsNone(catalog.decoded_value(definition, 0))
+        definition.metadata["value_text"].append({"value": None, "label": "Unknown"})
+        self.assertEqual(catalog.explicit_options(definition), {})
+
     def test_invalid_xml_and_archive_rejected(self):
         with self.assertRaises(catalog.CatalogError):
             catalog.parse_menu(b"<!DOCTYPE x><x/>", "test")
@@ -174,3 +224,26 @@ class DiscoveryTests(unittest.TestCase):
             status = definition.excluded or "candidate"
             counts[status] = counts.get(status, 0) + 1
         print("Exact vendor archive: definitions", len(definitions), counts)
+
+        # Aggregate schema evidence only: no vendor data or site values bundled.
+        with zipfile.ZipFile(os.environ["RPT_ARCHIVE"]) as archive:
+            root = ET.fromstring(archive.read(catalog.BX_PLUS_MENU))
+        value_attributes = Counter()
+        value_children = Counter()
+        tags = Counter(node.tag for node in root.iter())
+        for node in root.iter("value"):
+            value_attributes.update(node.attrib.keys())
+            value_children.update(child.tag for child in node)
+        print("RPT value attribute coverage:", sorted(value_attributes.items()))
+        print("RPT value child coverage:", sorted(value_children.items()))
+        print("RPT XML element coverage:", sorted(tags.items()))
+        print(
+            "RPT typed metadata coverage:",
+            dict(
+                Counter(
+                    key
+                    for definition in capture.candidates
+                    for key in definition.metadata
+                )
+            ),
+        )

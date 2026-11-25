@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cached_property
 
-from .catalog import BX_PLUS_CHANGESET, decoded_value, is_sensitive
+from .catalog import BX_PLUS_CHANGESET, decoded_value, explicit_options, is_sensitive
 from .parameters import device_inventory, find_profile
 from .vbus import ParameterObservation, VBusError
 
@@ -124,6 +124,7 @@ class ConfigurationCapture:
                         else "not_available"
                     ),
                     "metadata": definition.metadata,
+                    "explicit_options": explicit_options(definition),
                     "access": "read_observed",
                     "write_access": "not_assessed",
                     "applicability": "not_assessed",
