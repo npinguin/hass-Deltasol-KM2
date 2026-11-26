@@ -36,7 +36,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
-from .catalog import CatalogError, load_catalog
+from .catalog import CatalogError, CatalogMissing, download_catalog, load_catalog, source_for
 from .const import (
     CONF_VBUS_PASSWORD,
     DEFAULT_NAME,
@@ -189,6 +189,31 @@ async def _async_save_capture(runtime):
         _LOGGER.warning("Could not save RESOL Discovery checkpoint")
 
 
+def _catalog_identity(runtime):
+    relay = runtime.relay_coordinator
+    controller = capture_identity(runtime.coordinator.data)
+    if (
+        not runtime.coordinator.last_update_success
+        or not relay
+        or not relay.last_update_success
+        or not relay.data
+        or relay.data.controller != controller
+        or relay.data.changeset is None
+    ):
+        raise CatalogError("Controller catalogue identity not confirmed")
+    return controller, source_for(controller.address, relay.data.changeset)
+
+
+async def _async_catalog(hass, source, *, acquire=False):
+    path = hass.config.path("deltasol", source.filename)
+    try:
+        return await hass.async_add_executor_job(load_catalog, path, source)
+    except CatalogMissing:
+        if not acquire:
+            raise
+        return await hass.async_add_executor_job(download_catalog, path, source)
+
+
 async def _async_restore_capture(hass, runtime):
     """Restore only against the current verified controller and exact local archive."""
     if not runtime.coordinator.api.supports_parameter_access:
@@ -197,31 +222,14 @@ async def _async_restore_capture(hass, runtime):
         stored = await runtime.capture_store.async_load()
         if stored is None:
             return False
-        relay = runtime.relay_coordinator
-        if (
-            not relay
-            or not relay.last_update_success
-            or not relay.data
-            or relay.data.changeset is None
-            or not runtime.coordinator.last_update_success
-        ):
-            runtime.checkpoint_error = "checkpoint_identity_unconfirmed"
-            return False
-        controller = capture_identity(runtime.coordinator.data)
-        if relay.data.controller != controller:
-            runtime.checkpoint_error = "checkpoint_identity_unconfirmed"
-            return False
-        catalog = await hass.async_add_executor_job(
-            load_catalog, hass.config.path("deltasol", "BXPLUS_2.08.zip")
-        )
+        controller, source = _catalog_identity(runtime)
+        catalog = await _async_catalog(hass, source)
         capture = ConfigurationCapture.restore(
-            stored["capture"], catalog, controller, relay.data.changeset
+            stored["capture"], catalog, controller, source.changeset
         )
         previous = stored.get("previous")
         runtime.previous_capture = (
-            ConfigurationCapture.restore(
-                previous, catalog, controller, relay.data.changeset
-            )
+            ConfigurationCapture.restore(previous, catalog, controller, source.changeset)
             if previous else None
         )
         runtime.capture = capture
@@ -251,10 +259,8 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
     if not telemetry.last_update_success or not telemetry.api.supports_parameter_access:
         raise HomeAssistantError("Controller parameter access is unavailable")
     try:
-        controller = capture_identity(telemetry.data)
-        catalog = await hass.async_add_executor_job(
-            load_catalog, hass.config.path("deltasol", "BXPLUS_2.08.zip")
-        )
+        controller, source = _catalog_identity(runtime)
+        catalog = await _async_catalog(hass, source, acquire=True)
     except (CatalogError, VBusError) as err:
         raise HomeAssistantError(str(err)) from err
     if runtime.capture is None:
@@ -265,10 +271,17 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
         or capture.status == "complete"
         or capture.controller != controller
         or capture.catalog.digest != catalog.digest
+        or capture.changeset != source.changeset
     ):
-        if capture and capture.status == "complete":
-            runtime.previous_capture = capture
-        capture = ConfigurationCapture(catalog, controller)
+        runtime.previous_capture = (
+            capture
+            if capture and capture.status == "complete"
+            and capture.controller == controller
+            and capture.catalog.digest == catalog.digest
+            and capture.changeset == source.changeset
+            else None
+        )
+        capture = ConfigurationCapture(catalog, controller, source.changeset)
         runtime.capture = capture
     await _start_capture(hass, entry, runtime)
 

@@ -327,7 +327,7 @@ def compare_captures(previous, current):
 def capture_identity(telemetry):
     """Only the exact known controller family; do not match on changeset alone."""
     profile, controller = find_profile(device_inventory(telemetry))
-    if profile is None or profile.address != 0x7112:
+    if profile is None:
         raise VBusError("Unsupported or ambiguous discovery controller")
     return controller
 

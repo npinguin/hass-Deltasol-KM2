@@ -1,7 +1,9 @@
 """Tests for catalogue parsing, read coverage and snapshot comparison."""
 
 import asyncio
+import hashlib
 import importlib
+import io
 import os
 import sys
 import types
@@ -10,8 +12,9 @@ import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 PACKAGE = "_deltasol_discovery_tests"
 package = types.ModuleType(PACKAGE)
@@ -279,6 +282,39 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIsNone(catalog.decoded_value(definition, 0))
         definition.metadata["value_text"].append({"value": None, "label": "Unknown"})
         self.assertEqual(catalog.explicit_options(definition), {})
+
+    def test_catalog_source_and_verified_download(self):
+        source = catalog.source_for(0x7112, 0x2734DABC)
+        with self.assertRaises(catalog.CatalogError):
+            catalog.source_for(0x7E11, 0x2734DABC)
+        with self.assertRaises(catalog.CatalogError):
+            catalog.source_for(0x7112, 123)
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as archive:
+            archive.writestr(source.menu_member, menu())
+        raw = data.getvalue()
+        from dataclasses import replace
+
+        source = replace(source, digest=hashlib.sha256(raw).hexdigest())
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.geturl.return_value = source.url
+        response.read.return_value = raw
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / source.filename
+            with (
+                patch.object(catalog, "CATALOG_SOURCES", (source,)),
+                patch.object(catalog, "urlopen", return_value=response),
+            ):
+                with self.assertRaises(catalog.CatalogMissing):
+                    catalog.load_catalog(path, source)
+                downloaded = catalog.download_catalog(path, source)
+                self.assertEqual(downloaded, catalog.load_catalog(path, source))
+                self.assertEqual(path.read_bytes(), raw)
+                response.read.return_value = b"wrong digest"
+                with self.assertRaises(catalog.CatalogError):
+                    catalog.download_catalog(path, source)
+                self.assertEqual(path.read_bytes(), raw)
 
     def test_invalid_xml_and_archive_rejected(self):
         with self.assertRaises(catalog.CatalogError):

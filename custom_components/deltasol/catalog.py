@@ -2,11 +2,17 @@
 
 import hashlib
 import io
+import os
 import re
+import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from urllib.error import URLError
+from urllib.parse import urlsplit
+from urllib.request import urlopen
 
 from .vbus import parameter_hash
 
@@ -27,8 +33,47 @@ SENSITIVE = re.compile(
 )
 
 
+@dataclass(frozen=True)
+class CatalogSource:
+    """Versioned catalogue source selected by controller identity and changeset."""
+
+    address: int
+    changeset: int
+    filename: str
+    menu_member: str
+    digest: str
+    url: str
+
+
+CATALOG_SOURCES = (
+    CatalogSource(
+        0x7112,
+        BX_PLUS_CHANGESET,
+        "BXPLUS_2.08.zip",
+        BX_PLUS_MENU,
+        BX_PLUS_SHA256,
+        "https://www.mastersolar.rs/wp-content/uploads/2021/02/BXPLUS_2.08.zip",
+    ),
+)
+
+
 class CatalogError(ValueError):
     """A locally supplied definition is missing or cannot be trusted."""
+
+
+class CatalogMissing(CatalogError):
+    """The exact catalogue is not yet cached."""
+
+
+def source_for(address, changeset):
+    """Never select a catalogue by gateway firmware or changeset alone."""
+    matches = [
+        source for source in CATALOG_SOURCES
+        if (source.address, source.changeset) == (address, changeset)
+    ]
+    if len(matches) != 1:
+        raise CatalogError("Unsupported controller catalogue")
+    return matches[0]
 
 
 @dataclass(frozen=True)
@@ -218,21 +263,64 @@ def parse_menu(xml, digest):
     return Catalog(digest, tuple(result.values()))
 
 
-def load_catalog(path):
-    """Validate the exact known archive; read only the menu member, never DLLs."""
+def _parse_archive(data, source):
+    digest = hashlib.sha256(data).hexdigest()
+    if len(data) > MAX_ARCHIVE or digest != source.digest:
+        raise CatalogError("Unsupported RPT archive digest")
     try:
-        with open(path, "rb") as stream:
-            data = stream.read(MAX_ARCHIVE + 1)
-        digest = hashlib.sha256(data).hexdigest()
-        if len(data) > MAX_ARCHIVE or digest != BX_PLUS_SHA256:
-            raise CatalogError("Unsupported RPT archive digest")
         with zipfile.ZipFile(io.BytesIO(data)) as archive:
-            info = archive.getinfo(BX_PLUS_MENU)
+            info = archive.getinfo(source.menu_member)
             if info.file_size > MAX_XML:
                 raise CatalogError("RPT menu exceeds size limit")
             return parse_menu(archive.read(info), digest)
-    except (OSError, KeyError, zipfile.BadZipFile) as err:
-        raise CatalogError("RPT archive missing or invalid") from err
+    except (KeyError, zipfile.BadZipFile) as err:
+        raise CatalogError("Invalid RPT archive") from err
+
+
+def load_catalog(path, source=CATALOG_SOURCES[0]):
+    """Validate the exact cached archive, never execute vendor binaries."""
+    try:
+        with open(path, "rb") as stream:
+            data = stream.read(MAX_ARCHIVE + 1)
+    except FileNotFoundError as err:
+        raise CatalogMissing("RPT catalogue not cached") from err
+    except OSError as err:
+        raise CatalogError("RPT archive unavailable") from err
+    return _parse_archive(data, source)
+
+
+def download_catalog(path, source):
+    """Acquire a pinned public RPT archive locally; no site data is transmitted."""
+    if source not in CATALOG_SOURCES:
+        raise CatalogError("Untrusted RPT catalogue source")
+    try:
+        with urlopen(source.url, timeout=15) as response:  # noqa: S310
+            target = urlsplit(response.geturl())
+            if target.scheme != "https" or target.netloc != urlsplit(source.url).netloc:
+                raise CatalogError("Unexpected RPT catalogue redirect")
+            data = response.read(MAX_ARCHIVE + 1)
+        catalog = _parse_archive(data, source)
+        destination = Path(path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # Atomic replacement only after checksum and XML validation.
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent, prefix=".catalog-", delete=False
+        ) as stream:
+            temporary = Path(stream.name)
+            try:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
+            except OSError:
+                temporary.unlink(missing_ok=True)
+                raise
+        try:
+            os.replace(temporary, destination)
+        finally:
+            temporary.unlink(missing_ok=True)
+        return catalog
+    except (OSError, URLError, TimeoutError) as err:
+        raise CatalogError("RPT catalogue download failed") from err
 
 
 def explicit_options(definition):
