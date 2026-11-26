@@ -17,6 +17,7 @@ from .parameters import RelayDiscovery, RelayParameters
 from .vbus import VBusError
 
 _LOGGER = logging.getLogger(__name__)
+HTTP_TIMEOUT = (5, 15)
 
 DeltasolEndpoint = namedtuple(
     "DeltasolEndpoint",
@@ -79,7 +80,7 @@ class DeltasolApi:
         try:
             url = f"http://{self.host}:{self.port}/cgi-bin/get_resol_device_information"
             _LOGGER.info(f"Auto detecting Resol product from {url}")
-            response = requests.request("GET", url)
+            response = requests.request("GET", url, timeout=HTTP_TIMEOUT)
             if response.status_code == 200:
                 _LOGGER.debug(f"response: {response.text}")
                 matches = re.search(r'product\s=\s["](.*?)["]', response.text)
@@ -117,10 +118,8 @@ class DeltasolApi:
                 _LOGGER.error(error)
                 raise IntegrationError(error)
 
-        except RequestException as e:
-            error = f"Error detecting Resol product - {e}, please file an issue at: https://github.com/dm82m/hass-Deltasol-KM2/issues/new/choose"
-            _LOGGER.error(error)
-            raise IntegrationError(error)
+        except RequestException as error:
+            raise IntegrationError("RESOL HTTP product detection failed") from error
 
         return self.product
 
@@ -145,6 +144,10 @@ class DeltasolApi:
     def supports_parameter_access(self):
         """Parameter access is separate from the existing HTTP credentials."""
         return self._parameters is not None and self.product in ("km2", "dl2plus")
+
+    def parameter_transport_health(self):
+        """Cached, sanitized transport metrics, independent of HTTP state."""
+        return self._parameters.transport_health() if self._parameters else None
 
     def fetch_relay_modes(self, telemetry):
         """Discover available relay parameters without altering any setting."""
@@ -194,7 +197,7 @@ class DeltasolApi:
                 + "'}}]"
             )
             response = requests.request(
-                "POST", url, headers=headers, data=payload
+                "POST", url, headers=headers, data=payload, timeout=HTTP_TIMEOUT
             ).json()
             authId = response[0]["result"]["authId"]
 
@@ -204,7 +207,7 @@ class DeltasolApi:
                 + "'}}]"
             )
             response = requests.request(
-                "POST", url, headers=headers, data=payload
+                "POST", url, headers=headers, data=payload, timeout=HTTP_TIMEOUT
             ).json()
             _LOGGER.debug(f"KM2 response: {response}")
             response = response[0]["result"]
@@ -234,7 +237,7 @@ class DeltasolApi:
 
         _LOGGER.debug(debugMessage)
 
-        response = requests.request("GET", url)
+        response = requests.request("GET", url, timeout=HTTP_TIMEOUT)
 
         if response.status_code == 200:
             response = response.json()

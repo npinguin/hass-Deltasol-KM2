@@ -235,6 +235,7 @@ class ConfigurationCapture:
                     "receive",
                     "release",
                     "telemetry",
+                    "availability",
                 )
                 or (
                     command is not None
@@ -307,7 +308,14 @@ class ConfigurationCapture:
                 "type": definition.type_id,
             }
             parameters[definition.name] = item
-            if observed is None or not current:
+            if observed is None:
+                continue
+            if not current:
+                item["last_observation"] = {"status": observed.status}
+                if observed.index not in self.sensitive_indices:
+                    item["last_observation"]["resolved_index"] = observed.index
+                    if observed.status == "read":
+                        item["last_observation"]["raw_value"] = observed.value
                 continue
             if observed.index not in self.sensitive_indices:
                 item["resolved_index"] = observed.index

@@ -85,6 +85,9 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn(
             "raw_value", capture.export(False)["parameters"]["TemperatureLimit"]
         )
+        self.assertIn(
+            "last_observation", capture.export(False)["parameters"]["TemperatureLimit"]
+        )
         self.assertNotIn("metadata", exported["parameters"]["UnknownType"])
         new = discovery.ConfigurationCapture(parsed, controller)
         new.apply(

@@ -360,6 +360,23 @@ class ParameterTests(unittest.TestCase):
         self.discover()
         self.sleep.assert_called_once_with(parameters.SESSION_GAP_SECONDS)
 
+    def test_adaptive_transport_cooldown_and_health(self):
+        failure = parameters.VBusTransientError(
+            "VBus bus acquisition failed", "acquire"
+        )
+        self.ctx.__enter__.side_effect = failure
+        for _ in range(2):
+            with self.assertRaises(parameters.VBusTransientError):
+                self.discover()
+        self.assertEqual(
+            self.api.transport_health()["failure_counts"], {"bus_acquisition": 2}
+        )
+        self.assertEqual(self.api.transport_health()["cooldown_seconds"], 5)
+        self.ctx.__enter__.side_effect = None
+        self.discover()
+        self.assertEqual(self.api.transport_health()["cooldown_seconds"], 1.5)
+        self.assertEqual(self.api.transport_health()["successful_sessions"], 1)
+
     def test_profile_specific_unresolved_presence_uses_positive_live_evidence(self):
         self.activate_modules()
         self.session.read.return_value = 0x2734DABC
