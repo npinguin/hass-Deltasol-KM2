@@ -57,6 +57,7 @@ from .parameters import refresh_relay_modes, run_parameter_job
 from .vbus import VBusError, VBusTransientError
 
 _LOGGER = logging.getLogger(__name__)
+DISCOVERY_BATCH_GAP_SECONDS = 1
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
@@ -439,7 +440,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
 
     async def async_read_configuration_batch(self, capture, names):
         """Give foreground work a scheduling window before each batch."""
-        await asyncio.sleep(1)
+        await asyncio.sleep(DISCOVERY_BATCH_GAP_SECONDS)
         if not self.last_update_success:
             await self.async_refresh()
             if not self.last_update_success:

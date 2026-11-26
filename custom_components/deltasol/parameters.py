@@ -344,10 +344,14 @@ async def run_parameter_job(hass, function, *args):
     try:
         return await asyncio.shield(job)
     except asyncio.CancelledError:
-        try:
-            await asyncio.shield(job)
-        except Exception:
-            pass
+        # Drain even after cancellation; the original cancellation remains
+        # the caller's outcome, not any late worker response.
+        drained = asyncio.gather(job, return_exceptions=True)
+        while not drained.done():
+            try:
+                await asyncio.shield(drained)
+            except asyncio.CancelledError:
+                continue
         raise
 
 

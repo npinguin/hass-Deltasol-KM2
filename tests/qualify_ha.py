@@ -1,6 +1,7 @@
 """Real HA lifecycle test with an independent loopback VBus protocol peer.
 
-The peer models R4 and an independently registered EM relay. This is not physical RESOL evidence.
+The peer models all ten local and registered EM relay capabilities.
+It is an independent protocol test, not physical RESOL evidence.
 """
 
 import ast
@@ -50,6 +51,52 @@ class Peer:
     offer_waiting = threading.Event()
     offer_release = threading.Event()
     events: ClassVar[list[str]] = []
+    extra_lookups: ClassVar[dict[int, int]] = {}
+    extra_values: ClassVar[dict[int, int]] = {}
+    release_silence = 0
+    release_other_first = False
+    silent_offers = 0
+    failed_release_sessions = 0
+    sessions = 0
+    owner = threading.Lock()
+
+
+def semantic_hash(name):
+    value = 0
+    for byte in name.encode("ascii"):
+        value = (value * 33 + byte) & 0x7FFFFFFF
+    return value
+
+
+def live_packet(address):
+    header = struct.pack("<HHBHB", 0x10, address, 0x10, 0x100, 1)
+    frame = bytes([1, 2, 3, 4, 0])
+    return (
+        b"\xaa"
+        + header
+        + bytes([127 - (sum(header) & 127)])
+        + frame
+        + bytes([127 - (sum(frame) & 127)])
+    )
+
+
+def additional_relays():
+    """Populate other verified local/EM mappings independently of the driver."""
+    for prefix, indices, existing in (
+        ("Relais_Regler", (1977, 1991, 2005, 2019, 2033), RELAY),
+        ("Relais_Modul1", (2173, 2187, 2201, 2215, 2229), EM_RELAY),
+    ):
+        for number, index in enumerate(indices, 1):
+            if index == existing:
+                continue
+            Peer.extra_lookups[
+                semantic_hash(f"{prefix}_R{number}_Handbetrieb")
+            ] = index
+            Peer.extra_lookups[
+                semantic_hash(f"{prefix}_R{number}_ODrehzahl")
+            ] = index - 4
+            Peer.extra_values[index] = 2
+            Peer.extra_values[index - 4] = number % 2
 
 
 def datagram(destination, source, command, index=0, value=0):
@@ -76,10 +123,22 @@ class VBusHandler(socketserver.StreamRequestHandler):
         if Peer.drop_next_offer:
             Peer.drop_next_offer = False
             return
+        if Peer.silent_offers:
+            Peer.silent_offers -= 1
+            threading.Event().wait(20.2)
+            return
         if Peer.hold_next_offer:
             Peer.hold_next_offer = False
             Peer.offer_waiting.set()
             assert Peer.offer_release.wait(timeout=10)
+        assert Peer.owner.acquire(blocking=False), "overlapping bus owners"
+        Peer.sessions += 1
+        try:
+            self.exchange()
+        finally:
+            Peer.owner.release()
+
+    def exchange(self):
         self.wfile.write(datagram(0, ADDRESS, 0x0500))
         while frame := self.rfile.read(16):
             assert len(frame) == 16 and frame[0] == 170
@@ -112,7 +171,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     124814937: 61,
                     1011665082: 62,
                     1893665643: 63,
-                }.get(value, 0)
+                }.get(value, Peer.extra_lookups.get(value, 0))
                 if value == 1682631798 and not Peer.presence_lookup:
                     index = 0
                 response = datagram(source, ADDRESS, 0x1101, index, value)
@@ -127,6 +186,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     EM_RELAY: Peer.em_mode,
                     2169: 1,
                     **Peer.settings,
+                    **Peer.extra_values,
                 }[index]
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0200:
@@ -150,10 +210,23 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 temporary.replace(Peer.persistent_file)
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0600:
-                header = bytes.fromhex("1000127110000100")
-                self.wfile.write(
-                    bytes([170]) + header + bytes([127 - (sum(header) & 127)])
-                )
+                if Peer.failed_release_sessions:
+                    Peer.failed_release_sessions -= 1
+                    return
+                if Peer.release_silence:
+                    Peer.release_silence -= 1
+                    continue
+                packet = live_packet(ADDRESS)
+                if Peer.release_other_first:
+                    Peer.release_other_first = False
+                    self.wfile.write(live_packet(0x6651))
+                    # The controller's real frame is late and fragmented.
+                    threading.Event().wait(1.7)
+                    self.wfile.write(packet[:7])
+                    threading.Event().wait(0.03)
+                    self.wfile.write(packet[7:])
+                else:
+                    self.wfile.write(packet)
                 return
             else:
                 raise AssertionError(f"Unexpected command {command}")
@@ -349,7 +422,12 @@ async def qualify(directory, phase):
         assert access["status"] == "supported"
         assert access["relays"]["R4"]["mode"] == "On"
         assert access["relays"]["R4"]["mode_value"] == 4
-        assert access["relays"]["R1"]["writable_options"] == []
+        assert access["relays"]["R1"]["writable_options"] == [
+            "Auto", "Off", "Min", "Max"
+        ]
+        assert sum(
+            relay["status"] == "supported" for relay in access["relays"].values()
+        ) == 10
         assert access["relays"]["M1_R1"]["writable_options"] == [
             "Auto",
             "Off",
@@ -638,6 +716,59 @@ async def qualify(directory, phase):
         assert Peer.writes == 7
         assert Peer.saves == 2
 
+        # Exercise real 16-item batches across 200+ independent TCP sessions.
+        # Accelerate only pacing here; earlier and later lifecycle tests use
+        # production delays and real socket timeout behavior.
+        soak_definitions = tuple(
+            Definition(f"Soak{n}", 10000 + n, "volatile", None, {})
+            for n in range(3200)
+        )
+        for n in range(0, 3200, 2):
+            Peer.extra_lookups[semantic_hash(f"Soak{n}")] = 10000 + n
+            Peer.extra_values[10000 + n] = n
+        soak = Catalog("isolated-soak", soak_definitions)
+        sessions_before = Peer.sessions
+        with (
+            patch("custom_components.deltasol.load_catalog", return_value=soak),
+            patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 0.02),
+            patch("custom_components.deltasol.parameters.SESSION_GAP_SECONDS", 0.05),
+        ):
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            await entry.runtime_data.capture_task
+            capture = entry.runtime_data.capture
+            assert capture.status == "complete" and capture.offset == 3200
+            assert capture.summary()["read_count"] == 1600
+            assert capture.summary()["not_resolved_count"] == 1600
+            assert Peer.sessions - sessions_before >= 200
+            assert Peer.writes == 7 and Peer.saves == 2
+            assert hass.states.get(select).state == "Auto"
+            assert float(hass.states.get(sensor).state) == 42
+
+        # Release loss, late unrelated traffic and repeated acquisition
+        # failures are exercised through the actual coordinator, not mocks.
+        relay = entry.runtime_data.relay_coordinator
+        Peer.release_silence = 1
+        await relay.async_refresh()
+        assert relay.last_update_success
+        Peer.release_other_first = True
+        await relay.async_refresh()
+        assert relay.last_update_success
+        Peer.failed_release_sessions = 1
+        Peer.silent_offers = 1
+        await relay.async_refresh()
+        assert relay.last_update_success
+        health = (await async_get_config_entry_diagnostics(hass, entry))[
+            "parameter_access"
+        ]["transport"]
+        assert health["release_failures"] >= 1
+        assert health["other_live_packets"] >= 1
+        assert health["failure_counts"]["bus_acquisition"] >= 1
+        assert health["consecutive_transport_failures"] == 0
+        assert Peer.writes == 7 and Peer.saves == 2
+        assert float(hass.states.get(sensor).state) == 42
+
         # A real native action must take its turn before the next Discovery
         # batch. Hold the independent peer's first offer, queue two actions,
         # then allow that batch to finish. No second bus or optimistic state.
@@ -738,6 +869,7 @@ async def qualify(directory, phase):
 def main():
     directory = Path(sys.argv[1])
     phase = sys.argv[2]
+    additional_relays()
     Peer.persistent_file = directory / "qualification-peer-settings.json"
     if Peer.persistent_file.exists():
         Peer.settings = {
