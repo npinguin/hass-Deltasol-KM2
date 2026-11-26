@@ -10,7 +10,6 @@ from .parameters import (
     find_device,
     find_profile,
 )
-
 from .vbus import ERROR_CODES
 
 
