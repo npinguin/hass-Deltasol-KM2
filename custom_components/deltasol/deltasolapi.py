@@ -160,6 +160,12 @@ class DeltasolApi:
             telemetry, controller, names, changeset
         )
 
+    def set_configuration(self, telemetry, capability, value):
+        """Route typed configuration through the existing parameter owner."""
+        if not self.supports_parameter_access:
+            raise VBusError("VBus parameter access is not configured")
+        return self._parameters.set_configuration(telemetry, capability, value)
+
     def set_relay_mode(self, telemetry, capability, option):
         """Use the same capability-checked writer for all HA consumers."""
         if not self.supports_parameter_access:

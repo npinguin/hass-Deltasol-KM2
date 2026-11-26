@@ -42,6 +42,10 @@ ERROR_CODES = {
     "VBus write acknowledgement differs": "acknowledgement_mismatch",
     "VBus write readback differs": "readback_mismatch",
     "Relay capability or controller identity changed": "identity_changed",
+    "Configuration capability or controller identity changed": "identity_changed",
+    "Configuration parameter is no longer supported": "unsupported_parameter",
+    "Configuration reconnect readback differs": "readback_mismatch",
+    "Invalid configuration value": "invalid_value",
 }
 
 
@@ -187,8 +191,25 @@ async def async_get_config_entry_diagnostics(hass, entry):
         configuration["comparison"] = compare_captures(
             runtime.previous_capture, capture
         )
+    settings = {}
+    if discovery:
+        for capability in discovery.configuration.values():
+            valid = (
+                current
+                and capability.controller == controller
+                and capability.device in inventory
+            )
+            settings[capability.setting.name] = {
+                "status": "supported" if valid else "stale",
+                "device_address": f"0x{capability.device.address:04X}",
+                "kind": capability.setting.kind,
+                "write_access": "profile_verified" if valid else "not_confirmed",
+                "storage_action": "save" if capability.setting.save else "volatile",
+                "value": capability.value if valid else None,
+            }
     return {
         "configuration_discovery": configuration,
+        "configuration_controls": settings,
         "gateway": {
             "type": api.product
             if api.product in ("km2", "dl2plus", "dl2", "dl3")

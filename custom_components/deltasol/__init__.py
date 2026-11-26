@@ -57,7 +57,9 @@ from .vbus import VBusError
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT, Platform.BUTTON]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR, Platform.SELECT, Platform.BUTTON, Platform.NUMBER, Platform.SWITCH
+]
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA_BASE.extend(
     {
@@ -135,8 +137,15 @@ async def async_setup_entry(
 
     # Setup platforms (based on the list of entity types in PLATFORMS defined above)
     # This calls the async_setup method in each of your entity type files.
-    await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     runtime = config_entry.runtime_data
+    if coordinator.api.supports_parameter_access:
+        runtime.relay_coordinator = DeltasolRelayCoordinator(hass, coordinator)
+        config_entry.async_on_unload(
+            coordinator.async_add_listener(runtime.relay_coordinator.async_update_listeners)
+        )
+    await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
+    if runtime.relay_coordinator:
+        await runtime.relay_coordinator.async_refresh()
     if await _async_restore_capture(hass, runtime):
         if runtime.resume_on_load and runtime.capture.status == "paused":
             await _start_capture(hass, config_entry, runtime)
@@ -396,6 +405,34 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 return await refresh_relay_modes(self.telemetry)
             except VBusError as error:
                 raise UpdateFailed(str(error)) from error
+
+    async def async_set_configuration(self, unique_id, value):
+        """Native entities use one live validated configuration action."""
+        async with self._lock:
+            if (
+                not self.last_update_success
+                or not self.telemetry.last_update_success
+                or not self.data
+                or unique_id not in self.data.configuration
+            ):
+                raise HomeAssistantError("Configuration capability is unavailable")
+            capability = self.data.configuration[unique_id]
+            await self.telemetry.async_refresh()
+            if not self.telemetry.last_update_success:
+                raise HomeAssistantError("Controller telemetry is unavailable")
+            try:
+                verified = await self.hass.async_add_executor_job(
+                    self.api.set_configuration, self.telemetry.data, capability, value
+                )
+            except VBusError as error:
+                self.async_set_update_error(error)
+                raise HomeAssistantError(str(error)) from error
+            self.async_set_updated_data(
+                replace(
+                    self.data,
+                    configuration={**self.data.configuration, unique_id: verified},
+                )
+            )
 
     async def async_set_mode(self, unique_id, option):
         """Do not accept calls that bypass entity availability."""

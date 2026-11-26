@@ -361,6 +361,26 @@ class DiscoveryTests(unittest.TestCase):
         definitions = {d.name: d for d in parsed.definitions}
         self.assertGreater(len(definitions), 7000)
         self.assertEqual(definitions["Schema"].index, 86)
+        # Corroborate the production write contracts against the exact RPT,
+        # not the earlier optimizer indices.
+        configuration = importlib.import_module(f"{PACKAGE}.configuration")
+        for setting in configuration.BX_PLUS_SETTINGS:
+            definition = definitions[setting.name]
+            self.assertEqual(definition.index, setting.index)
+            self.assertIsNone(definition.excluded)
+            self.assertEqual(definition.storage, "unspecified")
+            self.assertTrue(any(
+                ref.get("menu") == "Grundeinstellungen"
+                for ref in definition.metadata["menu_refs"]
+            ))
+            self.assertFalse(definition.metadata.get("compound_ref"))
+            self.assertFalse(definition.metadata.get("selector_ref"))
+            if setting.kind == "switch":
+                self.assertIn("Boolean", definition.metadata["type_chain"])
+            else:
+                labels = [item["label"] for item in definition.metadata["value_text"]]
+                self.assertEqual(len(labels), len(setting.options))
+                self.assertEqual([raw for _, raw in setting.options], [0, 1])
         self.assertEqual(definitions["Bedienercode"].excluded, "sensitive")
         self.assertEqual(
             definitions["MesseModus_BedienercodeReset"].excluded, "sensitive"

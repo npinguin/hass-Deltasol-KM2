@@ -15,6 +15,7 @@ package.__path__ = [
 ]
 sys.modules[PACKAGE] = package
 parameters = importlib.import_module(f"{PACKAGE}.parameters")
+parameters_configuration = importlib.import_module(f"{PACKAGE}.configuration")
 
 NAME = "Relais_Regler_R4_Handbetrieb"
 SPEED = "Relais_Regler_R4_ODrehzahl"
@@ -88,6 +89,65 @@ class ParameterTests(unittest.TestCase):
 
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
+
+    def test_verified_configuration_save_and_reconnect(self):
+        self.session.read.return_value = 0x2734DABC
+        self.values["AutoSommerWinterzeit"] = (56, 1)
+        self.values["TemperatureHysteresisSelector"] = (60, 0)
+        observed = self.api.discover(telemetry()).configuration
+        self.assertEqual(len(observed), 2)
+        capability = next(
+            cap for cap in observed.values()
+            if cap.setting.name == "TemperatureHysteresisSelector"
+        )
+        self.assertEqual(capability.value, "°C")
+        self.session.write_verified.assert_not_called()
+        before = self.connect.call_count
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, value, changeset, save),
+                             (0x7112, 60, 1, 0x2734DABC, True))
+            self.values["TemperatureHysteresisSelector"] = (60, 1)
+            return value
+
+        self.session.write_verified.side_effect = write
+        result = self.api.set_configuration(telemetry(), capability, "°F")
+        self.assertEqual(result.value, "°F")
+        self.assertEqual(self.connect.call_count, before + 2)
+        self.session.write_verified.assert_called_once()
+        self.api.set_configuration(telemetry(), result, "°F")
+        self.session.write_verified.assert_called_once()
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), result, "invalid")
+        self.values["TemperatureHysteresisSelector"] = (61, 1)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), result, "°C")
+        self.session.write_verified.assert_called_once()
+
+    def test_configuration_reconnect_mismatch_never_resaves(self):
+        self.session.read.return_value = 0x2734DABC
+        self.values["AutoSommerWinterzeit"] = (56, 1)
+        cap = next(iter(self.api.discover(telemetry()).configuration.values()))
+        self.session.write_verified.return_value = 0
+        with self.assertRaisesRegex(parameters.VBusError, "reconnect readback"):
+            self.api.set_configuration(telemetry(), cap, False)
+        self.session.write_verified.assert_called_once()
+        self.session.read.return_value = 12345
+        self.assertEqual(self.api.discover(telemetry()).configuration, {})
+
+    def test_configuration_numeric_and_dependency_contract(self):
+        setting = parameters.Setting(
+            "Setting", 200, "Setting", "number", True,
+            limits=("0", "10", "0.5", "0.1"),
+            dependencies=(parameters_configuration.Dependency("Active", 201, (1,)),),
+        )
+        self.assertEqual(setting.encode(2.5), 25)
+        self.assertEqual(setting.decode(25), 2.5)
+        self.assertTrue(setting.accepts({"Setting": 25, "Active": 1}))
+        self.assertFalse(setting.accepts({"Setting": 25, "Active": 0}))
+        for invalid in (2.3, 11, True):
+            with self.assertRaises(parameters.VBusError):
+                parameters.encode_action(setting, invalid)
 
     def test_positive_discovery_only(self):
         result = self.discover()
