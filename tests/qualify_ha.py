@@ -13,6 +13,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import MappingProxyType
 from typing import ClassVar
 from unittest.mock import patch
 
@@ -422,6 +423,8 @@ async def qualify(directory, phase):
                 source="user",
                 unique_id="duplicate-isolated-gateway",
                 options=dict(entry.options),
+                discovery_keys=MappingProxyType({}),
+                subentries_data=None,
             )
             sessions_before = Peer.sessions
             await hass.config_entries.async_add(duplicate)
