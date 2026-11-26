@@ -466,9 +466,7 @@ async def capture_batches(runtime, checkpoint=None):
         if capture.status in ("running", "recovering"):
             # HA can cancel background tasks before config-entry unload.
             # Only committed batches survive; preserve automatic resume intent.
-            runtime.resume_on_load = (
-                runtime.resume_on_load or not runtime.stop_capture
-            )
+            runtime.resume_on_load = runtime.resume_on_load or not runtime.stop_capture
             capture.status = "paused"
             capture.error = "capture_cancelled"
         raise
