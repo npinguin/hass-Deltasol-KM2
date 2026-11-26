@@ -149,6 +149,8 @@ class DiscoveryTests(unittest.TestCase):
             first, {first[0].name: vbus.ParameterObservation(17, 215, "read")}
         )
         capture.retry_count = 3
+        capture.consecutive_failures = 2
+        capture.error = "VBus bus acquisition failed"
         stored = capture.checkpoint()
         restored = discovery.ConfigurationCapture.restore(
             stored, parsed, controller, capture.changeset
@@ -156,6 +158,8 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(restored.status, "paused")
         self.assertEqual(restored.offset, 1)
         self.assertEqual(restored.retry_count, 3)
+        self.assertEqual(restored.consecutive_failures, 2)
+        self.assertEqual(restored.error, "VBus bus acquisition failed")
         self.assertEqual(restored.results, capture.results)
         self.assertEqual(restored.next_batch(), capture.next_batch())
         restored.apply(
@@ -171,6 +175,7 @@ class DiscoveryTests(unittest.TestCase):
         for changed in (
             {**stored, "offset": 2},
             {**stored, "changeset": 1},
+            {**stored, "error": "untrusted credential or payload"},
             {**stored, "observations": [["Password", 18, 1234, "read"]]},
             {**stored, "observations": [[first[0].name, 18, 1234, "read"]]},
         ):
@@ -477,20 +482,23 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
             catalog.Catalog("test", definitions), SimpleNamespace(address=0x7112)
         )
 
-        async def execute(function, *args):
-            return function(*args)
+        telemetry = SimpleNamespace(last_update_success=True, data={})
+
+        async def read_batch(capture, names):
+            if not telemetry.last_update_success:
+                raise vbus.VBusTransientError(
+                    "Controller telemetry is unavailable", "telemetry"
+                )
+            return operation(telemetry.data, capture.controller, names, capture.changeset)
 
         return SimpleNamespace(
             capture=capture,
             stop_capture=False,
+            resume_on_load=False,
             capture_wakeup=asyncio.Event(),
             notify_capture=lambda: None,
-            coordinator=SimpleNamespace(
-                last_update_success=True,
-                data={},
-                hass=SimpleNamespace(async_add_executor_job=execute),
-                api=SimpleNamespace(read_configuration_batch=operation),
-            ),
+            coordinator=telemetry,
+            relay_coordinator=SimpleNamespace(async_read_configuration_batch=read_batch),
         )
 
     def observations_for(self, names):
@@ -594,3 +602,27 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime.capture.status, "complete")
         self.assertEqual(runtime.capture.retry_count, 1)
         self.assertEqual(runtime.capture.last_failure["phase"], "telemetry")
+
+    async def test_active_cancellation_retains_committed_progress_and_resume(self):
+        runtime = self.runtime(
+            lambda data, controller, names, changeset: self.observations_for(names)
+        )
+        entered = asyncio.Event()
+        original = runtime.relay_coordinator.async_read_configuration_batch
+
+        async def read(capture, names):
+            if capture.offset:
+                entered.set()
+                await asyncio.Event().wait()
+            return await original(capture, names)
+
+        runtime.relay_coordinator.async_read_configuration_batch = read
+        task = asyncio.create_task(discovery.capture_batches(runtime))
+        await asyncio.wait_for(entered.wait(), timeout=1)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertEqual(runtime.capture.status, "paused")
+        self.assertEqual(runtime.capture.offset, 16)
+        self.assertTrue(runtime.resume_on_load)
+        self.assertEqual(runtime.capture.error, "capture_cancelled")
