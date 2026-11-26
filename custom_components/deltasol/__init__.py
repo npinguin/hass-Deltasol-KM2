@@ -23,7 +23,7 @@ from homeassistant.const import (
     CONF_USERNAME,
     Platform,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import (
     ConfigEntryNotReady,
     HomeAssistantError,
@@ -152,11 +152,26 @@ async def async_setup_entry(
         )
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     if runtime.relay_coordinator:
-        await runtime.relay_coordinator.async_refresh()
-    if await _async_restore_capture(hass, runtime):
-        if runtime.resume_on_load and runtime.capture.status == "paused":
-            await _start_capture(hass, config_entry, runtime)
-        runtime.notify_capture()
+        relay = runtime.relay_coordinator
+        await relay.async_refresh()
+        if relay.last_update_success:
+            await _async_restore_and_resume(hass, config_entry, runtime)
+        else:
+            runtime.checkpoint_error = "checkpoint_waiting_for_controller"
+            restore_pending = True
+
+            @callback
+            def restore_when_ready():
+                nonlocal restore_pending
+                if restore_pending and relay.last_update_success:
+                    restore_pending = False
+                    config_entry.async_create_background_task(
+                        hass,
+                        _async_restore_and_resume(hass, config_entry, runtime),
+                        "deltasol_restore_capture",
+                    )
+
+            config_entry.async_on_unload(relay.async_add_listener(restore_when_ready))
 
     # Return true to denote a successful setup.
     return True
@@ -248,6 +263,7 @@ async def _async_restore_capture(hass, runtime):
     try:
         stored = await runtime.capture_store.async_load()
         if stored is None:
+            runtime.checkpoint_error = None
             return False
         controller, source = _catalog_identity(runtime)
         catalog = await _async_catalog(hass, source)
@@ -278,6 +294,15 @@ async def _async_restore_capture(hass, runtime):
         runtime.checkpoint_error = "checkpoint_incompatible"
         _LOGGER.warning("RESOL Discovery checkpoint unavailable or incompatible")
         return False
+
+
+async def _async_restore_and_resume(hass, entry, runtime):
+    """Restore once after verified parameter access returns, not on every poll."""
+    async with runtime.capture_lock:
+        if runtime.capture is None and await _async_restore_capture(hass, runtime):
+            if runtime.resume_on_load and runtime.capture.status == "paused":
+                await _start_capture(hass, entry, runtime)
+            runtime.notify_capture()
 
 
 async def async_toggle_configuration_capture(hass, entry):
