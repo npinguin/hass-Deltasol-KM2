@@ -46,6 +46,7 @@ class ControllerProfile:
     address: int
     schema_index: int
     groups: tuple[RelayGroup, ...]
+    module_presence_lookup_optional_changeset: int | None = None
 
 
 PROFILES = (
@@ -72,6 +73,10 @@ PROFILES = (
                 (("Modul2_Aktiviert", 197), ("Modul2_Vorhanden", 199)),
             ),
         ),
+        # Full physical scan on 2734DABC: all five activation flags read,
+        # all volatile presence flags unresolved. Require positive observed
+        # physical module identity + exact activation and relay mappings.
+        module_presence_lookup_optional_changeset=0x2734DABC,
     ),
 )
 
@@ -133,6 +138,7 @@ class RelayCapability:
     device: DeviceIdentity
     speed_control: bool
     value: int
+    registration_source: str = "controller"
 
     @property
     def name(self):
@@ -194,32 +200,44 @@ def _read_group(
     session, profile, changeset, group, controller, device, numbers, module_flags=None
 ):
     """Read presence and registration before any module relay parameters."""
+    registration_source = "controller"
     if group.flags:
-        if module_flags is None:
-            flags = _checked_parameters(session, profile, changeset, dict(group.flags))
-        else:
-            observed = session.read_parameter_observations(
-                profile.address, dict(group.flags), changeset
-            )
-            evidence = {}
-            flags = {}
-            for name, expected_index in group.flags:
-                result = observed[name]
-                if result.index is not None and result.index != expected_index:
-                    result = replace(result, status="layout_mismatch")
-                elif result.status == "read":
-                    if result.value in (0, 1):
-                        flags[name] = result.value
-                    else:
-                        result = replace(result, status="invalid_value")
-                evidence[name] = result
+        observed = session.read_parameter_observations(
+            profile.address, dict(group.flags), changeset, expected=dict(group.flags)
+        )
+        evidence = {}
+        flags = {}
+        for name, expected_index in group.flags:
+            result = observed[name]
+            if result.index is not None and result.index != expected_index:
+                result = replace(result, value=None, status="layout_mismatch")
+            elif result.status == "read":
+                if result.index == expected_index and result.value in (0, 1):
+                    flags[name] = result.value
+                else:
+                    result = replace(result, value=None, status="invalid_value")
+            evidence[name] = result
+        if module_flags is not None:
             module_flags[group.key] = evidence
-        if len(flags) != len(group.flags) or any(
-            v not in (0, 1) for v in flags.values()
-        ):
-            return "registration_unknown", {}
-        if any(v != 1 for v in flags.values()):
+        if any(v == 0 for v in flags.values()):
             return "not_registered_or_present", {}
+        if len(flags) == len(group.flags):
+            registration_source = "controller_flags"
+        else:
+            # This is an exact-profile exception to an unsupported lookup,
+            # never to explicit negative, refused, invalid or mismatched data.
+            activation, presence = (name for name, _ in group.flags)
+            if (
+                changeset != profile.module_presence_lookup_optional_changeset
+                or flags.get(activation) != 1
+                or evidence[presence].status != "not_resolved"
+                or evidence[presence].index is not None
+                or device.address != group.address
+                or device.channel != controller.channel
+                or device.serial != controller.serial
+            ):
+                return "registration_unknown", {}
+            registration_source = "activation_and_observed_module"
 
     expected = {}
     for number in numbers:
@@ -243,6 +261,7 @@ def _read_group(
             device,
             bool(speed),
             value,
+            registration_source,
         )
         capabilities[cap.unique_id] = cap
     return ("supported" if capabilities else "no_supported_relays"), capabilities
@@ -380,7 +399,11 @@ class RelayParameters:
             current = relays.get(capability.unique_id)
             if current is None or current.index != capability.index:
                 raise VBusError("Relay parameter is no longer supported")
-            if current.options != capability.options or option not in current.options:
+            if (
+                current.registration_source != capability.registration_source
+                or current.options != capability.options
+                or option not in current.options
+            ):
                 raise VBusError("Relay options changed; rediscover first")
             wanted = MODE_VALUES[option]
             if current.value != wanted:

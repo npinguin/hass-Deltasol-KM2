@@ -182,9 +182,8 @@ class ConfigurationCapture:
             capture.results[name] = ParameterObservation(index, value, status)
         for key in ("started_at", "finished_at"):
             value = data[key]
-            if value is not None:
-                if datetime.fromisoformat(value).tzinfo is None:
-                    raise ValueError("Invalid Discovery checkpoint timestamp")
+            if value is not None and datetime.fromisoformat(value).tzinfo is None:
+                raise ValueError("Invalid Discovery checkpoint timestamp")
             setattr(capture, key, value)
         if not capture.started_at or (data["status"] == "complete" and not capture.finished_at):
             raise ValueError("Missing Discovery checkpoint timestamp")

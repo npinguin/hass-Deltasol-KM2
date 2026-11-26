@@ -36,6 +36,7 @@ class Peer:
     mode = 4
     em_mode = 2
     em_present = True
+    presence_lookup = True
     deny = False
     writes = 0
     drop_discovery_response = False
@@ -88,6 +89,8 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     1215980970: EM_RELAY,
                     152651155: 2169,
                 }.get(value, 0)
+                if value == 1682631798 and not Peer.presence_lookup:
+                    index = 0
                 response = datagram(source, ADDRESS, 0x1101, index, value)
             elif command == 0x0300:
                 value = {
@@ -442,6 +445,13 @@ async def qualify(directory, phase):
             assert em == json.loads(select_file.read_text(encoding="utf-8"))
             return
         select_file.write_text(json.dumps(em), encoding="utf-8")
+        Peer.presence_lookup = False
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(em).state == "Auto"
+        assert (
+            hass.states.get(em).attributes["registration_source"]
+            == "activation_and_observed_module"
+        )
 
         async def set_mode(entity_id, option):
             await hass.services.async_call(

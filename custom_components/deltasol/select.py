@@ -110,6 +110,7 @@ class DeltasolRelaySelect(CoordinatorEntity, SelectEntity):
             "observed_mode": OBSERVED_MODES[cap.value],
             "observed_mode_value": cap.value,
             "speed_control": cap.speed_control,
+            "registration_source": cap.registration_source,
             "changeset": f"{cap.changeset & 0xFFFFFFFF:08X}",
             "parameter": cap.name,
         }

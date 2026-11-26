@@ -143,6 +143,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
                     else None,
                     "mode_value": cap.value if valid else None,
                     "speed_control": cap.speed_control if valid else None,
+                    "registration_source": cap.registration_source if valid else None,
                     "changeset": f"{cap.changeset & 0xFFFFFFFF:08X}" if valid else None,
                     "parameter_index": cap.index if valid else None,
                 }

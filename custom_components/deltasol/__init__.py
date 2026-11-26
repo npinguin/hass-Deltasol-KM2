@@ -371,11 +371,18 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 or unique_id not in self.data.capabilities
             ):
                 raise HomeAssistantError("Relay capability is unavailable")
+            capability = self.data.capabilities[unique_id]
+            if capability.registration_source == "activation_and_observed_module":
+                # The controller cannot resolve the presence flag on this exact
+                # profile. Obtain a fresh gateway observation before each action.
+                await self.telemetry.async_refresh()
+                if not self.telemetry.last_update_success:
+                    raise HomeAssistantError("Controller telemetry is unavailable")
             try:
                 capability = await self.hass.async_add_executor_job(
                     self.api.set_relay_mode,
                     self.telemetry.data,
-                    self.data.capabilities[unique_id],
+                    capability,
                     option,
                 )
             except VBusError as error:

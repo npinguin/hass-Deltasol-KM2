@@ -60,10 +60,10 @@ class ParameterTests(unittest.TestCase):
 
     def read_parameters(self, address, names, changeset):
         self.assertEqual(address, 0x7112)
-        self.assertEqual(changeset, 12345)
+        self.assertEqual(changeset, self.session.read.return_value)
         return {name: self.values[name] for name in names if name in self.values}
 
-    def observe_parameters(self, address, names, changeset):
+    def observe_parameters(self, address, names, changeset, **kwargs):
         found = self.read_parameters(address, names, changeset)
         return {
             name: parameters.ParameterObservation(*found[name], "read")
@@ -251,6 +251,32 @@ class ParameterTests(unittest.TestCase):
         self.ctx.__enter__.side_effect = None
         self.discover()
         self.sleep.assert_called_once_with(parameters.SESSION_GAP_SECONDS)
+
+    def test_profile_specific_unresolved_presence_uses_positive_live_evidence(self):
+        self.activate_modules()
+        self.session.read.return_value = 0x2734DABC
+        del self.values["Modul1_Vorhanden"]
+        data = {**telemetry(), **module(1)}
+        cap = self.discover(data)[M1_UID]
+        self.assertEqual(cap.registration_source, "activation_and_observed_module")
+        self.session.write_verified.return_value = 3
+        self.assertEqual(self.api.set_mode(data, cap, "Max").value, 3)
+        self.session.write_verified.assert_called_once_with(
+            0x7112, 2173, 3, 0x2734DABC
+        )
+        self.session.write_verified.reset_mock()
+        self.values["Modul1_Vorhanden"] = (193, 0)
+        self.assertNotIn(M1_UID, self.discover(data))
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_mode(data, cap, "Off")
+        del self.values["Modul1_Vorhanden"]
+        self.values["Modul1_Aktiviert"] = (191, 0)
+        self.assertNotIn(M1_UID, self.discover(data))
+        self.values["Modul1_Aktiviert"] = (191, 1)
+        self.assertNotIn(M1_UID, self.discover(telemetry()))
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_mode(telemetry(), cap, "Off")
+        self.session.write_verified.assert_not_called()
 
     def test_module_flag_evidence_preserves_controller_controls(self):
         self.activate_modules()
