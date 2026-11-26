@@ -294,7 +294,7 @@ def download_catalog(path, source):
     if source not in CATALOG_SOURCES:
         raise CatalogError("Untrusted RPT catalogue source")
     try:
-        with urlopen(source.url, timeout=15) as response:  # noqa: S310
+        with urlopen(source.url, timeout=15) as response:
             target = urlsplit(response.geturl())
             if target.scheme != "https" or target.netloc != urlsplit(source.url).netloc:
                 raise CatalogError("Unexpected RPT catalogue redirect")

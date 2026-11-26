@@ -130,6 +130,7 @@ class ConfigurationCapture:
             "finished_at": self.finished_at,
             "offset": self.offset,
             "retry_count": self.retry_count,
+            "last_failure": self.last_failure,
             "observations": [
                 [d.name, self.results[d.name].index, self.results[d.name].value,
                  self.results[d.name].status]
@@ -189,6 +190,37 @@ class ConfigurationCapture:
             raise ValueError("Missing Discovery checkpoint timestamp")
         capture.offset = offset
         capture.retry_count = data["retry_count"]
+        failure = data.get("last_failure")
+        if failure is not None:
+            # Never restore arbitrary message/payload data into HA state.
+            phase = failure["phase"]
+            command = failure["command"]
+            index = failure["reference_index"]
+            batch_offset = failure["batch_offset"]
+            timestamp = failure["observed_at"]
+            if (
+                phase not in (
+                    "connect", "handshake", "acquire", "send", "response",
+                    "receive", "release", "telemetry"
+                )
+                or (command is not None and (
+                    not isinstance(command, str) or len(command) != 6
+                    or not command.startswith("0x") or not 0 <= int(command, 16) <= 65535
+                ))
+                or (index is not None and (type(index) is not int or not 0 <= index <= 65535))
+                or index in capture.sensitive_indices
+                or type(batch_offset) is not int
+                or not 0 <= batch_offset <= offset
+                or datetime.fromisoformat(timestamp).tzinfo is None
+            ):
+                raise ValueError("Invalid Discovery checkpoint failure")
+            capture.last_failure = {
+                "phase": phase,
+                "command": command,
+                "reference_index": index,
+                "batch_offset": batch_offset,
+                "observed_at": timestamp,
+            }
         capture.status = (
             data["status"]
             if data["status"] in ("complete", "incomplete")

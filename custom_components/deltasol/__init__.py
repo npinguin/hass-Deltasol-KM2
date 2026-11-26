@@ -36,7 +36,13 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
-from .catalog import CatalogError, CatalogMissing, download_catalog, load_catalog, source_for
+from .catalog import (
+    CatalogError,
+    CatalogMissing,
+    download_catalog,
+    load_catalog,
+    source_for,
+)
 from .const import (
     CONF_VBUS_PASSWORD,
     DEFAULT_NAME,

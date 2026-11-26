@@ -353,6 +353,19 @@ async def qualify(directory, phase):
             assert registry.async_get(entity_id).entity_category == "diagnostic"
         assert diagnostic["configuration_discovery"]["status"] == "not_started"
         with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+            if phase == "restart":
+                # The independent peer's small catalogue is injected in the test
+                # only; the real pinned archive is verified by the source gate.
+                assert await hass.config_entries.async_reload(entry.entry_id)
+                await hass.async_block_till_done()
+                assert entry.runtime_data.capture.status == "complete"
+                assert float(hass.states.get(percent).state) == 100
+                assert entry.runtime_data.capture_task is None
+                assert Peer.writes == 0
+                assert em == json.loads(
+                    (directory / "qualification-select.json").read_text(encoding="utf-8")
+                )
+                return
             # A real transport failure is resumable and never becomes a write.
             Peer.deny = True
             await hass.services.async_call(
@@ -490,7 +503,8 @@ async def qualify(directory, phase):
         assert Peer.writes == 7
         assert hass.states.get(em).state == "unavailable"
         Peer.em_present = True
-        assert await hass.config_entries.async_reload(entry.entry_id)
+        with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+            assert await hass.config_entries.async_reload(entry.entry_id)
         await hass.async_block_till_done()
         assert registry.async_get_entity_id("select", "deltasol", EM_UID) == em
         assert hass.states.get(em).state == "Auto"
@@ -513,7 +527,8 @@ async def qualify(directory, phase):
         assert access["relays"]["R4"]["last_observed_mode"] == "Auto"
         assert access["relays"]["R4"]["writable_options"] == []
         Peer.deny = False
-        assert await hass.config_entries.async_reload(entry.entry_id)
+        with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+            assert await hass.config_entries.async_reload(entry.entry_id)
         await hass.async_block_till_done()
         assert registry.async_get_entity_id("select", "deltasol", SELECT_UID) == select
         assert hass.states.get(select).state == "Auto"
