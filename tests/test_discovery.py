@@ -500,7 +500,9 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
             capture_wakeup=asyncio.Event(),
             notify_capture=lambda: None,
             coordinator=telemetry,
-            relay_coordinator=SimpleNamespace(async_read_configuration_batch=read_batch),
+            relay_coordinator=SimpleNamespace(
+                async_read_configuration_batch=read_batch
+            ),
         )
 
     def observations_for(self, names):
