@@ -489,7 +489,9 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
                 raise vbus.VBusTransientError(
                     "Controller telemetry is unavailable", "telemetry"
                 )
-            return operation(telemetry.data, capture.controller, names, capture.changeset)
+            return operation(
+                telemetry.data, capture.controller, names, capture.changeset
+            )
 
         return SimpleNamespace(
             capture=capture,
