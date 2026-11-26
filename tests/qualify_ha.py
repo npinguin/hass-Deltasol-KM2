@@ -337,6 +337,12 @@ async def qualify(directory, phase):
             "sensor", "deltasol", f"{entry.entry_id}_configuration_discovery_status"
         )
         assert progress and hass.states.get(progress).state == "not_started"
+        percent = registry.async_get_entity_id(
+            "sensor", "deltasol", f"{entry.entry_id}_configuration_discovery_progress"
+        )
+        assert percent and float(hass.states.get(percent).state) == 0
+        assert hass.states.get(percent).attributes["unit_of_measurement"] == "%"
+        assert registry.async_get(percent).device_id == registry.async_get(progress).device_id
         assert diagnostic["configuration_discovery"]["status"] == "not_started"
         with patch("custom_components.deltasol.load_catalog", return_value=fixture):
             # A real transport failure is resumable and never becomes a write.
@@ -351,6 +357,7 @@ async def qualify(directory, phase):
             assert capture["status"] == "incomplete", capture
             assert hass.states.get(progress).state == "incomplete"
             assert capture["scanned_count"] == 0
+            assert float(hass.states.get(percent).state) == 0
             assert Peer.writes == 0
             Peer.deny = False
             # Baseline and rollback have already returned above.
@@ -379,6 +386,7 @@ async def qualify(directory, phase):
             assert "metadata" not in capture["parameters"]["Missing"]
             assert hass.states.get(progress).state == "complete"
             assert hass.states.get(progress).attributes["progress_percent"] == 100
+            assert float(hass.states.get(percent).state) == 100
             assert Peer.writes == 0
             Peer.mode = 2
             await hass.services.async_call(

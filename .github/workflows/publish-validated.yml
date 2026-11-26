@@ -88,7 +88,7 @@ jobs:
           unzip -Z1 "$PACKAGE" | grep -Fx discovery.py
           unzip -Z1 "$PACKAGE" | grep -Fx button.py
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
-          gh release download 1.2.11 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
+          gh release download 1.2.12 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
           sha256sum "$PACKAGE" "$Q/rollback/deltasol.zip"
           docker pull "$HA_IMAGE"
           install_zip() {

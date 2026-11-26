@@ -98,6 +98,7 @@ class DiscoveryTests(unittest.TestCase):
         )
         batch = capture.next_batch()
         self.assertEqual(len(batch), discovery.BATCH_SIZE)
+        self.assertEqual(capture.progress_percent, 0)
         capture.apply(
             batch,
             {
@@ -106,6 +107,11 @@ class DiscoveryTests(unittest.TestCase):
             },
         )
         self.assertEqual(capture.offset, discovery.BATCH_SIZE)
+        self.assertEqual(capture.progress_percent, 45.71)
+        for status in ("recovering", "paused", "incomplete"):
+            capture.status = status
+            self.assertEqual(capture.progress_percent, 45.71)
+        capture.status = "running"
         self.assertEqual(capture.status, "running")
         self.assertEqual(capture.next_batch()[0].name, "Test16")
         self.assertEqual(capture.results["Test0"].status, "layout_mismatch")
@@ -118,6 +124,7 @@ class DiscoveryTests(unittest.TestCase):
             )
         self.assertEqual(capture.status, "complete")
         self.assertEqual(capture.offset, 35)
+        self.assertEqual(capture.progress_percent, 100)
         self.assertEqual(capture.export(True)["parameters"]["Test34"]["raw_value"], 0)
 
     def test_sensitive_filter_and_priority(self):

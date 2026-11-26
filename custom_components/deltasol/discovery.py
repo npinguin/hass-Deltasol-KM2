@@ -75,6 +75,14 @@ class ConfigurationCapture:
             )
         )
 
+    @property
+    def progress_percent(self):
+        """Committed coverage, not the percentage of readable values."""
+        if self.status == "complete":
+            return 100
+        total = len(self.candidates)
+        return min(99.99, round(100 * self.offset / total, 2)) if total else 0
+
     def next_batch(self):
         return self.candidates[self.offset : self.offset + BATCH_SIZE]
 
