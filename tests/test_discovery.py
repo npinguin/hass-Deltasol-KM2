@@ -204,6 +204,33 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn("Alias", exported["parameters"])
         self.assertNotIn("metadata", exported["parameters"]["Schema"])
 
+    def test_parameterization_evidence_does_not_grant_write_access(self):
+        for storage, metadata, expected in (
+            ("persistent", {}, "storage_only"),
+            ("volatile", {}, "storage_only"),
+            ("unspecified", {}, "optimizer_candidate"),
+            (
+                "volatile",
+                {"allow_parameterization": "true"},
+                "explicit_parameterization_hint",
+            ),
+        ):
+            definition = catalog.Definition("Setting", 1, storage, None, metadata)
+            self.assertEqual(catalog.parameterization_evidence(definition), expected)
+
+    def test_numeric_sentinel_and_unverified_display_units(self):
+        metadata = {
+            "type_chain": ["Number"],
+            "storeFactor": "0.1",
+            "displayFactor": "0.1",
+            "value_text": [{"value": "-999.9", "label": "-"}],
+        }
+        definition = catalog.Definition("Reading", 1, "persistent", None, metadata)
+        self.assertIsNone(catalog.decoded_value(definition, -9999))
+        self.assertEqual(catalog.decoded_value(definition, 215), 21.5)
+        metadata["displayFactor"] = "86400"
+        self.assertIsNone(catalog.decoded_value(definition, 215))
+
     def test_exact_numeric_encoding_and_rejection(self):
         definition = catalog.Definition(
             "Setpoint",

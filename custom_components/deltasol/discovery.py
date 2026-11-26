@@ -12,6 +12,7 @@ from .catalog import (
     decoded_value,
     explicit_options,
     is_sensitive,
+    parameterization_evidence,
 )
 from .parameters import device_inventory, find_profile
 from .vbus import ParameterObservation, VBusError, VBusTransientError
@@ -313,6 +314,7 @@ class ConfigurationCapture:
                     "metadata": definition.metadata,
                     "explicit_options": explicit_options(definition),
                     "access": "read_observed",
+                    "parameterization_evidence": parameterization_evidence(definition),
                     "write_access": "not_assessed",
                     "applicability": "not_assessed",
                 }

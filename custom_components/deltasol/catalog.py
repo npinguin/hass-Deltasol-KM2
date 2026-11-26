@@ -145,6 +145,8 @@ def _metadata(type_node, types):
     for node in reversed(chain):
         if node.get("unit") is not None:
             result["unit"] = node.get("unit")
+        if node.get("selectorValueRef") is not None:
+            result["selector_ref"] = node.get("selectorValueRef")
         for tag in (
             "storeFactor",
             "displayFactor",
@@ -339,6 +341,24 @@ def explicit_options(definition):
     return result
 
 
+def parameterization_evidence(definition):
+    """Classify catalogue hints, not permission, active state or save semantics.
+
+    The MIT resol-vbus base optimizer selects values without a storage class
+    or with allowParameterization, then resolves compound selectors. Its older
+    BX Plus layout must not be used as a write-address or permission source.
+    """
+    if definition.excluded or is_sensitive(definition):
+        return "excluded"
+    if definition.metadata.get("allow_parameterization") == "true":
+        return "explicit_parameterization_hint"
+    if definition.storage == "unspecified":
+        return "optimizer_candidate"
+    if definition.storage in ("volatile", "persistent"):
+        return "storage_only"
+    return "unclassified"
+
+
 def decoded_value(definition, raw):
     """Decode verified numeric scaling, booleans and enum mappings."""
     chain = definition.metadata.get("type_chain", [])
@@ -354,6 +374,15 @@ def decoded_value(definition, raw):
     if factor is None or factor <= 0:
         return None
     value = Decimal(raw) * factor
+    # Numeric valueText may encode missing values, not enum options. Never
+    # present a known sentinel as a physical measurement.
+    for item in definition.metadata.get("value_text", []):
+        if item.get("label") == "-" and _number(item.get("value")) == value:
+            return None
+    display = _number(definition.metadata.get("displayFactor", str(factor)))
+    # The displayed unit is not established when the factors differ.
+    if display != factor:
+        return None
     return int(value) if value == value.to_integral_value() else float(value)
 
 
