@@ -261,9 +261,7 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(cap.registration_source, "activation_and_observed_module")
         self.session.write_verified.return_value = 3
         self.assertEqual(self.api.set_mode(data, cap, "Max").value, 3)
-        self.session.write_verified.assert_called_once_with(
-            0x7112, 2173, 3, 0x2734DABC
-        )
+        self.session.write_verified.assert_called_once_with(0x7112, 2173, 3, 0x2734DABC)
         self.session.write_verified.reset_mock()
         self.values["Modul1_Vorhanden"] = (193, 0)
         self.assertNotIn(M1_UID, self.discover(data))

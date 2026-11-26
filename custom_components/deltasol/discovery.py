@@ -132,9 +132,13 @@ class ConfigurationCapture:
             "retry_count": self.retry_count,
             "last_failure": self.last_failure,
             "observations": [
-                [d.name, self.results[d.name].index, self.results[d.name].value,
-                 self.results[d.name].status]
-                for d in self.candidates[:self.offset]
+                [
+                    d.name,
+                    self.results[d.name].index,
+                    self.results[d.name].value,
+                    self.results[d.name].status,
+                ]
+                for d in self.candidates[: self.offset]
             ],
         }
 
@@ -154,7 +158,8 @@ class ConfigurationCapture:
             type(offset) is not int
             or not 0 <= offset <= len(capture.candidates)
             or len(rows) != offset
-            or data["status"] not in ("running", "recovering", "paused", "incomplete", "complete")
+            or data["status"]
+            not in ("running", "recovering", "paused", "incomplete", "complete")
             or (data["status"] == "complete") != (offset == len(capture.candidates))
             or type(data["retry_count"]) is not int
             or data["retry_count"] < 0
@@ -163,7 +168,10 @@ class ConfigurationCapture:
         for definition, row in zip(capture.candidates[:offset], rows, strict=True):
             name, index, value, status = row
             if name != definition.name or status not in (
-                "read", "not_resolved", "read_refused", "layout_mismatch"
+                "read",
+                "not_resolved",
+                "read_refused",
+                "layout_mismatch",
             ):
                 raise ValueError("Invalid Discovery checkpoint observation")
             if status == "read":
@@ -186,7 +194,9 @@ class ConfigurationCapture:
             if value is not None and datetime.fromisoformat(value).tzinfo is None:
                 raise ValueError("Invalid Discovery checkpoint timestamp")
             setattr(capture, key, value)
-        if not capture.started_at or (data["status"] == "complete" and not capture.finished_at):
+        if not capture.started_at or (
+            data["status"] == "complete" and not capture.finished_at
+        ):
             raise ValueError("Missing Discovery checkpoint timestamp")
         capture.offset = offset
         capture.retry_count = data["retry_count"]
@@ -199,15 +209,30 @@ class ConfigurationCapture:
             batch_offset = failure["batch_offset"]
             timestamp = failure["observed_at"]
             if (
-                phase not in (
-                    "connect", "handshake", "acquire", "send", "response",
-                    "receive", "release", "telemetry"
+                phase
+                not in (
+                    "connect",
+                    "handshake",
+                    "acquire",
+                    "send",
+                    "response",
+                    "receive",
+                    "release",
+                    "telemetry",
                 )
-                or (command is not None and (
-                    not isinstance(command, str) or len(command) != 6
-                    or not command.startswith("0x") or not 0 <= int(command, 16) <= 65535
-                ))
-                or (index is not None and (type(index) is not int or not 0 <= index <= 65535))
+                or (
+                    command is not None
+                    and (
+                        not isinstance(command, str)
+                        or len(command) != 6
+                        or not command.startswith("0x")
+                        or not 0 <= int(command, 16) <= 65535
+                    )
+                )
+                or (
+                    index is not None
+                    and (type(index) is not int or not 0 <= index <= 65535)
+                )
                 or index in capture.sensitive_indices
                 or type(batch_offset) is not int
                 or not 0 <= batch_offset <= offset
@@ -222,9 +247,7 @@ class ConfigurationCapture:
                 "observed_at": timestamp,
             }
         capture.status = (
-            data["status"]
-            if data["status"] in ("complete", "incomplete")
-            else "paused"
+            data["status"] if data["status"] in ("complete", "incomplete") else "paused"
         )
         return capture
 

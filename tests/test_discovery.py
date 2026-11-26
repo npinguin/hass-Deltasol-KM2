@@ -140,10 +140,14 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_checkpoint_roundtrip_and_rejection(self):
         parsed = catalog.parse_menu(menu(), "test")
-        controller = SimpleNamespace(channel=0, address=0x7112, source="BX", serial="test")
+        controller = SimpleNamespace(
+            channel=0, address=0x7112, source="BX", serial="test"
+        )
         capture = discovery.ConfigurationCapture(parsed, controller)
         first = capture.next_batch()[:1]
-        capture.apply(first, {first[0].name: vbus.ParameterObservation(17, 215, "read")})
+        capture.apply(
+            first, {first[0].name: vbus.ParameterObservation(17, 215, "read")}
+        )
         capture.retry_count = 3
         stored = capture.checkpoint()
         restored = discovery.ConfigurationCapture.restore(
@@ -161,7 +165,8 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(
             discovery.ConfigurationCapture.restore(
                 restored.checkpoint(), parsed, controller, capture.changeset
-            ).status, "complete"
+            ).status,
+            "complete",
         )
         for changed in (
             {**stored, "offset": 2},

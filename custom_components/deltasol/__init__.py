@@ -172,7 +172,9 @@ async def async_unload_entry(
 
 async def async_remove_entry(hass, entry):
     """Remove only this entry's private discovery checkpoint."""
-    await Store(hass, 1, f"deltasol.{entry.entry_id}.discovery", private=True).async_remove()
+    await Store(
+        hass, 1, f"deltasol.{entry.entry_id}.discovery", private=True
+    ).async_remove()
 
 
 async def _async_save_capture(runtime):
@@ -183,10 +185,13 @@ async def _async_save_capture(runtime):
             {
                 "capture": runtime.capture.checkpoint(),
                 "previous": runtime.previous_capture.checkpoint()
-                if runtime.previous_capture else None,
+                if runtime.previous_capture
+                else None,
                 "resume": runtime.capture.status not in ("complete", "incomplete")
-                and (runtime.resume_on_load
-                     or runtime.capture.status in ("running", "recovering")),
+                and (
+                    runtime.resume_on_load
+                    or runtime.capture.status in ("running", "recovering")
+                ),
             }
         )
         runtime.checkpoint_error = None
@@ -235,14 +240,25 @@ async def _async_restore_capture(hass, runtime):
         )
         previous = stored.get("previous")
         runtime.previous_capture = (
-            ConfigurationCapture.restore(previous, catalog, controller, source.changeset)
-            if previous else None
+            ConfigurationCapture.restore(
+                previous, catalog, controller, source.changeset
+            )
+            if previous
+            else None
         )
         runtime.capture = capture
         runtime.resume_on_load = stored.get("resume") is True
         runtime.checkpoint_error = None
         return True
-    except (CatalogError, VBusError, OSError, ValueError, TypeError, KeyError, HomeAssistantError):
+    except (
+        CatalogError,
+        VBusError,
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        HomeAssistantError,
+    ):
         runtime.checkpoint_error = "checkpoint_incompatible"
         _LOGGER.warning("RESOL Discovery checkpoint unavailable or incompatible")
         return False
@@ -281,7 +297,8 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
     ):
         runtime.previous_capture = (
             capture
-            if capture and capture.status == "complete"
+            if capture
+            and capture.status == "complete"
             and capture.controller == controller
             and capture.catalog.digest == catalog.digest
             and capture.changeset == source.changeset

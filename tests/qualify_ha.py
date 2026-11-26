@@ -363,7 +363,9 @@ async def qualify(directory, phase):
                 assert entry.runtime_data.capture_task is None
                 assert Peer.writes == 0
                 assert em == json.loads(
-                    (directory / "qualification-select.json").read_text(encoding="utf-8")
+                    (directory / "qualification-select.json").read_text(
+                        encoding="utf-8"
+                    )
                 )
                 return
             # A real transport failure is resumable and never becomes a write.
@@ -439,10 +441,20 @@ async def qualify(directory, phase):
             ]
             assert restored["scanned_count"] == 3
             assert restored["summary"]["progress_percent"] == 100
-            assert restored["comparison"]["changes"]["Relais_Regler_R4_Handbetrieb"]["after_raw"] == 2
-            assert registry.async_get_entity_id(
-                "sensor", "deltasol", f"{entry.entry_id}_configuration_discovery_progress"
-            ) == percent
+            assert (
+                restored["comparison"]["changes"]["Relais_Regler_R4_Handbetrieb"][
+                    "after_raw"
+                ]
+                == 2
+            )
+            assert (
+                registry.async_get_entity_id(
+                    "sensor",
+                    "deltasol",
+                    f"{entry.entry_id}_configuration_discovery_progress",
+                )
+                == percent
+            )
             assert float(hass.states.get(percent).state) == 100
             assert Peer.writes == 0
         if resilient:

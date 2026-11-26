@@ -68,7 +68,8 @@ class CatalogMissing(CatalogError):
 def source_for(address, changeset):
     """Never select a catalogue by gateway firmware or changeset alone."""
     matches = [
-        source for source in CATALOG_SOURCES
+        source
+        for source in CATALOG_SOURCES
         if (source.address, source.changeset) == (address, changeset)
     ]
     if len(matches) != 1:
