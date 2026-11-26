@@ -86,6 +86,10 @@ jobs:
           unzip -Z1 "$PACKAGE" | grep -Fx diagnostics.py
           unzip -Z1 "$PACKAGE" | grep -Fx catalog.py
           unzip -Z1 "$PACKAGE" | grep -Fx discovery.py
+          unzip -Z1 "$PACKAGE" | grep -Fx configuration.py
+          unzip -Z1 "$PACKAGE" | grep -Fx configuration_entity.py
+          unzip -Z1 "$PACKAGE" | grep -Fx number.py
+          unzip -Z1 "$PACKAGE" | grep -Fx switch.py
           unzip -Z1 "$PACKAGE" | grep -Fx button.py
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
           gh release download 1.2.12 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
@@ -181,5 +185,5 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "DeltaSol $VERSION TEST" \
             --prerelease \
-            --notes "Resilience TEST: automatic read-only Discovery batch recovery with bounded backoff and checkpoint preservation; automatic transient relay refresh recovery; sanitized failure context and richer read-only RPT metadata. Explicit hard faults and exhausted retry budgets remain unavailable; no automatic write retries. Existing privacy exclusions, controls and native status retained. Place the exact local RPT archive as documented in README; no proprietary metadata is packaged. Existing telemetry and relay controls retained. Isolated HA and protocol qualification passed; physical RESOL acceptance remains open. No new configuration write controls. Manual relay overrides may persist; restore Auto after safe supervised tests."
+            --notes "Configuration TEST: exact-profile typed native configuration controls, validated save and reconnect readback, persistent Discovery inventory, automatic pinned catalogue acquisition, diagnostic progress and positive EM registration evidence. Existing telemetry and relay controls retained. No proprietary catalogue packaged, no automatic writes or blind write retries. See README for supported settings and limitations. Isolated HA and protocol qualification passed; physical RESOL acceptance remains open. Manual relay overrides may persist; restore Auto after safe supervised tests."
           echo "Published $VERSION with deltasol.zip for HACS."

@@ -9,6 +9,7 @@ indices. No site-specific settings or proprietary catalogue are bundled.
 
 from dataclasses import dataclass
 from decimal import Decimal
+from operator import ge, gt, le, lt, ne
 
 from .catalog import CatalogError, Definition, encode_numeric_value
 from .vbus import VBusError
@@ -27,6 +28,27 @@ class Dependency:
 
 
 @dataclass(frozen=True)
+class RelativeConstraint:
+    """Verified relation between values with the same raw encoding."""
+
+    name: str
+    index: int
+    operation: str
+
+    def matches(self, raw, values):
+        other = values.get(self.name)
+        compare = {"lt": lt, "le": le, "gt": gt, "ge": ge, "ne": ne}.get(
+            self.operation
+        )
+        return (
+            compare is not None
+            and type(raw) is int
+            and type(other) is int
+            and compare(raw, other)
+        )
+
+
+@dataclass(frozen=True)
 class Setting:
     """Verified semantic contract for one adjustable setting, never a raw service."""
 
@@ -41,6 +63,7 @@ class Setting:
     unit: str | None = None
     dependencies: tuple[Dependency, ...] = ()
     owner_address: int | None = None
+    relative_constraints: tuple[RelativeConstraint, ...] = ()
 
     def numeric_definition(self):
         if self.kind != "number" or self.limits is None:
@@ -92,13 +115,16 @@ class Setting:
     @property
     def expected(self):
         result = {self.name: self.index}
-        for dependency in self.dependencies:
+        for dependency in (*self.dependencies, *self.relative_constraints):
             result[dependency.name] = dependency.index
         return result
 
-    def accepts(self, values):
-        return self.decode(values.get(self.name)) is not None and all(
-            dep.matches(values) for dep in self.dependencies
+    def accepts(self, values, requested=None):
+        raw = values.get(self.name) if requested is None else requested
+        return (
+            self.decode(raw) is not None
+            and all(dep.matches(values) for dep in self.dependencies)
+            and all(rule.matches(raw, values) for rule in self.relative_constraints)
         )
 
 

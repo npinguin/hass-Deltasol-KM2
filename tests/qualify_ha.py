@@ -39,6 +39,9 @@ class Peer:
     presence_lookup = True
     deny = False
     writes = 0
+    saves = 0
+    settings = {56: 1, 60: 0, 61: 0, 62: 0, 63: 0}
+    persistent_file = None
     drop_discovery_response = False
     drop_relay_response = False
 
@@ -88,6 +91,11 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     1682631798: 193,
                     1215980970: EM_RELAY,
                     152651155: 2169,
+                    852441249: 56,
+                    156054146: 60,
+                    124814937: 61,
+                    1011665082: 62,
+                    1893665643: 63,
                 }.get(value, 0)
                 if value == 1682631798 and not Peer.presence_lookup:
                     index = 0
@@ -102,6 +110,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     193: int(Peer.em_present),
                     EM_RELAY: Peer.em_mode,
                     2169: 1,
+                    **Peer.settings,
                 }[index]
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0200:
@@ -113,6 +122,14 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert value in (0, 1, 2, 3)
                     Peer.em_mode = value
                 Peer.writes += 1
+                response = datagram(source, ADDRESS, 0x0100, index, value)
+            elif command == 0x0400:
+                assert index in Peer.settings and value in (0, 1)
+                Peer.settings[index] = value
+                Peer.saves += 1
+                temporary = Peer.persistent_file.with_suffix(".tmp")
+                temporary.write_text(json.dumps(Peer.settings), encoding="utf-8")
+                temporary.replace(Peer.persistent_file)
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0600:
                 header = bytes.fromhex("1000127110000100")
@@ -318,6 +335,22 @@ async def qualify(directory, phase):
         assert Peer.writes == 0
         from custom_components.deltasol.catalog import Catalog, Definition
 
+        display = registry.async_get_entity_id(
+            "select", "deltasol",
+            "isolated-gateway_7112_TemperatureHysteresisSelector_configuration",
+        )
+        daylight = registry.async_get_entity_id(
+            "switch", "deltasol",
+            "isolated-gateway_7112_AutoSommerWinterzeit_configuration",
+        )
+        assert display and daylight
+        assert registry.async_get(display).device_id == registry.async_get(sensor).device_id
+        assert registry.async_get(display).entity_category == "config"
+        assert hass.states.get(display).state == ("°F" if phase == "restart" else "°C")
+        assert hass.states.get(daylight).state == ("off" if phase == "restart" else "on")
+        assert diagnostic["configuration_controls"]["TemperatureHysteresisSelector"]["write_access"] == "profile_verified"
+        assert Peer.saves == 0
+
         fixture = Catalog(
             "isolated-test-catalogue",
             (
@@ -362,6 +395,10 @@ async def qualify(directory, phase):
                 assert float(hass.states.get(percent).state) == 100
                 assert entry.runtime_data.capture_task is None
                 assert Peer.writes == 0
+                assert Peer.saves == 0
+                assert Peer.settings[60] == 1 and Peer.settings[56] == 0
+                assert hass.states.get(display).state == "°F"
+                assert hass.states.get(daylight).state == "off"
                 assert em == json.loads(
                     (directory / "qualification-select.json").read_text(
                         encoding="utf-8"
@@ -487,6 +524,18 @@ async def qualify(directory, phase):
             )
             await hass.async_block_till_done()
 
+        # Both actions use the independent peer's 0x0400 persistence path.
+        await set_mode(display, "°F")
+        assert Peer.saves == 1 and Peer.settings[60] == 1
+        assert hass.states.get(display).state == "°F"
+        await set_mode(display, "°F")
+        assert Peer.saves == 1
+        await hass.services.async_call(
+            "switch", "turn_off", {"entity_id": daylight}, blocking=True
+        )
+        assert Peer.saves == 2 and Peer.settings[56] == 0
+        assert hass.states.get(daylight).state == "off"
+        assert Peer.writes == 0
         for option, expected in (("Off", 0), ("On", 4), ("Auto", 2)):
             await set_mode(select, option)
             assert Peer.mode == expected
@@ -546,6 +595,7 @@ async def qualify(directory, phase):
         assert hass.states.get(select).state == "Auto"
         assert float(hass.states.get(sensor).state) == 42
         assert Peer.writes == 7
+        assert Peer.saves == 2
     finally:
         await hass.async_stop(force=True)
 
@@ -553,6 +603,12 @@ async def qualify(directory, phase):
 def main():
     directory = Path(sys.argv[1])
     phase = sys.argv[2]
+    Peer.persistent_file = directory / "qualification-peer-settings.json"
+    if Peer.persistent_file.exists():
+        Peer.settings = {
+            int(index): value for index, value in
+            json.loads(Peer.persistent_file.read_text(encoding="utf-8")).items()
+        }
     with (
         ThreadingHTTPServer(("127.0.0.1", 18080), HttpHandler) as http,
         VBusServer(("127.0.0.1", 7053), VBusHandler) as vbus,

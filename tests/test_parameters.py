@@ -156,6 +156,43 @@ class ParameterTests(unittest.TestCase):
             with self.assertRaises(parameters.VBusError):
                 parameters.encode_action(setting, invalid)
 
+    def test_relative_constraint_before_write(self):
+        from dataclasses import replace
+
+        setting = parameters.Setting(
+            "Threshold", 200, "Threshold", "number", True,
+            limits=("0", "10", "0.5", "0.1"),
+            dependencies=(parameters_configuration.Dependency("Active", 201, (1,)),),
+            relative_constraints=(
+                parameters_configuration.RelativeConstraint("Maximum", 202, "lt"),
+            ),
+        )
+        self.session.read.return_value = 0x2734DABC
+        self.values.update({
+            "Threshold": (200, 25), "Active": (201, 1), "Maximum": (202, 60)
+        })
+        profile = replace(parameters.PROFILES[0], settings=(setting,))
+        with patch.object(parameters, "PROFILES", (profile,)):
+            cap = next(iter(self.api.discover(telemetry()).configuration.values()))
+            with self.assertRaisesRegex(parameters.VBusError, "conditional constraint"):
+                self.api.set_configuration(telemetry(), cap, 6)
+            self.session.write_verified.assert_not_called()
+            self.values["Active"] = (201, 0)
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), cap, 3)
+            self.session.write_verified.assert_not_called()
+            self.values["Active"] = (201, 1)
+
+            def write(address, index, value, changeset, *, save):
+                self.assertTrue(save)
+                self.values["Threshold"] = (index, value)
+                return value
+
+            self.session.write_verified.side_effect = write
+            result = self.api.set_configuration(telemetry(), cap, 3)
+            self.assertEqual(result.value, 3)
+            self.session.write_verified.assert_called_once()
+
     def test_positive_discovery_only(self):
         result = self.discover()
         self.assertEqual(list(result), [UID])

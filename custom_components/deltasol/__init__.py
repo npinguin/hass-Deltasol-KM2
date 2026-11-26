@@ -43,6 +43,7 @@ from .catalog import (
     load_catalog,
     source_for,
 )
+from .configuration import encode_action
 from .const import (
     CONF_VBUS_PASSWORD,
     DEFAULT_NAME,
@@ -423,6 +424,10 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             ):
                 raise HomeAssistantError("Configuration capability is unavailable")
             capability = self.data.configuration[unique_id]
+            try:
+                encode_action(capability.setting, value)
+            except VBusError as error:
+                raise HomeAssistantError(str(error)) from error
             await self.telemetry.async_refresh()
             if not self.telemetry.last_update_success:
                 raise HomeAssistantError("Controller telemetry is unavailable")

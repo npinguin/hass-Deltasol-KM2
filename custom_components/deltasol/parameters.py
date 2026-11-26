@@ -210,7 +210,9 @@ def _checked_parameters(session, profile, changeset, expected):
     return {name: value for name, (_, value) in found.items()}
 
 
-def _read_settings(session, profile, changeset, settings, controller, inventory):
+def _read_settings(
+    session, profile, changeset, settings, controller, inventory, requested=None
+):
     """Re-read exact hashes and conditional dependencies, never probe writes."""
     expected = {}
     for setting in settings:
@@ -241,6 +243,8 @@ def _read_settings(session, profile, changeset, settings, controller, inventory)
             or not setting.accepts(values)
         ):
             continue
+        if requested is not None and not setting.accepts(values, requested):
+            raise VBusError("Configuration conditional constraint rejected")
         capability = ConfigurationCapability(
             setting, controller, device, changeset, values[setting.name]
         )
@@ -452,6 +456,7 @@ class RelayParameters:
                     (setting,),
                     controller,
                     inventory,
+                    requested=wanted,
                 ).get(capability.unique_id)
                 if current is None or current.device != capability.device:
                     raise VBusError("Configuration parameter is no longer supported")
