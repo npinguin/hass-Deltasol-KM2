@@ -35,7 +35,9 @@ async def async_setup_entry(hass, entry, async_add_entities):
     coordinator = entry.runtime_data.relay_coordinator
     if coordinator is None:
         return
-    register_configuration_entities(entry, async_add_entities, "select", ConfigurationSelect)
+    register_configuration_entities(
+        entry, async_add_entities, "select", ConfigurationSelect
+    )
     registered = set()
 
     @callback

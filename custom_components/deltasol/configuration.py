@@ -6,6 +6,7 @@ and MIT resol-vbus BaseConfigurationOptimizer / ConnectionCustomizer.
 The latter confirms enumeration ordinals and save transactions, not current
 indices. No site-specific settings or proprietary catalogue are bundled.
 """
+
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -96,9 +97,8 @@ class Setting:
         return result
 
     def accepts(self, values):
-        return (
-            self.decode(values.get(self.name)) is not None
-            and all(dep.matches(values) for dep in self.dependencies)
+        return self.decode(values.get(self.name)) is not None and all(
+            dep.matches(values) for dep in self.dependencies
         )
 
 
@@ -130,7 +130,9 @@ class ConfigurationCapability:
 # clocks/date, safety and dependent thermal parameters are not granted by
 # these contracts. The generic writer below is not limited to this group.
 BX_PLUS_SETTINGS = (
-    Setting("AutoSommerWinterzeit", 56, "Automatic daylight saving time", "switch", True),
+    Setting(
+        "AutoSommerWinterzeit", 56, "Automatic daylight saving time", "switch", True
+    ),
     Setting(
         "TemperatureHysteresisSelector",
         60,
@@ -140,15 +142,27 @@ BX_PLUS_SETTINGS = (
         (("°C", 0), ("°F", 1)),
     ),
     Setting(
-        "FlowSelector", 61, "Display flow unit", "select", True,
+        "FlowSelector",
+        61,
+        "Display flow unit",
+        "select",
+        True,
         (("Litre", 0), ("Gallon", 1)),
     ),
     Setting(
-        "PressureSelector", 62, "Display pressure unit", "select", True,
+        "PressureSelector",
+        62,
+        "Display pressure unit",
+        "select",
+        True,
         (("bar", 0), ("psi", 1)),
     ),
     Setting(
-        "EnergySelector", 63, "Display energy unit", "select", True,
+        "EnergySelector",
+        63,
+        "Display energy unit",
+        "select",
+        True,
         (("kWh", 0), ("MBTU", 1)),
     ),
 )

@@ -58,7 +58,11 @@ from .vbus import VBusError
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS: list[Platform] = [
-    Platform.SENSOR, Platform.SELECT, Platform.BUTTON, Platform.NUMBER, Platform.SWITCH
+    Platform.SENSOR,
+    Platform.SELECT,
+    Platform.BUTTON,
+    Platform.NUMBER,
+    Platform.SWITCH,
 ]
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA_BASE.extend(
@@ -141,7 +145,9 @@ async def async_setup_entry(
     if coordinator.api.supports_parameter_access:
         runtime.relay_coordinator = DeltasolRelayCoordinator(hass, coordinator)
         config_entry.async_on_unload(
-            coordinator.async_add_listener(runtime.relay_coordinator.async_update_listeners)
+            coordinator.async_add_listener(
+                runtime.relay_coordinator.async_update_listeners
+            )
         )
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     if runtime.relay_coordinator:

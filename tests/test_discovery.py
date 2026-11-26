@@ -369,10 +369,12 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(definition.index, setting.index)
             self.assertIsNone(definition.excluded)
             self.assertEqual(definition.storage, "unspecified")
-            self.assertTrue(any(
-                ref.get("menu") == "Grundeinstellungen"
-                for ref in definition.metadata["menu_refs"]
-            ))
+            self.assertTrue(
+                any(
+                    ref.get("menu") == "Grundeinstellungen"
+                    for ref in definition.metadata["menu_refs"]
+                )
+            )
             self.assertFalse(definition.metadata.get("compound_ref"))
             self.assertFalse(definition.metadata.get("selector_ref"))
             if setting.kind == "switch":

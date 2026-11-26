@@ -221,8 +221,11 @@ def _read_settings(session, profile, changeset, settings, controller, inventory)
     if not expected:
         return {}
     observed = session.read_parameter_observations(
-        profile.address, expected, changeset,
-        expected=expected, schema=profile.schema_index,
+        profile.address,
+        expected,
+        changeset,
+        expected=expected,
+        schema=profile.schema_index,
     )
     values = {
         name: result.value
@@ -393,8 +396,12 @@ class RelayParameters:
                 )
                 capabilities.update(relays)
             configuration = _read_settings(
-                session, profile, changeset, profile.settings_for(changeset),
-                controller, inventory,
+                session,
+                profile,
+                changeset,
+                profile.settings_for(changeset),
+                controller,
+                inventory,
             )
         return RelayDiscovery(
             profile,
@@ -439,21 +446,32 @@ class RelayParameters:
         with self._lock:
             with self._session(profile.address) as session:
                 current = _read_settings(
-                    session, profile, capability.changeset, (setting,),
-                    controller, inventory,
+                    session,
+                    profile,
+                    capability.changeset,
+                    (setting,),
+                    controller,
+                    inventory,
                 ).get(capability.unique_id)
                 if current is None or current.device != capability.device:
                     raise VBusError("Configuration parameter is no longer supported")
                 if current.raw == wanted:
                     return current
                 session.write_verified(
-                    profile.address, setting.index, wanted, capability.changeset,
+                    profile.address,
+                    setting.index,
+                    wanted,
+                    capability.changeset,
                     save=setting.save,
                 )
             with self._session(profile.address) as session:
                 verified = _read_settings(
-                    session, profile, capability.changeset, (setting,),
-                    controller, inventory,
+                    session,
+                    profile,
+                    capability.changeset,
+                    (setting,),
+                    controller,
+                    inventory,
                 ).get(capability.unique_id)
                 if (
                     verified is None

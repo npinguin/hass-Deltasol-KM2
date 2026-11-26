@@ -1,11 +1,14 @@
 """Native numeric projection for verified configuration settings."""
+
 from homeassistant.components.number import NumberEntity, NumberMode
 
 from .configuration_entity import ConfigurationEntity, register_configuration_entities
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    register_configuration_entities(entry, async_add_entities, "number", ConfigurationNumber)
+    register_configuration_entities(
+        entry, async_add_entities, "number", ConfigurationNumber
+    )
 
 
 class ConfigurationNumber(ConfigurationEntity, NumberEntity):

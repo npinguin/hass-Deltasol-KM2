@@ -97,7 +97,8 @@ class ParameterTests(unittest.TestCase):
         observed = self.api.discover(telemetry()).configuration
         self.assertEqual(len(observed), 2)
         capability = next(
-            cap for cap in observed.values()
+            cap
+            for cap in observed.values()
             if cap.setting.name == "TemperatureHysteresisSelector"
         )
         self.assertEqual(capability.value, "°C")
@@ -105,8 +106,10 @@ class ParameterTests(unittest.TestCase):
         before = self.connect.call_count
 
         def write(address, index, value, changeset, *, save):
-            self.assertEqual((address, index, value, changeset, save),
-                             (0x7112, 60, 1, 0x2734DABC, True))
+            self.assertEqual(
+                (address, index, value, changeset, save),
+                (0x7112, 60, 1, 0x2734DABC, True),
+            )
             self.values["TemperatureHysteresisSelector"] = (60, 1)
             return value
 
@@ -137,7 +140,11 @@ class ParameterTests(unittest.TestCase):
 
     def test_configuration_numeric_and_dependency_contract(self):
         setting = parameters.Setting(
-            "Setting", 200, "Setting", "number", True,
+            "Setting",
+            200,
+            "Setting",
+            "number",
+            True,
             limits=("0", "10", "0.5", "0.1"),
             dependencies=(parameters_configuration.Dependency("Active", 201, (1,)),),
         )

@@ -1,4 +1,5 @@
 """Native entity projection of the existing parameter coordinator."""
+
 from homeassistant.core import callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
@@ -43,7 +44,9 @@ class ConfigurationEntity(CoordinatorEntity):
         self._attr_unique_id = capability.unique_id
         self._attr_name = self.setting.label
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{capability.device.serial}_{capability.device.source}")}
+            identifiers={
+                (DOMAIN, f"{capability.device.serial}_{capability.device.source}")
+            }
         )
 
     @property
@@ -59,7 +62,8 @@ class ConfigurationEntity(CoordinatorEntity):
             return None
         inventory = device_inventory(self.coordinator.telemetry.data)
         if (
-            find_device(inventory, capability.controller.address) != capability.controller
+            find_device(inventory, capability.controller.address)
+            != capability.controller
             or find_device(inventory, capability.device.address) != capability.device
         ):
             return None
