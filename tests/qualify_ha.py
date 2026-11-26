@@ -319,6 +319,7 @@ async def qualify(directory, phase):
         },
         "deltasol": {},
     }
+    stopped = False
     try:
         assert await bootstrap.async_from_config_dict(config, hass) is hass
         await hass.async_start()
@@ -529,10 +530,18 @@ async def qualify(directory, phase):
                 # The independent peer's small catalogue is injected in the test
                 # only; the real pinned archive is verified by the source gate.
                 assert await hass.config_entries.async_reload(entry.entry_id)
-                await hass.async_block_till_done()
-                assert entry.runtime_data.capture.status == "complete"
+                resumed = entry.runtime_data.capture
+                marker = json.loads(
+                    (directory / "qualification-active.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                assert resumed.started_at == marker["started_at"]
+                assert resumed.offset >= marker["offset"]
+                if entry.runtime_data.capture_task:
+                    await entry.runtime_data.capture_task
+                assert resumed.status == "complete" and resumed.offset == 3
                 assert float(hass.states.get(percent).state) == 100
-                assert entry.runtime_data.capture_task is None
                 assert Peer.writes == 0
                 assert Peer.saves == 0
                 assert Peer.settings[60] == 1 and Peer.settings[56] == 0
@@ -752,15 +761,30 @@ async def qualify(directory, phase):
             patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 0.02),
             patch("custom_components.deltasol.parameters.SESSION_GAP_SECONDS", 0.05),
         ):
+            Peer.offer_waiting.clear()
+            Peer.offer_release.clear()
+            Peer.hold_next_offer = True
+            Peer.failed_release_sessions = 1
             await hass.services.async_call(
                 "button", "press", {"entity_id": button}, blocking=True
             )
-            await entry.runtime_data.capture_task
+            assert await hass.async_add_executor_job(Peer.offer_waiting.wait, 10)
+            action = asyncio.create_task(set_mode(select, "Auto"))
+            try:
+                await asyncio.sleep(0.1)
+                assert not action.done()
+            finally:
+                Peer.offer_release.set()
+            await asyncio.wait_for(action, timeout=15)
             capture = entry.runtime_data.capture
+            assert capture.offset < 3200
+            await entry.runtime_data.capture_task
             assert capture.status == "complete" and capture.offset == 3200
             assert capture.summary()["read_count"] == 1600
             assert capture.summary()["not_resolved_count"] == 1600
-            assert Peer.sessions - sessions_before >= 200
+            assert Peer.sessions - sessions_before >= 201
+            assert capture.retry_count >= 1
+            assert capture.last_failure["phase"] == "release"
             assert Peer.writes == 7 and Peer.saves == 2
             assert hass.states.get(select).state == "Auto"
             assert float(hass.states.get(sensor).state) == 42
@@ -881,8 +905,39 @@ async def qualify(directory, phase):
         assert Peer.mode == 2 and Peer.settings[60] == 1
         assert Peer.writes == writes_before + 1
         assert Peer.saves == 4
+
+        # Stop the actual HA process with an incomplete active capture. The
+        # following restart phase must restore the same committed checkpoint.
+        with (
+            patch("custom_components.deltasol.load_catalog", return_value=fixture),
+            patch("custom_components.deltasol.discovery.BATCH_SIZE", 1),
+            patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 3),
+        ):
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            capture = entry.runtime_data.capture
+            async with asyncio.timeout(20):
+                while capture.offset < 1:
+                    await asyncio.sleep(0.05)
+            assert capture.status == "running" and capture.offset == 1
+            marker = {"started_at": capture.started_at, "offset": capture.offset}
+            (directory / "qualification-active.json").write_text(
+                json.dumps(marker), encoding="utf-8"
+            )
+            await hass.async_stop(force=True)
+            stopped = True
+        checkpoint = json.loads(
+            (directory / ".storage" / f"deltasol.{entry.entry_id}.discovery").read_text(
+                encoding="utf-8"
+            )
+        )["data"]
+        assert checkpoint["resume"] is True
+        assert checkpoint["capture"]["started_at"] == marker["started_at"]
+        assert 1 <= checkpoint["capture"]["offset"] < 3
     finally:
-        await hass.async_stop(force=True)
+        if not stopped:
+            await hass.async_stop(force=True)
 
 
 def main():

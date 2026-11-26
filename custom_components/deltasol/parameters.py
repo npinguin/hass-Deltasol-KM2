@@ -365,7 +365,7 @@ async def refresh_relay_modes(telemetry, lock=None, *, guard=None, initial=False
             telemetry.hass, telemetry.api.fetch_relay_modes, telemetry.data
         )
 
-    for delay in ((None,) if initial else (*RELAY_RETRY_DELAYS, None)):
+    for delay in (None,) if initial else (*RELAY_RETRY_DELAYS, None):
         try:
             if not telemetry.last_update_success:
                 raise VBusTransientError(

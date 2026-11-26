@@ -140,9 +140,12 @@ async def async_setup_entry(
             existing = getattr(other, "runtime_data", None)
             if (
                 other.entry_id != config_entry.entry_id
-                and other.state in (
+                and other.state
+                in (
                     ConfigEntryState.LOADED,
                     ConfigEntryState.SETUP_IN_PROGRESS,
+                    ConfigEntryState.UNLOAD_IN_PROGRESS,
+                    ConfigEntryState.FAILED_UNLOAD,
                 )
                 and existing
                 and existing.coordinator.api.supports_parameter_access
@@ -221,9 +224,7 @@ async def async_unload_entry(
             await _async_save_capture(runtime)
     if runtime.relay_coordinator:
         await runtime.relay_coordinator.async_close()
-    unloaded = await hass.config_entries.async_unload_platforms(
-        config_entry, PLATFORMS
-    )
+    unloaded = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
     if not unloaded and runtime.relay_coordinator:
         runtime.relay_coordinator.closing = False
     return unloaded
@@ -474,14 +475,22 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
 
     async def _async_update_data(self):
         try:
-            return await refresh_relay_modes(
+            result = await refresh_relay_modes(
                 self.telemetry,
                 self._lock,
                 guard=self._check_open,
                 initial=self.initial_refresh,
             )
         except VBusError as error:
+            # Retry ordinary polling sooner while unavailable, not by issuing
+            # additional writes or keeping the bus occupied.
+            self.update_interval = timedelta(seconds=30)
             raise UpdateFailed(str(error)) from error
+        else:
+            self.update_interval = max(
+                self.telemetry.update_interval, timedelta(seconds=60)
+            )
+            return result
         finally:
             self.initial_refresh = False
 
@@ -491,6 +500,9 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         if not self.last_update_success:
             await self.async_refresh()
             if not self.last_update_success:
+                cause = getattr(self.last_exception, "__cause__", None)
+                if isinstance(cause, VBusError):
+                    raise cause
                 raise VBusTransientError(
                     "Controller parameter access is unavailable", "availability"
                 )

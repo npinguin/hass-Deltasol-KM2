@@ -125,6 +125,20 @@ class VBusTests(unittest.TestCase):
             [p.command for p in sent], [0x0200, 0x0300, 0x0300, 0x0600, 0x0600]
         )
 
+    def test_release_resyncs_after_truncated_frame(self):
+        conn = Mock()
+        header = bytes.fromhex("100012711000017f")
+        truncated = b"\xaa" + header + bytes([127 - (sum(header) & 127)])
+        conn.recv.side_effect = [
+            response(0x0500),
+            truncated + live_packet()[:6],
+            live_packet()[6:],
+        ]
+        session = vbus.VBusSession(conn)
+        with session.bus(ADDRESS):
+            pass
+        self.assertEqual(session.release_attempts, 1)
+
     def test_release_unconfirmed_preserves_failure(self):
         conn = Mock()
         conn.recv.side_effect = [response(0x0500), TimeoutError(), TimeoutError()]
