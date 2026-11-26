@@ -83,6 +83,30 @@ class ConfigurationCapture:
         total = len(self.candidates)
         return min(99.99, round(100 * self.offset / total, 2)) if total else 0
 
+    def summary(self):
+        """Shared cached progress projection, without full metadata serialization."""
+        total = len(self.candidates)
+        counts = {}
+        for result in self.results.values():
+            counts[result.status] = counts.get(result.status, 0) + 1
+        return {
+            "scanned_count": self.offset,
+            "candidate_count": total,
+            "progress_percent": self.progress_percent,
+            "read_count": counts.get("read", 0),
+            "not_resolved_count": counts.get("not_resolved", 0),
+            "other_unread_count": self.offset
+            - counts.get("read", 0)
+            - counts.get("not_resolved", 0),
+            "remaining_count": total - self.offset,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "retry_count": self.retry_count,
+            "consecutive_failures": self.consecutive_failures,
+            "retry_in_seconds": self.retry_in_seconds,
+            "last_failure": self.last_failure,
+        }
+
     def next_batch(self):
         return self.candidates[self.offset : self.offset + BATCH_SIZE]
 
@@ -168,6 +192,7 @@ class ConfigurationCapture:
             "retry_in_seconds": self.retry_in_seconds,
             "last_failure": self.last_failure,
             "catalog_count": len(self.catalog.definitions),
+            "summary": self.summary(),
             "scanned_count": self.offset,
             "coverage": "all_catalogue_candidates_attempted"
             if self.status == "complete"

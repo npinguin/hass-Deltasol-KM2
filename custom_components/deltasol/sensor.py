@@ -29,6 +29,7 @@ from homeassistant.util import dt as dt_util
 from . import DeltasolConfigEntry, DeltasolCoordinator
 from .const import DOMAIN
 from .deltasolapi import DeltasolEndpoint
+from .diagnostics import ERROR_CODES
 from .parameters import device_inventory, find_profile
 
 _LOGGER = logging.getLogger(__name__)
@@ -141,16 +142,11 @@ class DiscoveryStatusSensor(DiscoverySensor):
         capture = self.runtime.capture
         if not capture:
             return {}
-        total = len(capture.candidates)
         return {
-            "scanned_count": capture.offset,
-            "candidate_count": total,
-            "progress_percent": capture.progress_percent,
-            "read_count": sum(o.status == "read" for o in capture.results.values()),
-            "retry_count": capture.retry_count,
-            "consecutive_failures": capture.consecutive_failures,
-            "retry_in_seconds": capture.retry_in_seconds,
-            "last_failure": capture.last_failure,
+            **capture.summary(),
+            "last_error": ERROR_CODES.get(capture.error, "parameter_error")
+            if capture.error
+            else None,
         }
 
 

@@ -70,6 +70,14 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(capture.status, "complete")
         exported = capture.export(True)
         self.assertEqual(exported["scanned_count"], 2)
+        summary = exported["summary"]
+        self.assertEqual(summary["progress_percent"], 100)
+        self.assertEqual(summary["read_count"], 1)
+        self.assertEqual(summary["not_resolved_count"], 1)
+        self.assertEqual(summary["other_unread_count"], 0)
+        self.assertEqual(summary["remaining_count"], 0)
+        self.assertTrue(summary["started_at"])
+        self.assertTrue(summary["finished_at"])
         self.assertNotIn("Password", exported["parameters"])
         self.assertNotIn(
             "raw_value", capture.export(False)["parameters"]["TemperatureLimit"]
