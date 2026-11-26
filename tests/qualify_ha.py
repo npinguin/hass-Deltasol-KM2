@@ -12,6 +12,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import patch
 
 from homeassistant import bootstrap, loader
@@ -40,7 +41,7 @@ class Peer:
     deny = False
     writes = 0
     saves = 0
-    settings = {56: 1, 60: 0, 61: 0, 62: 0, 63: 0}
+    settings: ClassVar[dict[int, int]] = {56: 1, 60: 0, 61: 0, 62: 0, 63: 0}
     persistent_file = None
     drop_discovery_response = False
     drop_relay_response = False
