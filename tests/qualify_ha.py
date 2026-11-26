@@ -412,6 +412,23 @@ async def qualify(directory, phase):
             assert change["after_raw"] == 2
             assert Peer.writes == 0
             Peer.mode = 4
+            # Native storage must preserve the completed inventory and comparison
+            # across a real config-entry unload/reload, without another scan.
+            assert await hass.config_entries.async_reload(entry.entry_id)
+            await hass.async_block_till_done()
+            assert entry.runtime_data.capture.status == "complete"
+            assert entry.runtime_data.capture_task is None
+            restored = (await async_get_config_entry_diagnostics(hass, entry))[
+                "configuration_discovery"
+            ]
+            assert restored["scanned_count"] == 3
+            assert restored["summary"]["progress_percent"] == 100
+            assert restored["comparison"]["changes"]["Relais_Regler_R4_Handbetrieb"]["after_raw"] == 2
+            assert registry.async_get_entity_id(
+                "sensor", "deltasol", f"{entry.entry_id}_configuration_discovery_progress"
+            ) == percent
+            assert float(hass.states.get(percent).state) == 100
+            assert Peer.writes == 0
         if resilient:
             Peer.drop_relay_response = True
             await entry.runtime_data.relay_coordinator.async_refresh()

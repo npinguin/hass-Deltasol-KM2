@@ -41,7 +41,11 @@ class ConfigurationCapture:
 
     @cached_property
     def sensitive_indices(self):
-        return {d.index for d in self.catalog.definitions if is_sensitive(d)}
+        return {
+            d.index
+            for d in self.catalog.definitions
+            if d.index is not None and is_sensitive(d)
+        }
 
     @cached_property
     def candidates(self):
@@ -186,7 +190,11 @@ class ConfigurationCapture:
             raise ValueError("Missing Discovery checkpoint timestamp")
         capture.offset = offset
         capture.retry_count = data["retry_count"]
-        capture.status = "complete" if data["status"] == "complete" else "paused"
+        capture.status = (
+            data["status"]
+            if data["status"] in ("complete", "incomplete")
+            else "paused"
+        )
         return capture
 
     def next_batch(self):

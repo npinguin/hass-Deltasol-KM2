@@ -133,7 +133,7 @@ async def async_setup_entry(
     runtime = config_entry.runtime_data
     if await _async_restore_capture(hass, runtime):
         if runtime.resume_on_load and runtime.capture.status == "paused":
-            _start_capture(hass, config_entry, runtime)
+            await _start_capture(hass, config_entry, runtime)
         runtime.notify_capture()
 
     # Return true to denote a successful setup.
@@ -178,8 +178,9 @@ async def _async_save_capture(runtime):
                 "capture": runtime.capture.checkpoint(),
                 "previous": runtime.previous_capture.checkpoint()
                 if runtime.previous_capture else None,
-                "resume": runtime.resume_on_load
-                or runtime.capture.status in ("running", "recovering"),
+                "resume": runtime.capture.status not in ("complete", "incomplete")
+                and (runtime.resume_on_load
+                     or runtime.capture.status in ("running", "recovering")),
             }
         )
         runtime.checkpoint_error = None
@@ -269,11 +270,10 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
             runtime.previous_capture = capture
         capture = ConfigurationCapture(catalog, controller)
         runtime.capture = capture
-    await _async_save_capture(runtime)
-    _start_capture(hass, entry, runtime)
+    await _start_capture(hass, entry, runtime)
 
 
-def _start_capture(hass, entry, runtime):
+async def _start_capture(hass, entry, runtime):
     capture = runtime.capture
     capture.status = "running"
     capture.error = None
@@ -281,6 +281,7 @@ def _start_capture(hass, entry, runtime):
     runtime.stop_capture = False
     runtime.capture_wakeup.clear()
     capture.consecutive_failures = 0
+    await _async_save_capture(runtime)
     runtime.notify_capture()
 
     async def save():
