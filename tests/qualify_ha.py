@@ -12,6 +12,7 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import ClassVar
 from unittest.mock import patch
 
 from homeassistant import bootstrap, loader
@@ -36,8 +37,12 @@ class Peer:
     mode = 4
     em_mode = 2
     em_present = True
+    presence_lookup = True
     deny = False
     writes = 0
+    saves = 0
+    settings: ClassVar[dict[int, int]] = {56: 1, 60: 0, 61: 0, 62: 0, 63: 0}
+    persistent_file = None
     drop_discovery_response = False
     drop_relay_response = False
 
@@ -87,7 +92,14 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     1682631798: 193,
                     1215980970: EM_RELAY,
                     152651155: 2169,
+                    852441249: 56,
+                    156054146: 60,
+                    124814937: 61,
+                    1011665082: 62,
+                    1893665643: 63,
                 }.get(value, 0)
+                if value == 1682631798 and not Peer.presence_lookup:
+                    index = 0
                 response = datagram(source, ADDRESS, 0x1101, index, value)
             elif command == 0x0300:
                 value = {
@@ -99,6 +111,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     193: int(Peer.em_present),
                     EM_RELAY: Peer.em_mode,
                     2169: 1,
+                    **Peer.settings,
                 }[index]
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0200:
@@ -110,6 +123,14 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert value in (0, 1, 2, 3)
                     Peer.em_mode = value
                 Peer.writes += 1
+                response = datagram(source, ADDRESS, 0x0100, index, value)
+            elif command == 0x0400:
+                assert index in Peer.settings and value in (0, 1)
+                Peer.settings[index] = value
+                Peer.saves += 1
+                temporary = Peer.persistent_file.with_suffix(".tmp")
+                temporary.write_text(json.dumps(Peer.settings), encoding="utf-8")
+                temporary.replace(Peer.persistent_file)
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0600:
                 header = bytes.fromhex("1000127110000100")
@@ -315,6 +336,34 @@ async def qualify(directory, phase):
         assert Peer.writes == 0
         from custom_components.deltasol.catalog import Catalog, Definition
 
+        display = registry.async_get_entity_id(
+            "select",
+            "deltasol",
+            "isolated-gateway_7112_TemperatureHysteresisSelector_configuration",
+        )
+        daylight = registry.async_get_entity_id(
+            "switch",
+            "deltasol",
+            "isolated-gateway_7112_AutoSommerWinterzeit_configuration",
+        )
+        assert display and daylight
+        assert (
+            registry.async_get(display).device_id
+            == registry.async_get(sensor).device_id
+        )
+        assert registry.async_get(display).entity_category == "config"
+        assert hass.states.get(display).state == ("°F" if phase == "restart" else "°C")
+        assert hass.states.get(daylight).state == (
+            "off" if phase == "restart" else "on"
+        )
+        assert (
+            diagnostic["configuration_controls"]["TemperatureHysteresisSelector"][
+                "write_access"
+            ]
+            == "profile_verified"
+        )
+        assert Peer.saves == 0
+
         fixture = Catalog(
             "isolated-test-catalogue",
             (
@@ -337,8 +386,38 @@ async def qualify(directory, phase):
             "sensor", "deltasol", f"{entry.entry_id}_configuration_discovery_status"
         )
         assert progress and hass.states.get(progress).state == "not_started"
+        percent = registry.async_get_entity_id(
+            "sensor", "deltasol", f"{entry.entry_id}_configuration_discovery_progress"
+        )
+        assert percent and float(hass.states.get(percent).state) == 0
+        assert hass.states.get(percent).attributes["unit_of_measurement"] == "%"
+        assert (
+            registry.async_get(percent).device_id
+            == registry.async_get(progress).device_id
+        )
+        for entity_id in (button, progress, percent):
+            assert registry.async_get(entity_id).entity_category == "diagnostic"
         assert diagnostic["configuration_discovery"]["status"] == "not_started"
         with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+            if phase == "restart":
+                # The independent peer's small catalogue is injected in the test
+                # only; the real pinned archive is verified by the source gate.
+                assert await hass.config_entries.async_reload(entry.entry_id)
+                await hass.async_block_till_done()
+                assert entry.runtime_data.capture.status == "complete"
+                assert float(hass.states.get(percent).state) == 100
+                assert entry.runtime_data.capture_task is None
+                assert Peer.writes == 0
+                assert Peer.saves == 0
+                assert Peer.settings[60] == 1 and Peer.settings[56] == 0
+                assert hass.states.get(display).state == "°F"
+                assert hass.states.get(daylight).state == "off"
+                assert em == json.loads(
+                    (directory / "qualification-select.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                return
             # A real transport failure is resumable and never becomes a write.
             Peer.deny = True
             await hass.services.async_call(
@@ -351,6 +430,7 @@ async def qualify(directory, phase):
             assert capture["status"] == "incomplete", capture
             assert hass.states.get(progress).state == "incomplete"
             assert capture["scanned_count"] == 0
+            assert float(hass.states.get(percent).state) == 0
             assert Peer.writes == 0
             Peer.deny = False
             # Baseline and rollback have already returned above.
@@ -379,6 +459,14 @@ async def qualify(directory, phase):
             assert "metadata" not in capture["parameters"]["Missing"]
             assert hass.states.get(progress).state == "complete"
             assert hass.states.get(progress).attributes["progress_percent"] == 100
+            assert float(hass.states.get(percent).state) == 100
+            attrs = hass.states.get(progress).attributes
+            assert attrs["read_count"] == 2
+            assert attrs["not_resolved_count"] == 1
+            assert attrs["remaining_count"] == 0
+            assert attrs["last_error"] is None
+            assert attrs["started_at"] and attrs["finished_at"]
+            assert capture["summary"]["progress_percent"] == 100
             assert Peer.writes == 0
             Peer.mode = 2
             await hass.services.async_call(
@@ -392,6 +480,33 @@ async def qualify(directory, phase):
             assert change["after_raw"] == 2
             assert Peer.writes == 0
             Peer.mode = 4
+            # Native storage must preserve the completed inventory and comparison
+            # across a real config-entry unload/reload, without another scan.
+            assert await hass.config_entries.async_reload(entry.entry_id)
+            await hass.async_block_till_done()
+            assert entry.runtime_data.capture.status == "complete"
+            assert entry.runtime_data.capture_task is None
+            restored = (await async_get_config_entry_diagnostics(hass, entry))[
+                "configuration_discovery"
+            ]
+            assert restored["scanned_count"] == 3
+            assert restored["summary"]["progress_percent"] == 100
+            assert (
+                restored["comparison"]["changes"]["Relais_Regler_R4_Handbetrieb"][
+                    "after_raw"
+                ]
+                == 2
+            )
+            assert (
+                registry.async_get_entity_id(
+                    "sensor",
+                    "deltasol",
+                    f"{entry.entry_id}_configuration_discovery_progress",
+                )
+                == percent
+            )
+            assert float(hass.states.get(percent).state) == 100
+            assert Peer.writes == 0
         if resilient:
             Peer.drop_relay_response = True
             await entry.runtime_data.relay_coordinator.async_refresh()
@@ -405,6 +520,13 @@ async def qualify(directory, phase):
             assert em == json.loads(select_file.read_text(encoding="utf-8"))
             return
         select_file.write_text(json.dumps(em), encoding="utf-8")
+        Peer.presence_lookup = False
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(em).state == "Auto"
+        assert (
+            hass.states.get(em).attributes["registration_source"]
+            == "activation_and_observed_module"
+        )
 
         async def set_mode(entity_id, option):
             await hass.services.async_call(
@@ -415,6 +537,18 @@ async def qualify(directory, phase):
             )
             await hass.async_block_till_done()
 
+        # Both actions use the independent peer's 0x0400 persistence path.
+        await set_mode(display, "°F")
+        assert Peer.saves == 1 and Peer.settings[60] == 1
+        assert hass.states.get(display).state == "°F"
+        await set_mode(display, "°F")
+        assert Peer.saves == 1
+        await hass.services.async_call(
+            "switch", "turn_off", {"entity_id": daylight}, blocking=True
+        )
+        assert Peer.saves == 2 and Peer.settings[56] == 0
+        assert hass.states.get(daylight).state == "off"
+        assert Peer.writes == 0
         for option, expected in (("Off", 0), ("On", 4), ("Auto", 2)):
             await set_mode(select, option)
             assert Peer.mode == expected
@@ -443,7 +577,8 @@ async def qualify(directory, phase):
         assert Peer.writes == 7
         assert hass.states.get(em).state == "unavailable"
         Peer.em_present = True
-        assert await hass.config_entries.async_reload(entry.entry_id)
+        with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+            assert await hass.config_entries.async_reload(entry.entry_id)
         await hass.async_block_till_done()
         assert registry.async_get_entity_id("select", "deltasol", EM_UID) == em
         assert hass.states.get(em).state == "Auto"
@@ -466,12 +601,14 @@ async def qualify(directory, phase):
         assert access["relays"]["R4"]["last_observed_mode"] == "Auto"
         assert access["relays"]["R4"]["writable_options"] == []
         Peer.deny = False
-        assert await hass.config_entries.async_reload(entry.entry_id)
+        with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+            assert await hass.config_entries.async_reload(entry.entry_id)
         await hass.async_block_till_done()
         assert registry.async_get_entity_id("select", "deltasol", SELECT_UID) == select
         assert hass.states.get(select).state == "Auto"
         assert float(hass.states.get(sensor).state) == 42
         assert Peer.writes == 7
+        assert Peer.saves == 2
     finally:
         await hass.async_stop(force=True)
 
@@ -479,6 +616,14 @@ async def qualify(directory, phase):
 def main():
     directory = Path(sys.argv[1])
     phase = sys.argv[2]
+    Peer.persistent_file = directory / "qualification-peer-settings.json"
+    if Peer.persistent_file.exists():
+        Peer.settings = {
+            int(index): value
+            for index, value in json.loads(
+                Peer.persistent_file.read_text(encoding="utf-8")
+            ).items()
+        }
     with (
         ThreadingHTTPServer(("127.0.0.1", 18080), HttpHandler) as http,
         VBusServer(("127.0.0.1", 7053), VBusHandler) as vbus,

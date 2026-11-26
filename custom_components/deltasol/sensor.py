@@ -29,6 +29,7 @@ from homeassistant.util import dt as dt_util
 from . import DeltasolConfigEntry, DeltasolCoordinator
 from .const import DOMAIN
 from .deltasolapi import DeltasolEndpoint
+from .diagnostics import ERROR_CODES
 from .parameters import device_inventory, find_profile
 
 _LOGGER = logging.getLogger(__name__)
@@ -91,19 +92,23 @@ async def async_setup_entry(
     if coordinator.api.supports_parameter_access:
         _, controller = find_profile(device_inventory(coordinator.data))
         if controller:
-            async_add_entities([DiscoveryStatusSensor(config, controller)])
+            async_add_entities(
+                [
+                    DiscoveryStatusSensor(config, controller),
+                    DiscoveryProgressSensor(config, controller),
+                ]
+            )
 
 
-class DiscoveryStatusSensor(SensorEntity):
-    """Push-only status of the existing capture; no extra bus traffic."""
+class DiscoverySensor(SensorEntity):
+    """Push-only projection of the existing capture; no extra bus traffic."""
 
-    _attr_name = "Configuration discovery status"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_should_poll = False
 
-    def __init__(self, entry, controller):
+    def __init__(self, entry, controller, suffix):
         self.runtime = entry.runtime_data
-        self._attr_unique_id = f"{entry.entry_id}_configuration_discovery_status"
+        self._attr_unique_id = f"{entry.entry_id}_configuration_discovery_{suffix}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{controller.serial}_{controller.source}")}
         )
@@ -113,6 +118,15 @@ class DiscoveryStatusSensor(SensorEntity):
         self.async_on_remove(
             lambda: self.runtime.capture_listeners.discard(self.async_write_ha_state)
         )
+
+
+class DiscoveryStatusSensor(DiscoverySensor):
+    """Capture lifecycle status with existing diagnostic attributes."""
+
+    _attr_name = "Configuration discovery status"
+
+    def __init__(self, entry, controller):
+        super().__init__(entry, controller, "status")
 
     @property
     def native_value(self):
@@ -127,20 +141,30 @@ class DiscoveryStatusSensor(SensorEntity):
     def extra_state_attributes(self):
         capture = self.runtime.capture
         if not capture:
-            return {}
-        total = len(capture.candidates)
+            return {"checkpoint_error": self.runtime.checkpoint_error}
         return {
-            "scanned_count": capture.offset,
-            "candidate_count": total,
-            "progress_percent": round(100 * capture.offset / total, 2)
-            if total
-            else 100,
-            "read_count": sum(o.status == "read" for o in capture.results.values()),
-            "retry_count": capture.retry_count,
-            "consecutive_failures": capture.consecutive_failures,
-            "retry_in_seconds": capture.retry_in_seconds,
-            "last_failure": capture.last_failure,
+            **capture.summary(),
+            "checkpoint_error": self.runtime.checkpoint_error,
+            "last_error": ERROR_CODES.get(capture.error, "parameter_error")
+            if capture.error
+            else None,
         }
+
+
+class DiscoveryProgressSensor(DiscoverySensor):
+    """Numeric progress for native dashboards and completion automations."""
+
+    _attr_name = "Configuration discovery progress"
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_icon = "mdi:progress-check"
+
+    def __init__(self, entry, controller):
+        super().__init__(entry, controller, "progress")
+
+    @property
+    def native_value(self):
+        capture = self.runtime.capture
+        return capture.progress_percent if capture else 0
 
 
 class DeltasolSensor(CoordinatorEntity, SensorEntity):

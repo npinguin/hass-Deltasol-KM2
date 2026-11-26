@@ -30,12 +30,20 @@ from homeassistant.exceptions import (
     IntegrationError,
 )
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import (
     DataUpdateCoordinator,
     UpdateFailed,
 )
 
-from .catalog import CatalogError, load_catalog
+from .catalog import (
+    CatalogError,
+    CatalogMissing,
+    download_catalog,
+    load_catalog,
+    source_for,
+)
+from .configuration import encode_action
 from .const import (
     CONF_VBUS_PASSWORD,
     DEFAULT_NAME,
@@ -50,7 +58,13 @@ from .vbus import VBusError
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.SELECT, Platform.BUTTON]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.SELECT,
+    Platform.BUTTON,
+    Platform.NUMBER,
+    Platform.SWITCH,
+]
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA_BASE.extend(
     {
@@ -82,6 +96,9 @@ class RuntimeData:
     stop_capture: bool = False
     capture_wakeup: asyncio.Event = dataclass_field(default_factory=asyncio.Event)
     capture_listeners: set = dataclass_field(default_factory=set)
+    capture_store: Store | None = None
+    checkpoint_error: str | None = None
+    resume_on_load: bool = False
 
     def notify_capture(self):
         for listener in tuple(self.capture_listeners):
@@ -114,13 +131,32 @@ async def async_setup_entry(
 
     # Add the coordinator and update listener to config runtime data to make
     # accessible throughout your integration
-    config_entry.runtime_data = RuntimeData(coordinator)
+    config_entry.runtime_data = RuntimeData(
+        coordinator,
+        capture_store=Store(
+            hass, 1, f"deltasol.{config_entry.entry_id}.discovery", private=True
+        ),
+    )
 
     config_entry.async_on_unload(config_entry.add_update_listener(_async_reload_entry))
 
     # Setup platforms (based on the list of entity types in PLATFORMS defined above)
     # This calls the async_setup method in each of your entity type files.
+    runtime = config_entry.runtime_data
+    if coordinator.api.supports_parameter_access:
+        runtime.relay_coordinator = DeltasolRelayCoordinator(hass, coordinator)
+        config_entry.async_on_unload(
+            coordinator.async_add_listener(
+                runtime.relay_coordinator.async_update_listeners
+            )
+        )
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
+    if runtime.relay_coordinator:
+        await runtime.relay_coordinator.async_refresh()
+    if await _async_restore_capture(hass, runtime):
+        if runtime.resume_on_load and runtime.capture.status == "paused":
+            await _start_capture(hass, config_entry, runtime)
+        runtime.notify_capture()
 
     # Return true to denote a successful setup.
     return True
@@ -140,11 +176,108 @@ async def async_unload_entry(
     # Unload platforms and return result
     runtime = config_entry.runtime_data
     async with runtime.capture_lock:
-        runtime.stop_capture = True
-        runtime.capture_wakeup.set()
         if runtime.capture_task and not runtime.capture_task.done():
+            runtime.resume_on_load = not runtime.stop_capture
+            runtime.stop_capture = True
+            runtime.capture_wakeup.set()
             await runtime.capture_task
+        if runtime.capture:
+            await _async_save_capture(runtime)
     return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
+
+
+async def async_remove_entry(hass, entry):
+    """Remove only this entry's private discovery checkpoint."""
+    await Store(
+        hass, 1, f"deltasol.{entry.entry_id}.discovery", private=True
+    ).async_remove()
+
+
+async def _async_save_capture(runtime):
+    if runtime.capture is None:
+        return
+    try:
+        await runtime.capture_store.async_save(
+            {
+                "capture": runtime.capture.checkpoint(),
+                "previous": runtime.previous_capture.checkpoint()
+                if runtime.previous_capture
+                else None,
+                "resume": runtime.capture.status not in ("complete", "incomplete")
+                and (
+                    runtime.resume_on_load
+                    or runtime.capture.status in ("running", "recovering")
+                ),
+            }
+        )
+        runtime.checkpoint_error = None
+    except (OSError, ValueError, HomeAssistantError):
+        runtime.checkpoint_error = "checkpoint_save_failed"
+        _LOGGER.warning("Could not save RESOL Discovery checkpoint")
+
+
+def _catalog_identity(runtime):
+    relay = runtime.relay_coordinator
+    controller = capture_identity(runtime.coordinator.data)
+    if (
+        not runtime.coordinator.last_update_success
+        or not relay
+        or not relay.last_update_success
+        or not relay.data
+        or relay.data.controller != controller
+        or relay.data.changeset is None
+    ):
+        raise CatalogError("Controller catalogue identity not confirmed")
+    return controller, source_for(controller.address, relay.data.changeset)
+
+
+async def _async_catalog(hass, source, *, acquire=False):
+    path = hass.config.path("deltasol", source.filename)
+    try:
+        return await hass.async_add_executor_job(load_catalog, path, source)
+    except CatalogMissing:
+        if not acquire:
+            raise
+        return await hass.async_add_executor_job(download_catalog, path, source)
+
+
+async def _async_restore_capture(hass, runtime):
+    """Restore only against the current verified controller and exact local archive."""
+    if not runtime.coordinator.api.supports_parameter_access:
+        return False
+    try:
+        stored = await runtime.capture_store.async_load()
+        if stored is None:
+            return False
+        controller, source = _catalog_identity(runtime)
+        catalog = await _async_catalog(hass, source)
+        capture = ConfigurationCapture.restore(
+            stored["capture"], catalog, controller, source.changeset
+        )
+        previous = stored.get("previous")
+        runtime.previous_capture = (
+            ConfigurationCapture.restore(
+                previous, catalog, controller, source.changeset
+            )
+            if previous
+            else None
+        )
+        runtime.capture = capture
+        runtime.resume_on_load = stored.get("resume") is True
+        runtime.checkpoint_error = None
+        return True
+    except (
+        CatalogError,
+        VBusError,
+        OSError,
+        ValueError,
+        TypeError,
+        KeyError,
+        HomeAssistantError,
+    ):
+        runtime.checkpoint_error = "checkpoint_incompatible"
+        _LOGGER.warning("RESOL Discovery checkpoint unavailable or incompatible")
+        return False
 
 
 async def async_toggle_configuration_capture(hass, entry):
@@ -164,31 +297,50 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
     if not telemetry.last_update_success or not telemetry.api.supports_parameter_access:
         raise HomeAssistantError("Controller parameter access is unavailable")
     try:
-        controller = capture_identity(telemetry.data)
-        catalog = await hass.async_add_executor_job(
-            load_catalog, hass.config.path("deltasol", "BXPLUS_2.08.zip")
-        )
+        controller, source = _catalog_identity(runtime)
+        catalog = await _async_catalog(hass, source, acquire=True)
     except (CatalogError, VBusError) as err:
         raise HomeAssistantError(str(err)) from err
+    if runtime.capture is None:
+        await _async_restore_capture(hass, runtime)
     capture = runtime.capture
     if (
         capture is None
         or capture.status == "complete"
         or capture.controller != controller
         or capture.catalog.digest != catalog.digest
+        or capture.changeset != source.changeset
     ):
-        if capture and capture.status == "complete":
-            runtime.previous_capture = capture
-        capture = ConfigurationCapture(catalog, controller)
+        runtime.previous_capture = (
+            capture
+            if capture
+            and capture.status == "complete"
+            and capture.controller == controller
+            and capture.catalog.digest == catalog.digest
+            and capture.changeset == source.changeset
+            else None
+        )
+        capture = ConfigurationCapture(catalog, controller, source.changeset)
         runtime.capture = capture
+    await _start_capture(hass, entry, runtime)
+
+
+async def _start_capture(hass, entry, runtime):
+    capture = runtime.capture
     capture.status = "running"
     capture.error = None
+    runtime.resume_on_load = False
     runtime.stop_capture = False
     runtime.capture_wakeup.clear()
     capture.consecutive_failures = 0
+    await _async_save_capture(runtime)
     runtime.notify_capture()
+
+    async def save():
+        await _async_save_capture(runtime)
+
     runtime.capture_task = entry.async_create_background_task(
-        hass, capture_batches(runtime), "deltasol_configuration_capture"
+        hass, capture_batches(runtime, save), "deltasol_configuration_capture"
     )
 
 
@@ -261,6 +413,38 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             except VBusError as error:
                 raise UpdateFailed(str(error)) from error
 
+    async def async_set_configuration(self, unique_id, value):
+        """Native entities use one live validated configuration action."""
+        async with self._lock:
+            if (
+                not self.last_update_success
+                or not self.telemetry.last_update_success
+                or not self.data
+                or unique_id not in self.data.configuration
+            ):
+                raise HomeAssistantError("Configuration capability is unavailable")
+            capability = self.data.configuration[unique_id]
+            try:
+                encode_action(capability.setting, value)
+            except VBusError as error:
+                raise HomeAssistantError(str(error)) from error
+            await self.telemetry.async_refresh()
+            if not self.telemetry.last_update_success:
+                raise HomeAssistantError("Controller telemetry is unavailable")
+            try:
+                verified = await self.hass.async_add_executor_job(
+                    self.api.set_configuration, self.telemetry.data, capability, value
+                )
+            except VBusError as error:
+                self.async_set_update_error(error)
+                raise HomeAssistantError(str(error)) from error
+            self.async_set_updated_data(
+                replace(
+                    self.data,
+                    configuration={**self.data.configuration, unique_id: verified},
+                )
+            )
+
     async def async_set_mode(self, unique_id, option):
         """Do not accept calls that bypass entity availability."""
         async with self._lock:
@@ -271,11 +455,18 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 or unique_id not in self.data.capabilities
             ):
                 raise HomeAssistantError("Relay capability is unavailable")
+            capability = self.data.capabilities[unique_id]
+            if capability.registration_source == "activation_and_observed_module":
+                # The controller cannot resolve the presence flag on this exact
+                # profile. Obtain a fresh gateway observation before each action.
+                await self.telemetry.async_refresh()
+                if not self.telemetry.last_update_success:
+                    raise HomeAssistantError("Controller telemetry is unavailable")
             try:
                 capability = await self.hass.async_add_executor_job(
                     self.api.set_relay_mode,
                     self.telemetry.data,
-                    self.data.capabilities[unique_id],
+                    capability,
                     option,
                 )
             except VBusError as error:

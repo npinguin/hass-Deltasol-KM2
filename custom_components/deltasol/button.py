@@ -18,7 +18,7 @@ class DiscoveryButton(ButtonEntity):
     """Start, pause or resume the configuration capture."""
 
     _attr_name = "Discover configuration (start/pause/resume)"
-    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, hass, entry):
         self.hass = hass

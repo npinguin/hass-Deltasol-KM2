@@ -1,7 +1,9 @@
 """Tests for catalogue parsing, read coverage and snapshot comparison."""
 
 import asyncio
+import hashlib
 import importlib
+import io
 import os
 import sys
 import types
@@ -10,8 +12,9 @@ import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 PACKAGE = "_deltasol_discovery_tests"
 package = types.ModuleType(PACKAGE)
@@ -70,6 +73,14 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(capture.status, "complete")
         exported = capture.export(True)
         self.assertEqual(exported["scanned_count"], 2)
+        summary = exported["summary"]
+        self.assertEqual(summary["progress_percent"], 100)
+        self.assertEqual(summary["read_count"], 1)
+        self.assertEqual(summary["not_resolved_count"], 1)
+        self.assertEqual(summary["other_unread_count"], 0)
+        self.assertEqual(summary["remaining_count"], 0)
+        self.assertTrue(summary["started_at"])
+        self.assertTrue(summary["finished_at"])
         self.assertNotIn("Password", exported["parameters"])
         self.assertNotIn(
             "raw_value", capture.export(False)["parameters"]["TemperatureLimit"]
@@ -98,6 +109,7 @@ class DiscoveryTests(unittest.TestCase):
         )
         batch = capture.next_batch()
         self.assertEqual(len(batch), discovery.BATCH_SIZE)
+        self.assertEqual(capture.progress_percent, 0)
         capture.apply(
             batch,
             {
@@ -106,6 +118,11 @@ class DiscoveryTests(unittest.TestCase):
             },
         )
         self.assertEqual(capture.offset, discovery.BATCH_SIZE)
+        self.assertEqual(capture.progress_percent, 45.71)
+        for status in ("recovering", "paused", "incomplete"):
+            capture.status = status
+            self.assertEqual(capture.progress_percent, 45.71)
+        capture.status = "running"
         self.assertEqual(capture.status, "running")
         self.assertEqual(capture.next_batch()[0].name, "Test16")
         self.assertEqual(capture.results["Test0"].status, "layout_mismatch")
@@ -118,7 +135,49 @@ class DiscoveryTests(unittest.TestCase):
             )
         self.assertEqual(capture.status, "complete")
         self.assertEqual(capture.offset, 35)
+        self.assertEqual(capture.progress_percent, 100)
         self.assertEqual(capture.export(True)["parameters"]["Test34"]["raw_value"], 0)
+
+    def test_checkpoint_roundtrip_and_rejection(self):
+        parsed = catalog.parse_menu(menu(), "test")
+        controller = SimpleNamespace(
+            channel=0, address=0x7112, source="BX", serial="test"
+        )
+        capture = discovery.ConfigurationCapture(parsed, controller)
+        first = capture.next_batch()[:1]
+        capture.apply(
+            first, {first[0].name: vbus.ParameterObservation(17, 215, "read")}
+        )
+        capture.retry_count = 3
+        stored = capture.checkpoint()
+        restored = discovery.ConfigurationCapture.restore(
+            stored, parsed, controller, capture.changeset
+        )
+        self.assertEqual(restored.status, "paused")
+        self.assertEqual(restored.offset, 1)
+        self.assertEqual(restored.retry_count, 3)
+        self.assertEqual(restored.results, capture.results)
+        self.assertEqual(restored.next_batch(), capture.next_batch())
+        restored.apply(
+            restored.next_batch(),
+            {"UnknownType": vbus.ParameterObservation(None, None, "not_resolved")},
+        )
+        self.assertEqual(
+            discovery.ConfigurationCapture.restore(
+                restored.checkpoint(), parsed, controller, capture.changeset
+            ).status,
+            "complete",
+        )
+        for changed in (
+            {**stored, "offset": 2},
+            {**stored, "changeset": 1},
+            {**stored, "observations": [["Password", 18, 1234, "read"]]},
+            {**stored, "observations": [[first[0].name, 18, 1234, "read"]]},
+        ):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                discovery.ConfigurationCapture.restore(
+                    changed, parsed, controller, capture.changeset
+                )
 
     def test_sensitive_filter_and_priority(self):
         definitions = (
@@ -144,6 +203,33 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn("Bedienercode", exported["parameters"])
         self.assertNotIn("Alias", exported["parameters"])
         self.assertNotIn("metadata", exported["parameters"]["Schema"])
+
+    def test_parameterization_evidence_does_not_grant_write_access(self):
+        for storage, metadata, expected in (
+            ("persistent", {}, "storage_only"),
+            ("volatile", {}, "storage_only"),
+            ("unspecified", {}, "optimizer_candidate"),
+            (
+                "volatile",
+                {"allow_parameterization": "true"},
+                "explicit_parameterization_hint",
+            ),
+        ):
+            definition = catalog.Definition("Setting", 1, storage, None, metadata)
+            self.assertEqual(catalog.parameterization_evidence(definition), expected)
+
+    def test_numeric_sentinel_and_unverified_display_units(self):
+        metadata = {
+            "type_chain": ["Number"],
+            "storeFactor": "0.1",
+            "displayFactor": "0.1",
+            "value_text": [{"value": "-999.9", "label": "-"}],
+        }
+        definition = catalog.Definition("Reading", 1, "persistent", None, metadata)
+        self.assertIsNone(catalog.decoded_value(definition, -9999))
+        self.assertEqual(catalog.decoded_value(definition, 215), 21.5)
+        metadata["displayFactor"] = "86400"
+        self.assertIsNone(catalog.decoded_value(definition, 215))
 
     def test_exact_numeric_encoding_and_rejection(self):
         definition = catalog.Definition(
@@ -229,6 +315,39 @@ class DiscoveryTests(unittest.TestCase):
         definition.metadata["value_text"].append({"value": None, "label": "Unknown"})
         self.assertEqual(catalog.explicit_options(definition), {})
 
+    def test_catalog_source_and_verified_download(self):
+        source = catalog.source_for(0x7112, 0x2734DABC)
+        with self.assertRaises(catalog.CatalogError):
+            catalog.source_for(0x7E11, 0x2734DABC)
+        with self.assertRaises(catalog.CatalogError):
+            catalog.source_for(0x7112, 123)
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, "w") as archive:
+            archive.writestr(source.menu_member, menu())
+        raw = data.getvalue()
+        from dataclasses import replace
+
+        source = replace(source, digest=hashlib.sha256(raw).hexdigest())
+        response = MagicMock()
+        response.__enter__.return_value = response
+        response.geturl.return_value = source.url
+        response.read.return_value = raw
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / source.filename
+            with (
+                patch.object(catalog, "CATALOG_SOURCES", (source,)),
+                patch.object(catalog, "urlopen", return_value=response),
+            ):
+                with self.assertRaises(catalog.CatalogMissing):
+                    catalog.load_catalog(path, source)
+                downloaded = catalog.download_catalog(path, source)
+                self.assertEqual(downloaded, catalog.load_catalog(path, source))
+                self.assertEqual(path.read_bytes(), raw)
+                response.read.return_value = b"wrong digest"
+                with self.assertRaises(catalog.CatalogError):
+                    catalog.download_catalog(path, source)
+                self.assertEqual(path.read_bytes(), raw)
+
     def test_invalid_xml_and_archive_rejected(self):
         with self.assertRaises(catalog.CatalogError):
             catalog.parse_menu(b"<!DOCTYPE x><x/>", "test")
@@ -242,6 +361,28 @@ class DiscoveryTests(unittest.TestCase):
         definitions = {d.name: d for d in parsed.definitions}
         self.assertGreater(len(definitions), 7000)
         self.assertEqual(definitions["Schema"].index, 86)
+        # Corroborate the production write contracts against the exact RPT,
+        # not the earlier optimizer indices.
+        configuration = importlib.import_module(f"{PACKAGE}.configuration")
+        for setting in configuration.BX_PLUS_SETTINGS:
+            definition = definitions[setting.name]
+            self.assertEqual(definition.index, setting.index)
+            self.assertIsNone(definition.excluded)
+            self.assertEqual(definition.storage, "unspecified")
+            self.assertTrue(
+                any(
+                    ref.get("menu") == "Grundeinstellungen"
+                    for ref in definition.metadata["menu_refs"]
+                )
+            )
+            self.assertFalse(definition.metadata.get("compound_ref"))
+            self.assertFalse(definition.metadata.get("selector_ref"))
+            if setting.kind == "switch":
+                self.assertIn("Boolean", definition.metadata["type_chain"])
+            else:
+                labels = [item["label"] for item in definition.metadata["value_text"]]
+                self.assertEqual(len(labels), len(setting.options))
+                self.assertEqual([raw for _, raw in setting.options], [0, 1])
         self.assertEqual(definitions["Bedienercode"].excluded, "sensitive")
         self.assertEqual(
             definitions["MesseModus_BedienercodeReset"].excluded, "sensitive"

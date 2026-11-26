@@ -6,7 +6,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from . import DeltasolRelayCoordinator
+from .configuration_entity import ConfigurationEntity, register_configuration_entities
 from .const import DOMAIN
 from .parameters import OBSERVED_MODES, device_inventory
 
@@ -32,10 +32,12 @@ def relay_name(hass, telemetry, capability):
 async def async_setup_entry(hass, entry, async_add_entities):
     """Add controls only after discovery; recover on later polls."""
     telemetry = entry.runtime_data.coordinator
-    if not telemetry.api.supports_parameter_access:
+    coordinator = entry.runtime_data.relay_coordinator
+    if coordinator is None:
         return
-    coordinator = DeltasolRelayCoordinator(hass, telemetry)
-    entry.runtime_data.relay_coordinator = coordinator
+    register_configuration_entities(
+        entry, async_add_entities, "select", ConfigurationSelect
+    )
     registered = set()
 
     @callback
@@ -54,10 +56,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             async_add_entities(new)
 
     entry.async_on_unload(coordinator.async_add_listener(discover_entities))
-    entry.async_on_unload(
-        telemetry.async_add_listener(coordinator.async_update_listeners)
-    )
-    await coordinator.async_refresh()
+    discover_entities()
 
 
 class DeltasolRelaySelect(CoordinatorEntity, SelectEntity):
@@ -110,9 +109,26 @@ class DeltasolRelaySelect(CoordinatorEntity, SelectEntity):
             "observed_mode": OBSERVED_MODES[cap.value],
             "observed_mode_value": cap.value,
             "speed_control": cap.speed_control,
+            "registration_source": cap.registration_source,
             "changeset": f"{cap.changeset & 0xFFFFFFFF:08X}",
             "parameter": cap.name,
         }
 
     async def async_select_option(self, option):
         await self.coordinator.async_set_mode(self.unique_id, option)
+
+
+class ConfigurationSelect(ConfigurationEntity, SelectEntity):
+    """Native typed configuration selection, independent of relay mode."""
+
+    @property
+    def options(self):
+        return [label for label, _ in self.setting.options]
+
+    @property
+    def current_option(self):
+        capability = self.capability
+        return capability.value if capability else None
+
+    async def async_select_option(self, option):
+        await self.async_set_value(option)

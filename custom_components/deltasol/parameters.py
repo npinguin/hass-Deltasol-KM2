@@ -11,9 +11,15 @@ import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
-from threading import Lock
+from threading import RLock
 from time import monotonic, sleep
 
+from .configuration import (
+    BX_PLUS_SETTINGS,
+    ConfigurationCapability,
+    Setting,
+    encode_action,
+)
 from .vbus import ParameterObservation, VBusError, VBusTransientError, open_vbus
 
 # Initial conservative reconnect guard; tune against physical KM2 evidence.
@@ -46,6 +52,12 @@ class ControllerProfile:
     address: int
     schema_index: int
     groups: tuple[RelayGroup, ...]
+    module_presence_lookup_optional_changeset: int | None = None
+    configuration_changeset: int | None = None
+    settings: tuple[Setting, ...] = ()
+
+    def settings_for(self, changeset):
+        return self.settings if changeset == self.configuration_changeset else ()
 
 
 PROFILES = (
@@ -72,6 +84,12 @@ PROFILES = (
                 (("Modul2_Aktiviert", 197), ("Modul2_Vorhanden", 199)),
             ),
         ),
+        # Full physical scan on 2734DABC: all five activation flags read,
+        # all volatile presence flags unresolved. Require positive observed
+        # physical module identity + exact activation and relay mappings.
+        module_presence_lookup_optional_changeset=0x2734DABC,
+        configuration_changeset=0x2734DABC,
+        settings=BX_PLUS_SETTINGS,
     ),
 )
 
@@ -133,6 +151,7 @@ class RelayCapability:
     device: DeviceIdentity
     speed_control: bool
     value: int
+    registration_source: str = "controller"
 
     @property
     def name(self):
@@ -180,6 +199,7 @@ class RelayDiscovery:
     controller: DeviceIdentity | None = None
     changeset: int | None = None
     observed_at: datetime | None = None
+    configuration: dict[str, ConfigurationCapability] = field(default_factory=dict)
 
 
 def _checked_parameters(session, profile, changeset, expected):
@@ -190,36 +210,90 @@ def _checked_parameters(session, profile, changeset, expected):
     return {name: value for name, (_, value) in found.items()}
 
 
+def _read_settings(
+    session, profile, changeset, settings, controller, inventory, requested=None
+):
+    """Re-read exact hashes and conditional dependencies, never probe writes."""
+    expected = {}
+    for setting in settings:
+        for name, index in setting.expected.items():
+            if name in expected and expected[name] != index:
+                raise VBusError("Conflicting configuration parameter layout")
+            expected[name] = index
+    if not expected:
+        return {}
+    observed = session.read_parameter_observations(
+        profile.address,
+        expected,
+        changeset,
+        expected=expected,
+        schema=profile.schema_index,
+    )
+    values = {
+        name: result.value
+        for name, result in observed.items()
+        if result.status == "read" and result.index == expected[name]
+    }
+    result = {}
+    for setting in settings:
+        device = find_device(inventory, setting.owner_address or profile.address)
+        if (
+            device is None
+            or device.serial != controller.serial
+            or not setting.accepts(values)
+        ):
+            continue
+        if requested is not None and not setting.accepts(values, requested):
+            raise VBusError("Configuration conditional constraint rejected")
+        capability = ConfigurationCapability(
+            setting, controller, device, changeset, values[setting.name]
+        )
+        result[capability.unique_id] = capability
+    return result
+
+
 def _read_group(
     session, profile, changeset, group, controller, device, numbers, module_flags=None
 ):
     """Read presence and registration before any module relay parameters."""
+    registration_source = "controller"
     if group.flags:
-        if module_flags is None:
-            flags = _checked_parameters(session, profile, changeset, dict(group.flags))
-        else:
-            observed = session.read_parameter_observations(
-                profile.address, dict(group.flags), changeset
-            )
-            evidence = {}
-            flags = {}
-            for name, expected_index in group.flags:
-                result = observed[name]
-                if result.index is not None and result.index != expected_index:
-                    result = replace(result, status="layout_mismatch")
-                elif result.status == "read":
-                    if result.value in (0, 1):
-                        flags[name] = result.value
-                    else:
-                        result = replace(result, status="invalid_value")
-                evidence[name] = result
+        observed = session.read_parameter_observations(
+            profile.address, dict(group.flags), changeset, expected=dict(group.flags)
+        )
+        evidence = {}
+        flags = {}
+        for name, expected_index in group.flags:
+            result = observed[name]
+            if result.index is not None and result.index != expected_index:
+                result = replace(result, value=None, status="layout_mismatch")
+            elif result.status == "read":
+                if result.index == expected_index and result.value in (0, 1):
+                    flags[name] = result.value
+                else:
+                    result = replace(result, value=None, status="invalid_value")
+            evidence[name] = result
+        if module_flags is not None:
             module_flags[group.key] = evidence
-        if len(flags) != len(group.flags) or any(
-            v not in (0, 1) for v in flags.values()
-        ):
-            return "registration_unknown", {}
-        if any(v != 1 for v in flags.values()):
+        if any(v == 0 for v in flags.values()):
             return "not_registered_or_present", {}
+        if len(flags) == len(group.flags):
+            registration_source = "controller_flags"
+        else:
+            # This is an exact-profile exception to an unsupported lookup,
+            # never to explicit negative, refused, invalid or mismatched data.
+            activation, presence = (name for name, _ in group.flags)
+            if (
+                changeset != profile.module_presence_lookup_optional_changeset
+                or flags.get(activation) != 1
+                or evidence[presence].status != "not_resolved"
+                or evidence[presence].index is not None
+                or device.address != group.address
+                or device.channel != controller.channel
+                or device.serial != controller.serial
+            ):
+                return "registration_unknown", {}
+            registration_source = "activation_and_observed_module"
 
     expected = {}
     for number in numbers:
@@ -243,6 +317,7 @@ def _read_group(
             device,
             bool(speed),
             value,
+            registration_source,
         )
         capabilities[cap.unique_id] = cap
     return ("supported" if capabilities else "no_supported_relays"), capabilities
@@ -273,7 +348,7 @@ class RelayParameters:
     def __init__(self, host, password):
         self.host = host
         self.password = password
-        self._lock = Lock()
+        self._lock = RLock()
         self._next_session = 0.0
 
     @contextmanager
@@ -324,6 +399,14 @@ class RelayParameters:
                     module_flags,
                 )
                 capabilities.update(relays)
+            configuration = _read_settings(
+                session,
+                profile,
+                changeset,
+                profile.settings_for(changeset),
+                controller,
+                inventory,
+            )
         return RelayDiscovery(
             profile,
             capabilities,
@@ -332,6 +415,7 @@ class RelayParameters:
             controller,
             changeset,
             datetime.now(UTC),
+            configuration,
         )
 
     def read_configuration_batch(self, telemetry, controller, names, changeset):
@@ -347,6 +431,60 @@ class RelayParameters:
                 expected=names,
                 schema=profile.schema_index,
             )
+
+    def set_configuration(self, telemetry, capability, value):
+        """Same serialized owner; save once and confirm via a new VBus session."""
+        inventory = device_inventory(telemetry)
+        profile, controller = find_profile(inventory)
+        if (
+            profile is None
+            or controller != capability.controller
+            or capability.setting not in profile.settings_for(capability.changeset)
+            or find_device(inventory, capability.device.address) != capability.device
+        ):
+            raise VBusError("Configuration capability or controller identity changed")
+        setting = capability.setting
+        wanted = encode_action(setting, value)
+        # Hold the existing owner lock across both sessions. Never retry a save
+        # when acknowledgement, release or verification is uncertain.
+        with self._lock:
+            with self._session(profile.address) as session:
+                current = _read_settings(
+                    session,
+                    profile,
+                    capability.changeset,
+                    (setting,),
+                    controller,
+                    inventory,
+                    requested=wanted,
+                ).get(capability.unique_id)
+                if current is None or current.device != capability.device:
+                    raise VBusError("Configuration parameter is no longer supported")
+                if current.raw == wanted:
+                    return current
+                session.write_verified(
+                    profile.address,
+                    setting.index,
+                    wanted,
+                    capability.changeset,
+                    save=setting.save,
+                )
+            with self._session(profile.address) as session:
+                verified = _read_settings(
+                    session,
+                    profile,
+                    capability.changeset,
+                    (setting,),
+                    controller,
+                    inventory,
+                ).get(capability.unique_id)
+                if (
+                    verified is None
+                    or verified.device != capability.device
+                    or verified.raw != wanted
+                ):
+                    raise VBusError("Configuration reconnect readback differs")
+        return verified
 
     def set_mode(self, telemetry, capability, option):
         inventory = device_inventory(telemetry)
@@ -380,7 +518,11 @@ class RelayParameters:
             current = relays.get(capability.unique_id)
             if current is None or current.index != capability.index:
                 raise VBusError("Relay parameter is no longer supported")
-            if current.options != capability.options or option not in current.options:
+            if (
+                current.registration_source != capability.registration_source
+                or current.options != capability.options
+                or option not in current.options
+            ):
                 raise VBusError("Relay options changed; rediscover first")
             wanted = MODE_VALUES[option]
             if current.value != wanted:

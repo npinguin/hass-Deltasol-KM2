@@ -7,6 +7,7 @@ from .discovery import compare_captures
 from .parameters import (
     OBSERVED_MODES,
     device_inventory,
+    find_device,
     find_profile,
 )
 
@@ -42,6 +43,11 @@ ERROR_CODES = {
     "VBus write acknowledgement differs": "acknowledgement_mismatch",
     "VBus write readback differs": "readback_mismatch",
     "Relay capability or controller identity changed": "identity_changed",
+    "Configuration capability or controller identity changed": "identity_changed",
+    "Configuration parameter is no longer supported": "unsupported_parameter",
+    "Configuration reconnect readback differs": "readback_mismatch",
+    "Invalid configuration value": "invalid_value",
+    "Configuration conditional constraint rejected": "constraint_rejected",
 }
 
 
@@ -143,6 +149,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
                     else None,
                     "mode_value": cap.value if valid else None,
                     "speed_control": cap.speed_control if valid else None,
+                    "registration_source": cap.registration_source if valid else None,
                     "changeset": f"{cap.changeset & 0xFFFFFFFF:08X}" if valid else None,
                     "parameter_index": cap.index if valid else None,
                 }
@@ -168,15 +175,16 @@ async def async_get_config_entry_diagnostics(hass, entry):
         telemetry.last_update_success
         and capture
         and capture.controller == controller
-        and (
-            not discovery
-            or discovery.changeset is None
-            or discovery.changeset == capture.changeset
-        )
+        and relay
+        and relay.last_update_success
+        and discovery
+        and discovery.controller == controller
+        and discovery.changeset == capture.changeset
     )
     configuration = (
         capture.export(capture_current) if capture else {"status": "not_started"}
     )
+    configuration["checkpoint_error"] = runtime.checkpoint_error
     if capture and configuration.get("error"):
         configuration["error"] = ERROR_CODES.get(
             configuration["error"], "parameter_error"
@@ -185,8 +193,40 @@ async def async_get_config_entry_diagnostics(hass, entry):
         configuration["comparison"] = compare_captures(
             runtime.previous_capture, capture
         )
+    settings = {}
+    if discovery:
+        for capability in discovery.configuration.values():
+            valid = (
+                current
+                and capability.controller == controller
+                and find_device(inventory, capability.device.address)
+                == capability.device
+            )
+            settings[capability.setting.name] = {
+                "status": "supported" if valid else "stale",
+                "device_address": f"0x{capability.device.address:04X}",
+                "kind": capability.setting.kind,
+                "write_access": "profile_verified" if valid else "not_confirmed",
+                "storage_action": "save" if capability.setting.save else "volatile",
+                "value": capability.value if valid else None,
+            }
+    # Do not present historical inventory values as live control readback.
+    # The capture is a snapshot; the existing coordinator owns current controls.
+    for name, item in configuration.get("parameters", {}).items():
+        if item["status"] != "read":
+            continue
+        control = settings.get(name)
+        if control and control["status"] == "supported":
+            item["write_access"] = "profile_verified"
+            item["applicability"] = "confirmed"
+            item["configuration_device_address"] = control["device_address"]
+            item["storage_action"] = control["storage_action"]
+        else:
+            item["write_access"] = "not_verified"
+            item["write_access_reason"] = "no_verified_live_configuration_contract"
     return {
         "configuration_discovery": configuration,
+        "configuration_controls": settings,
         "gateway": {
             "type": api.product
             if api.product in ("km2", "dl2plus", "dl2", "dl3")
