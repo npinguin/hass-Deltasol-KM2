@@ -168,15 +168,16 @@ async def async_get_config_entry_diagnostics(hass, entry):
         telemetry.last_update_success
         and capture
         and capture.controller == controller
-        and (
-            not discovery
-            or discovery.changeset is None
-            or discovery.changeset == capture.changeset
-        )
+        and relay
+        and relay.last_update_success
+        and discovery
+        and discovery.controller == controller
+        and discovery.changeset == capture.changeset
     )
     configuration = (
         capture.export(capture_current) if capture else {"status": "not_started"}
     )
+    configuration["checkpoint_error"] = runtime.checkpoint_error
     if capture and configuration.get("error"):
         configuration["error"] = ERROR_CODES.get(
             configuration["error"], "parameter_error"

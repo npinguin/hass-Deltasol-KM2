@@ -1,6 +1,8 @@
 """On-demand inventory using the existing VBus owner, never a second writer."""
 
 import asyncio
+import hashlib
+import json
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cached_property
@@ -15,6 +17,7 @@ from .parameters import device_inventory, find_profile
 from .vbus import ParameterObservation, VBusError, VBusTransientError
 
 BATCH_SIZE = 16
+CHECKPOINT_INTERVAL = 128
 RETRY_DELAYS = (2, 5, 10, 20, 30, 60)
 
 
@@ -106,6 +109,85 @@ class ConfigurationCapture:
             "retry_in_seconds": self.retry_in_seconds,
             "last_failure": self.last_failure,
         }
+
+    def identity_digest(self):
+        identity = self.controller
+        data = (identity.channel, identity.address, identity.source, identity.serial)
+        return hashlib.sha256(json.dumps(data).encode()).hexdigest()
+
+    def checkpoint(self):
+        """Keep observations only; reconstruct trusted metadata from the catalogue."""
+        return {
+            "identity": self.identity_digest(),
+            "catalog_digest": self.catalog.digest,
+            "changeset": self.changeset,
+            "status": self.status,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "offset": self.offset,
+            "retry_count": self.retry_count,
+            "observations": [
+                [d.name, self.results[d.name].index, self.results[d.name].value,
+                 self.results[d.name].status]
+                for d in self.candidates[:self.offset]
+            ],
+        }
+
+    @classmethod
+    def restore(cls, data, catalog, controller, changeset):
+        """Reject stale, corrupt or incompatible checkpoints, never use for writes."""
+        capture = cls(catalog, controller, changeset)
+        if (
+            data["identity"] != capture.identity_digest()
+            or data["catalog_digest"] != catalog.digest
+            or data["changeset"] != changeset
+        ):
+            raise ValueError("Discovery checkpoint identity or layout changed")
+        offset = data["offset"]
+        rows = data["observations"]
+        if (
+            type(offset) is not int
+            or not 0 <= offset <= len(capture.candidates)
+            or len(rows) != offset
+            or data["status"] not in ("running", "recovering", "paused", "incomplete", "complete")
+            or (data["status"] == "complete") != (offset == len(capture.candidates))
+            or type(data["retry_count"]) is not int
+            or data["retry_count"] < 0
+        ):
+            raise ValueError("Invalid Discovery checkpoint coverage")
+        for definition, row in zip(capture.candidates[:offset], rows, strict=True):
+            name, index, value, status = row
+            if name != definition.name or status not in (
+                "read", "not_resolved", "read_refused", "layout_mismatch"
+            ):
+                raise ValueError("Invalid Discovery checkpoint observation")
+            if status == "read":
+                if (
+                    index != definition.index
+                    or type(value) is not int
+                    or not -(2**31) <= value < 2**31
+                    or index in capture.sensitive_indices
+                ):
+                    raise ValueError("Invalid Discovery checkpoint value")
+            elif value is not None:
+                raise ValueError("Unread checkpoint contains value")
+            if index is not None and (type(index) is not int or not 0 < index <= 65535):
+                raise ValueError("Invalid Discovery checkpoint index")
+            if status == "not_resolved" and index is not None:
+                raise ValueError("Unresolved checkpoint contains index")
+            capture.results[name] = ParameterObservation(index, value, status)
+        for key in ("started_at", "finished_at"):
+            value = data[key]
+            if value is not None:
+                if datetime.fromisoformat(value).tzinfo is None:
+                    raise ValueError("Invalid Discovery checkpoint timestamp")
+            setattr(capture, key, value)
+        if not capture.started_at or (data["status"] == "complete" and not capture.finished_at):
+            raise ValueError("Missing Discovery checkpoint timestamp")
+        capture.offset = offset
+        capture.retry_count = data["retry_count"]
+        capture.status = "complete" if data["status"] == "complete" else "paused"
+        return capture
 
     def next_batch(self):
         return self.candidates[self.offset : self.offset + BATCH_SIZE]
@@ -243,7 +325,7 @@ def capture_identity(telemetry):
     return controller
 
 
-async def capture_batches(runtime):
+async def capture_batches(runtime, checkpoint=None):
     """Retry only uncommitted read batches through the existing session owner."""
     capture = runtime.capture
     telemetry = runtime.coordinator
@@ -298,6 +380,8 @@ async def capture_batches(runtime):
             runtime.notify_capture()
             if capture.status == "complete":
                 return
+            if checkpoint and capture.offset % CHECKPOINT_INTERVAL == 0:
+                await checkpoint()
             await asyncio.sleep(0)
         capture.status = "paused"
     except VBusError as error:
@@ -311,4 +395,6 @@ async def capture_batches(runtime):
         raise
     finally:
         capture.retry_in_seconds = None
+        if checkpoint:
+            await checkpoint()
         runtime.notify_capture()

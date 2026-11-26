@@ -135,6 +135,42 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(capture.progress_percent, 100)
         self.assertEqual(capture.export(True)["parameters"]["Test34"]["raw_value"], 0)
 
+    def test_checkpoint_roundtrip_and_rejection(self):
+        parsed = catalog.parse_menu(menu(), "test")
+        controller = SimpleNamespace(channel=0, address=0x7112, source="BX", serial="test")
+        capture = discovery.ConfigurationCapture(parsed, controller)
+        first = capture.next_batch()[:1]
+        capture.apply(first, {first[0].name: vbus.ParameterObservation(17, 215, "read")})
+        capture.retry_count = 3
+        stored = capture.checkpoint()
+        restored = discovery.ConfigurationCapture.restore(
+            stored, parsed, controller, capture.changeset
+        )
+        self.assertEqual(restored.status, "paused")
+        self.assertEqual(restored.offset, 1)
+        self.assertEqual(restored.retry_count, 3)
+        self.assertEqual(restored.results, capture.results)
+        self.assertEqual(restored.next_batch(), capture.next_batch())
+        restored.apply(
+            restored.next_batch(),
+            {"UnknownType": vbus.ParameterObservation(None, None, "not_resolved")},
+        )
+        self.assertEqual(
+            discovery.ConfigurationCapture.restore(
+                restored.checkpoint(), parsed, controller, capture.changeset
+            ).status, "complete"
+        )
+        for changed in (
+            {**stored, "offset": 2},
+            {**stored, "changeset": 1},
+            {**stored, "observations": [["Password", 18, 1234, "read"]]},
+            {**stored, "observations": [[first[0].name, 18, 1234, "read"]]},
+        ):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                discovery.ConfigurationCapture.restore(
+                    changed, parsed, controller, capture.changeset
+                )
+
     def test_sensitive_filter_and_priority(self):
         definitions = (
             catalog.Definition("WsuMenu_Test", 3, "volatile", None, {}),

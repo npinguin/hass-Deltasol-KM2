@@ -141,9 +141,10 @@ class DiscoveryStatusSensor(DiscoverySensor):
     def extra_state_attributes(self):
         capture = self.runtime.capture
         if not capture:
-            return {}
+            return {"checkpoint_error": self.runtime.checkpoint_error}
         return {
             **capture.summary(),
+            "checkpoint_error": self.runtime.checkpoint_error,
             "last_error": ERROR_CODES.get(capture.error, "parameter_error")
             if capture.error
             else None,
