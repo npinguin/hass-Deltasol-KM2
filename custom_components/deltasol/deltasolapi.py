@@ -118,8 +118,8 @@ class DeltasolApi:
                 _LOGGER.error(error)
                 raise IntegrationError(error)
 
-        except RequestException as error:
-            raise IntegrationError("RESOL HTTP product detection failed") from error
+        except RequestException:
+            raise IntegrationError("RESOL HTTP product detection failed") from None
 
         return self.product
 
@@ -128,15 +128,15 @@ class DeltasolApi:
 
         product = self.detect_product()
 
-        response = {}
-        if product == "km2" or product == "dl2plus":
-            response = self.fetch_data_km2()
-        elif product == "dl2" or product == "dl3":
-            response = self.fetch_data_dlx()
-        else:
-            error = f"We detected your Resol product as {product} and this product is currently not supported. If you want you can file an issue to support this device here: https://github.com/dm82m/hass-Deltasol-KM2/issues/new/choose"
-            _LOGGER.error(error)
-            raise IntegrationError(error)
+        try:
+            if product in ("km2", "dl2plus"):
+                response = self.fetch_data_km2()
+            elif product in ("dl2", "dl3"):
+                response = self.fetch_data_dlx()
+            else:
+                raise IntegrationError("Unsupported RESOL gateway product")
+        except RequestException:
+            raise IntegrationError("RESOL HTTP telemetry request failed") from None
 
         return self.__parse_data(response)
 
@@ -148,6 +148,9 @@ class DeltasolApi:
     def parameter_transport_health(self):
         """Cached, sanitized transport metrics, independent of HTTP state."""
         return self._parameters.transport_health() if self._parameters else None
+
+    def parameter_cooldown_remaining(self):
+        return self._parameters.cooldown_remaining() if self._parameters else 0
 
     def fetch_relay_modes(self, telemetry):
         """Discover available relay parameters without altering any setting."""

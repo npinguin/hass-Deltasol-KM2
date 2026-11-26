@@ -1,5 +1,6 @@
 """Regression tests for profile, device, mode and parameter write gates."""
 
+import asyncio
 import importlib
 import sys
 import types
@@ -436,6 +437,37 @@ class RelayRecoveryTests(unittest.IsolatedAsyncioTestCase):
             hass=SimpleNamespace(async_add_executor_job=execute),
             api=SimpleNamespace(fetch_relay_modes=operation),
         )
+
+    async def test_cancelled_executor_drains_before_releasing_ownership(self):
+        started = asyncio.Event()
+        finish = asyncio.Event()
+
+        async def execute(*args):
+            started.set()
+            await finish.wait()
+            return "read"
+
+        hass = SimpleNamespace(async_add_executor_job=execute)
+        task = asyncio.create_task(parameters.run_parameter_job(hass, Mock()))
+        await started.wait()
+        task.cancel()
+        await asyncio.sleep(0)
+        self.assertFalse(task.done())
+        finish.set()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+    async def test_initial_refresh_attempts_only_once(self):
+        operation = Mock(
+            side_effect=parameters.VBusTransientError(
+                "VBus bus acquisition failed", "acquire"
+            )
+        )
+        with self.assertRaises(parameters.VBusTransientError):
+            await parameters.refresh_relay_modes(
+                self.coordinator(operation), initial=True
+            )
+        operation.assert_called_once()
 
     async def test_relay_read_recovers_before_update_failure(self):
         failure = parameters.VBusTransientError(

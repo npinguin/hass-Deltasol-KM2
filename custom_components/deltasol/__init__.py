@@ -12,7 +12,7 @@ from datetime import timedelta
 
 import voluptuous as vol
 from homeassistant.components.sensor import PLATFORM_SCHEMA_BASE
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import (
     CONF_API_KEY,
     CONF_HOST,
@@ -25,6 +25,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import (
+    ConfigEntryError,
     ConfigEntryNotReady,
     HomeAssistantError,
     IntegrationError,
@@ -50,6 +51,7 @@ from .const import (
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TIMEOUT,
     MIN_SCAN_INTERVAL,
+    DOMAIN,
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
 from .discovery import ConfigurationCapture, capture_batches, capture_identity
@@ -130,6 +132,24 @@ async def async_setup_entry(
     if not coordinator.api.product_details:
         raise ConfigEntryNotReady
 
+    # Reject a second parameter owner on the same physical gateway, including
+    # aliases of the same IP. No new owner or sensor registry is introduced.
+    if coordinator.api.supports_parameter_access:
+        serial = coordinator.api.product_details.get("serial")
+        for other in hass.config_entries.async_entries(DOMAIN):
+            existing = getattr(other, "runtime_data", None)
+            if (
+                other.entry_id != config_entry.entry_id
+                and other.state in (
+                    ConfigEntryState.LOADED,
+                    ConfigEntryState.SETUP_IN_PROGRESS,
+                )
+                and existing
+                and existing.coordinator.api.supports_parameter_access
+                and existing.coordinator.api.product_details.get("serial") == serial
+            ):
+                raise ConfigEntryError("RESOL gateway already has a parameter owner")
+
     # Add the coordinator and update listener to config runtime data to make
     # accessible throughout your integration
     config_entry.runtime_data = RuntimeData(
@@ -199,7 +219,14 @@ async def async_unload_entry(
             await runtime.capture_task
         if runtime.capture:
             await _async_save_capture(runtime)
-    return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
+    if runtime.relay_coordinator:
+        await runtime.relay_coordinator.async_close()
+    unloaded = await hass.config_entries.async_unload_platforms(
+        config_entry, PLATFORMS
+    )
+    if not unloaded and runtime.relay_coordinator:
+        runtime.relay_coordinator.closing = False
+    return unloaded
 
 
 async def async_remove_entry(hass, entry):
@@ -425,6 +452,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         self.telemetry = telemetry
         self.api = telemetry.api
         self._lock = asyncio.Lock()
+        self.closing = False
+        self.initial_refresh = True
         super().__init__(
             hass,
             _LOGGER,
@@ -432,11 +461,29 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             update_interval=max(telemetry.update_interval, timedelta(seconds=60)),
         )
 
+    def _check_open(self):
+        if self.closing:
+            raise VBusError("Parameter owner is unloading")
+
+    async def async_close(self):
+        self.closing = True
+        # Drain any already-running command; do not let a replacement owner
+        # reconnect before the physical gateway cooldown has elapsed.
+        async with self._lock:
+            await asyncio.sleep(self.api.parameter_cooldown_remaining())
+
     async def _async_update_data(self):
         try:
-            return await refresh_relay_modes(self.telemetry, self._lock)
+            return await refresh_relay_modes(
+                self.telemetry,
+                self._lock,
+                guard=self._check_open,
+                initial=self.initial_refresh,
+            )
         except VBusError as error:
             raise UpdateFailed(str(error)) from error
+        finally:
+            self.initial_refresh = False
 
     async def async_read_configuration_batch(self, capture, names):
         """Give foreground work a scheduling window before each batch."""
@@ -448,6 +495,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                     "Controller parameter access is unavailable", "availability"
                 )
         async with self._lock:
+            self._check_open()
             if not self.telemetry.last_update_success:
                 raise VBusTransientError(
                     "Controller telemetry is unavailable", "telemetry"
@@ -482,7 +530,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
     async def _async_set_configuration(self, unique_id, value):
         async with self._lock:
             if (
-                not self.last_update_success
+                self.closing
+                or not self.last_update_success
                 or not self.telemetry.last_update_success
                 or not self.data
                 or unique_id not in self.data.configuration
@@ -525,7 +574,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
     async def _async_set_mode(self, unique_id, option):
         async with self._lock:
             if (
-                not self.last_update_success
+                self.closing
+                or not self.last_update_success
                 or not self.telemetry.last_update_success
                 or not self.data
                 or unique_id not in self.data.capabilities

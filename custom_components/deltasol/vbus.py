@@ -284,6 +284,10 @@ class VBusSession:
                     and (sum(header[1:]) & 127) == 127
                 ):
                     size = 10 + 6 * header[8]
+                    next_sync = self.buffer.find(b"\xaa", 1, size)
+                    if next_sync != -1:
+                        del self.buffer[:next_sync]
+                        continue
                     if len(self.buffer) < size:
                         self.buffer.extend(self._receive(deadline))
                         continue

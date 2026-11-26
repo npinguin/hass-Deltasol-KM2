@@ -355,15 +355,17 @@ async def run_parameter_job(hass, function, *args):
         raise
 
 
-async def refresh_relay_modes(telemetry, lock=None):
+async def refresh_relay_modes(telemetry, lock=None, *, guard=None, initial=False):
     """Retry reads, releasing async ownership between attempts."""
 
     async def read():
+        if guard is not None:
+            guard()
         return await run_parameter_job(
             telemetry.hass, telemetry.api.fetch_relay_modes, telemetry.data
         )
 
-    for delay in (*RELAY_RETRY_DELAYS, None):
+    for delay in ((None,) if initial else (*RELAY_RETRY_DELAYS, None)):
         try:
             if not telemetry.last_update_success:
                 raise VBusTransientError(
@@ -405,6 +407,9 @@ class RelayParameters:
     def transport_health(self):
         """Return an immutable snapshot without blocking the event loop."""
         return self._health
+
+    def cooldown_remaining(self):
+        return max(0, self._next_session - monotonic())
 
     def _cooldown(self):
         if not self._failure_streak:
@@ -473,8 +478,10 @@ class RelayParameters:
                         yield session
             except BaseException as error:
                 failure = error
-                if isinstance(error, VBusTransientError) or (
-                    session is not None and session.release_failed is True
+                if (
+                    isinstance(error, VBusTransientError)
+                    or str(error) == "VBus write outcome uncertain"
+                    or (session is not None and session.release_failed is True)
                 ):
                     self._failure_streak += 1
                 raise

@@ -17,7 +17,7 @@ from typing import ClassVar
 from unittest.mock import patch
 
 from homeassistant import bootstrap, loader
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -89,12 +89,10 @@ def additional_relays():
         for number, index in enumerate(indices, 1):
             if index == existing:
                 continue
-            Peer.extra_lookups[
-                semantic_hash(f"{prefix}_R{number}_Handbetrieb")
-            ] = index
-            Peer.extra_lookups[
-                semantic_hash(f"{prefix}_R{number}_ODrehzahl")
-            ] = index - 4
+            Peer.extra_lookups[semantic_hash(f"{prefix}_R{number}_Handbetrieb")] = index
+            Peer.extra_lookups[semantic_hash(f"{prefix}_R{number}_ODrehzahl")] = (
+                index - 4
+            )
             Peer.extra_values[index] = 2
             Peer.extra_values[index - 4] = number % 2
 
@@ -413,6 +411,24 @@ async def qualify(directory, phase):
             async_get_config_entry_diagnostics,
         )
 
+        if phase == "upgrade":
+            duplicate = ConfigEntry(
+                version=1,
+                minor_version=1,
+                domain="deltasol",
+                title="Duplicate gateway",
+                data={**entry.data, "host": "localhost"},
+                source="user",
+                unique_id="duplicate-isolated-gateway",
+                options=dict(entry.options),
+            )
+            sessions_before = Peer.sessions
+            await hass.config_entries.async_add(duplicate)
+            await hass.async_block_till_done()
+            assert duplicate.state == ConfigEntryState.SETUP_ERROR
+            assert Peer.sessions == sessions_before
+            assert await hass.config_entries.async_remove(duplicate.entry_id)
+            assert entry.state == ConfigEntryState.LOADED
         diagnostic = await async_get_config_entry_diagnostics(hass, entry)
         encoded = json.dumps(diagnostic)
         for secret in ("local-test", "http-test", "127.0.0.1", "isolated-gateway"):
@@ -423,11 +439,15 @@ async def qualify(directory, phase):
         assert access["relays"]["R4"]["mode"] == "On"
         assert access["relays"]["R4"]["mode_value"] == 4
         assert access["relays"]["R1"]["writable_options"] == [
-            "Auto", "Off", "Min", "Max"
+            "Auto",
+            "Off",
+            "Min",
+            "Max",
         ]
-        assert sum(
-            relay["status"] == "supported" for relay in access["relays"].values()
-        ) == 10
+        assert (
+            sum(relay["status"] == "supported" for relay in access["relays"].values())
+            == 10
+        )
         assert access["relays"]["M1_R1"]["writable_options"] == [
             "Auto",
             "Off",
@@ -720,8 +740,7 @@ async def qualify(directory, phase):
         # Accelerate only pacing here; earlier and later lifecycle tests use
         # production delays and real socket timeout behavior.
         soak_definitions = tuple(
-            Definition(f"Soak{n}", 10000 + n, "volatile", None, {})
-            for n in range(3200)
+            Definition(f"Soak{n}", 10000 + n, "volatile", None, {}) for n in range(3200)
         )
         for n in range(0, 3200, 2):
             Peer.extra_lookups[semantic_hash(f"Soak{n}")] = 10000 + n

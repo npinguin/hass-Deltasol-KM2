@@ -107,6 +107,24 @@ class VBusTests(unittest.TestCase):
         self.assertEqual(session.release_attempts, 1)
         self.assertEqual(session.other_live_packets, 1)
 
+    def test_release_retry_does_not_repeat_verified_write(self):
+        conn = Mock()
+        conn.recv.side_effect = [
+            response(0x0500),
+            response(0x0100, 1321, 2),
+            response(0x0100, 0, 12345),
+            response(0x0100, 1321, 2),
+            TimeoutError(),
+            live_packet(),
+        ]
+        session = vbus.VBusSession(conn)
+        with session.bus(ADDRESS):
+            session.write_verified(ADDRESS, 1321, 2, 12345)
+        sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+        self.assertEqual(
+            [p.command for p in sent], [0x0200, 0x0300, 0x0300, 0x0600, 0x0600]
+        )
+
     def test_release_unconfirmed_preserves_failure(self):
         conn = Mock()
         conn.recv.side_effect = [response(0x0500), TimeoutError(), TimeoutError()]
