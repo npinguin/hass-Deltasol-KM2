@@ -53,7 +53,7 @@ from .const import (
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
 from .discovery import ConfigurationCapture, capture_batches, capture_identity
-from .parameters import refresh_relay_modes
+from .parameters import refresh_relay_modes, run_parameter_job
 from .vbus import VBusError, VBusTransientError
 
 _LOGGER = logging.getLogger(__name__)
@@ -432,20 +432,27 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         )
 
     async def _async_update_data(self):
-        async with self._lock:
-            try:
-                return await refresh_relay_modes(self.telemetry)
-            except VBusError as error:
-                raise UpdateFailed(str(error)) from error
+        try:
+            return await refresh_relay_modes(self.telemetry, self._lock)
+        except VBusError as error:
+            raise UpdateFailed(str(error)) from error
 
     async def async_read_configuration_batch(self, capture, names):
-        """One background batch at a time, behind queued native actions."""
+        """Give foreground work a scheduling window before each batch."""
+        await asyncio.sleep(1)
+        if not self.last_update_success:
+            await self.async_refresh()
+            if not self.last_update_success:
+                raise VBusTransientError(
+                    "Controller parameter access is unavailable", "availability"
+                )
         async with self._lock:
             if not self.telemetry.last_update_success:
                 raise VBusTransientError(
                     "Controller telemetry is unavailable", "telemetry"
                 )
-            return await self.hass.async_add_executor_job(
+            return await run_parameter_job(
+                self.hass,
                 self.api.read_configuration_batch,
                 self.telemetry.data,
                 capture.controller,
@@ -455,22 +462,23 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
 
     async def _async_action_failed(self, error):
         """Refresh capabilities, not the failed command; preserve real errors."""
-        self.async_set_update_error(error)
         if isinstance(error, VBusTransientError) or str(error) in (
             "VBus write outcome uncertain",
             "VBus write acknowledgement differs",
             "VBus write readback differs",
             "Configuration reconnect readback differs",
         ):
-            try:
-                recovered = await refresh_relay_modes(self.telemetry)
-            except VBusError as recovery_error:
-                self.async_set_update_error(recovery_error)
-            else:
-                self.async_set_updated_data(recovered)
+            await self.async_refresh()
 
     async def async_set_configuration(self, unique_id, value):
         """Native entities use one live validated configuration action."""
+        try:
+            await self._async_set_configuration(unique_id, value)
+        except VBusError as error:
+            await self._async_action_failed(error)
+            raise HomeAssistantError(str(error)) from error
+
+    async def _async_set_configuration(self, unique_id, value):
         async with self._lock:
             if (
                 not self.last_update_success
@@ -488,12 +496,16 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             if not self.telemetry.last_update_success:
                 raise HomeAssistantError("Controller telemetry is unavailable")
             try:
-                verified = await self.hass.async_add_executor_job(
-                    self.api.set_configuration, self.telemetry.data, capability, value
+                verified = await run_parameter_job(
+                    self.hass,
+                    self.api.set_configuration,
+                    self.telemetry.data,
+                    capability,
+                    value,
                 )
             except VBusError as error:
-                await self._async_action_failed(error)
-                raise HomeAssistantError(str(error)) from error
+                self.async_set_update_error(error)
+                raise
             self.async_set_updated_data(
                 replace(
                     self.data,
@@ -503,6 +515,13 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
 
     async def async_set_mode(self, unique_id, option):
         """Do not accept calls that bypass entity availability."""
+        try:
+            await self._async_set_mode(unique_id, option)
+        except VBusError as error:
+            await self._async_action_failed(error)
+            raise HomeAssistantError(str(error)) from error
+
+    async def _async_set_mode(self, unique_id, option):
         async with self._lock:
             if (
                 not self.last_update_success
@@ -519,15 +538,16 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 if not self.telemetry.last_update_success:
                     raise HomeAssistantError("Controller telemetry is unavailable")
             try:
-                capability = await self.hass.async_add_executor_job(
+                capability = await run_parameter_job(
+                    self.hass,
                     self.api.set_relay_mode,
                     self.telemetry.data,
                     capability,
                     option,
                 )
             except VBusError as error:
-                await self._async_action_failed(error)
-                raise HomeAssistantError(str(error)) from error
+                self.async_set_update_error(error)
+                raise
             self.async_set_updated_data(
                 replace(
                     self.data,
