@@ -15,7 +15,7 @@ from .catalog import (
     parameterization_evidence,
 )
 from .parameters import device_inventory, find_profile
-from .vbus import ParameterObservation, VBusError, VBusTransientError
+from .vbus import ERROR_CODES, ParameterObservation, VBusError, VBusTransientError
 
 BATCH_SIZE = 16
 CHECKPOINT_INTERVAL = 128
@@ -131,6 +131,10 @@ class ConfigurationCapture:
             "finished_at": self.finished_at,
             "offset": self.offset,
             "retry_count": self.retry_count,
+            "consecutive_failures": self.consecutive_failures,
+            "error": self.error if self.error in ERROR_CODES else (
+                "parameter_error" if self.error else None
+            ),
             "last_failure": self.last_failure,
             "observations": [
                 [
@@ -201,6 +205,16 @@ class ConfigurationCapture:
             raise ValueError("Missing Discovery checkpoint timestamp")
         capture.offset = offset
         capture.retry_count = data["retry_count"]
+        consecutive = data.get("consecutive_failures", 0)
+        error = data.get("error")
+        if (
+            type(consecutive) is not int
+            or not 0 <= consecutive <= capture.retry_count + 1
+            or (error is not None and error not in ERROR_CODES)
+        ):
+            raise ValueError("Invalid Discovery checkpoint error")
+        capture.consecutive_failures = consecutive
+        capture.error = error
         failure = data.get("last_failure")
         if failure is not None:
             # Never restore arbitrary message/payload data into HA state.
@@ -322,6 +336,7 @@ class ConfigurationCapture:
         counts.setdefault("sensitive_redacted", 0)
         return {
             "status": self.status if current else "stale",
+            "capture_status": self.status,
             "export_format": 2,
             "metadata_scope": "read_values_only",
             "unread_access": "unknown",
@@ -392,7 +407,6 @@ def capture_identity(telemetry):
 async def capture_batches(runtime, checkpoint=None):
     """Retry only uncommitted read batches through the existing session owner."""
     capture = runtime.capture
-    telemetry = runtime.coordinator
     try:
         while not runtime.stop_capture:
             batch = capture.next_batch()
@@ -400,16 +414,9 @@ async def capture_batches(runtime, checkpoint=None):
                 capture.apply((), {})
                 return
             try:
-                if not telemetry.last_update_success:
-                    raise VBusTransientError(
-                        "Controller telemetry is unavailable", "telemetry"
-                    )
-                observations = await telemetry.hass.async_add_executor_job(
-                    telemetry.api.read_configuration_batch,
-                    telemetry.data,
-                    capture.controller,
+                observations = await runtime.relay_coordinator.async_read_configuration_batch(
+                    capture,
                     {definition.name: definition.index for definition in batch},
-                    capture.changeset,
                 )
             except VBusTransientError as error:
                 capture.consecutive_failures += 1
@@ -454,8 +461,12 @@ async def capture_batches(runtime, checkpoint=None):
         capture.status = "incomplete"
         capture.error = str(error)
     except asyncio.CancelledError:
-        capture.status = "incomplete"
-        capture.error = "capture_cancelled"
+        if capture.status in ("running", "recovering"):
+            # HA can cancel background tasks before config-entry unload.
+            # Only committed batches survive; preserve automatic resume intent.
+            runtime.resume_on_load = runtime.resume_on_load or not runtime.stop_capture
+            capture.status = "paused"
+            capture.error = "capture_cancelled"
         raise
     finally:
         capture.retry_in_seconds = None
