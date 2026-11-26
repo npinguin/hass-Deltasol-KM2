@@ -1,6 +1,7 @@
 """Real HA lifecycle test with an independent loopback VBus protocol peer.
 
-The peer models R4 and an independently registered EM relay. This is not physical RESOL evidence.
+The peer models all ten local and registered EM relay capabilities.
+It is an independent protocol test, not physical RESOL evidence.
 """
 
 import ast
@@ -12,11 +13,12 @@ import sys
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import MappingProxyType
 from typing import ClassVar
 from unittest.mock import patch
 
 from homeassistant import bootstrap, loader
-from homeassistant.config_entries import ConfigEntryState
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import entity_registry as er
@@ -50,6 +52,50 @@ class Peer:
     offer_waiting = threading.Event()
     offer_release = threading.Event()
     events: ClassVar[list[str]] = []
+    extra_lookups: ClassVar[dict[int, int]] = {}
+    extra_values: ClassVar[dict[int, int]] = {}
+    release_silence = 0
+    release_other_first = False
+    silent_offers = 0
+    failed_release_sessions = 0
+    sessions = 0
+    owner = threading.Lock()
+
+
+def semantic_hash(name):
+    value = 0
+    for byte in name.encode("ascii"):
+        value = (value * 33 + byte) & 0x7FFFFFFF
+    return value
+
+
+def live_packet(address):
+    header = struct.pack("<HHBHB", 0x10, address, 0x10, 0x100, 1)
+    frame = bytes([1, 2, 3, 4, 0])
+    return (
+        b"\xaa"
+        + header
+        + bytes([127 - (sum(header) & 127)])
+        + frame
+        + bytes([127 - (sum(frame) & 127)])
+    )
+
+
+def additional_relays():
+    """Populate other verified local/EM mappings independently of the driver."""
+    for prefix, indices, existing in (
+        ("Relais_Regler", (1977, 1991, 2005, 2019, 2033), RELAY),
+        ("Relais_Modul1", (2173, 2187, 2201, 2215, 2229), EM_RELAY),
+    ):
+        for number, index in enumerate(indices, 1):
+            if index == existing:
+                continue
+            Peer.extra_lookups[semantic_hash(f"{prefix}_R{number}_Handbetrieb")] = index
+            Peer.extra_lookups[semantic_hash(f"{prefix}_R{number}_ODrehzahl")] = (
+                index - 4
+            )
+            Peer.extra_values[index] = 2
+            Peer.extra_values[index - 4] = number % 2
 
 
 def datagram(destination, source, command, index=0, value=0):
@@ -76,10 +122,22 @@ class VBusHandler(socketserver.StreamRequestHandler):
         if Peer.drop_next_offer:
             Peer.drop_next_offer = False
             return
+        if Peer.silent_offers:
+            Peer.silent_offers -= 1
+            threading.Event().wait(20.2)
+            return
         if Peer.hold_next_offer:
             Peer.hold_next_offer = False
             Peer.offer_waiting.set()
             assert Peer.offer_release.wait(timeout=10)
+        assert Peer.owner.acquire(blocking=False), "overlapping bus owners"
+        Peer.sessions += 1
+        try:
+            self.exchange()
+        finally:
+            Peer.owner.release()
+
+    def exchange(self):
         self.wfile.write(datagram(0, ADDRESS, 0x0500))
         while frame := self.rfile.read(16):
             assert len(frame) == 16 and frame[0] == 170
@@ -112,7 +170,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     124814937: 61,
                     1011665082: 62,
                     1893665643: 63,
-                }.get(value, 0)
+                }.get(value, Peer.extra_lookups.get(value, 0))
                 if value == 1682631798 and not Peer.presence_lookup:
                     index = 0
                 response = datagram(source, ADDRESS, 0x1101, index, value)
@@ -127,6 +185,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     EM_RELAY: Peer.em_mode,
                     2169: 1,
                     **Peer.settings,
+                    **Peer.extra_values,
                 }[index]
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0200:
@@ -150,10 +209,23 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 temporary.replace(Peer.persistent_file)
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0600:
-                header = bytes.fromhex("1000127110000100")
-                self.wfile.write(
-                    bytes([170]) + header + bytes([127 - (sum(header) & 127)])
-                )
+                if Peer.failed_release_sessions:
+                    Peer.failed_release_sessions -= 1
+                    return
+                if Peer.release_silence:
+                    Peer.release_silence -= 1
+                    continue
+                packet = live_packet(ADDRESS)
+                if Peer.release_other_first:
+                    Peer.release_other_first = False
+                    self.wfile.write(live_packet(0x6651))
+                    # The controller's real frame is late and fragmented.
+                    threading.Event().wait(1.7)
+                    self.wfile.write(packet[:7])
+                    threading.Event().wait(0.03)
+                    self.wfile.write(packet[7:])
+                else:
+                    self.wfile.write(packet)
                 return
             else:
                 raise AssertionError(f"Unexpected command {command}")
@@ -248,6 +320,7 @@ async def qualify(directory, phase):
         },
         "deltasol": {},
     }
+    stopped = False
     try:
         assert await bootstrap.async_from_config_dict(config, hass) is hass
         await hass.async_start()
@@ -340,6 +413,26 @@ async def qualify(directory, phase):
             async_get_config_entry_diagnostics,
         )
 
+        if phase == "upgrade":
+            duplicate = ConfigEntry(
+                version=1,
+                minor_version=1,
+                domain="deltasol",
+                title="Duplicate gateway",
+                data={**entry.data, "host": "localhost"},
+                source="user",
+                unique_id="duplicate-isolated-gateway",
+                options=dict(entry.options),
+                discovery_keys=MappingProxyType({}),
+                subentries_data=None,
+            )
+            sessions_before = Peer.sessions
+            await hass.config_entries.async_add(duplicate)
+            await hass.async_block_till_done()
+            assert duplicate.state == ConfigEntryState.SETUP_ERROR
+            assert Peer.sessions == sessions_before
+            assert await hass.config_entries.async_remove(duplicate.entry_id)
+            assert entry.state == ConfigEntryState.LOADED
         diagnostic = await async_get_config_entry_diagnostics(hass, entry)
         encoded = json.dumps(diagnostic)
         for secret in ("local-test", "http-test", "127.0.0.1", "isolated-gateway"):
@@ -349,7 +442,16 @@ async def qualify(directory, phase):
         assert access["status"] == "supported"
         assert access["relays"]["R4"]["mode"] == "On"
         assert access["relays"]["R4"]["mode_value"] == 4
-        assert access["relays"]["R1"]["writable_options"] == []
+        assert access["relays"]["R1"]["writable_options"] == [
+            "Auto",
+            "Off",
+            "Min",
+            "Max",
+        ]
+        assert (
+            sum(relay["status"] == "supported" for relay in access["relays"].values())
+            == 10
+        )
         assert access["relays"]["M1_R1"]["writable_options"] == [
             "Auto",
             "Off",
@@ -431,10 +533,18 @@ async def qualify(directory, phase):
                 # The independent peer's small catalogue is injected in the test
                 # only; the real pinned archive is verified by the source gate.
                 assert await hass.config_entries.async_reload(entry.entry_id)
-                await hass.async_block_till_done()
-                assert entry.runtime_data.capture.status == "complete"
+                resumed = entry.runtime_data.capture
+                marker = json.loads(
+                    (directory / "qualification-active.json").read_text(
+                        encoding="utf-8"
+                    )
+                )
+                assert resumed.started_at == marker["started_at"]
+                assert resumed.offset >= marker["offset"]
+                if entry.runtime_data.capture_task:
+                    await entry.runtime_data.capture_task
+                assert resumed.status == "complete" and resumed.offset == 3
                 assert float(hass.states.get(percent).state) == 100
-                assert entry.runtime_data.capture_task is None
                 assert Peer.writes == 0
                 assert Peer.saves == 0
                 assert Peer.settings[60] == 1 and Peer.settings[56] == 0
@@ -638,6 +748,73 @@ async def qualify(directory, phase):
         assert Peer.writes == 7
         assert Peer.saves == 2
 
+        # Exercise real 16-item batches across 200+ independent TCP sessions.
+        # Accelerate only pacing here; earlier and later lifecycle tests use
+        # production delays and real socket timeout behavior.
+        soak_definitions = tuple(
+            Definition(f"Soak{n}", 10000 + n, "volatile", None, {}) for n in range(3200)
+        )
+        for n in range(0, 3200, 2):
+            Peer.extra_lookups[semantic_hash(f"Soak{n}")] = 10000 + n
+            Peer.extra_values[10000 + n] = n
+        soak = Catalog("isolated-soak", soak_definitions)
+        sessions_before = Peer.sessions
+        with (
+            patch("custom_components.deltasol.load_catalog", return_value=soak),
+            patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 0.02),
+            patch("custom_components.deltasol.parameters.SESSION_GAP_SECONDS", 0.05),
+        ):
+            Peer.offer_waiting.clear()
+            Peer.offer_release.clear()
+            Peer.hold_next_offer = True
+            Peer.failed_release_sessions = 1
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            assert await hass.async_add_executor_job(Peer.offer_waiting.wait, 10)
+            action = asyncio.create_task(set_mode(select, "Auto"))
+            try:
+                await asyncio.sleep(0.1)
+                assert not action.done()
+            finally:
+                Peer.offer_release.set()
+            await asyncio.wait_for(action, timeout=15)
+            capture = entry.runtime_data.capture
+            assert capture.offset < 3200
+            await entry.runtime_data.capture_task
+            assert capture.status == "complete" and capture.offset == 3200
+            assert capture.summary()["read_count"] == 1600
+            assert capture.summary()["not_resolved_count"] == 1600
+            assert Peer.sessions - sessions_before >= 201
+            assert capture.retry_count >= 1
+            assert capture.last_failure["phase"] == "release"
+            assert Peer.writes == 7 and Peer.saves == 2
+            assert hass.states.get(select).state == "Auto"
+            assert float(hass.states.get(sensor).state) == 42
+
+        # Release loss, late unrelated traffic and repeated acquisition
+        # failures are exercised through the actual coordinator, not mocks.
+        relay = entry.runtime_data.relay_coordinator
+        Peer.release_silence = 1
+        await relay.async_refresh()
+        assert relay.last_update_success
+        Peer.release_other_first = True
+        await relay.async_refresh()
+        assert relay.last_update_success
+        Peer.failed_release_sessions = 1
+        Peer.silent_offers = 1
+        await relay.async_refresh()
+        assert relay.last_update_success
+        health = (await async_get_config_entry_diagnostics(hass, entry))[
+            "parameter_access"
+        ]["transport"]
+        assert health["release_failures"] >= 1
+        assert health["other_live_packets"] >= 1
+        assert health["failure_counts"]["bus_acquisition"] >= 1
+        assert health["consecutive_transport_failures"] == 0
+        assert Peer.writes == 7 and Peer.saves == 2
+        assert float(hass.states.get(sensor).state) == 42
+
         # A real native action must take its turn before the next Discovery
         # batch. Hold the independent peer's first offer, queue two actions,
         # then allow that batch to finish. No second bus or optimistic state.
@@ -731,13 +908,45 @@ async def qualify(directory, phase):
         assert Peer.mode == 2 and Peer.settings[60] == 1
         assert Peer.writes == writes_before + 1
         assert Peer.saves == 4
+
+        # Stop the actual HA process with an incomplete active capture. The
+        # following restart phase must restore the same committed checkpoint.
+        with (
+            patch("custom_components.deltasol.load_catalog", return_value=fixture),
+            patch("custom_components.deltasol.discovery.BATCH_SIZE", 1),
+            patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 3),
+        ):
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            capture = entry.runtime_data.capture
+            async with asyncio.timeout(20):
+                while capture.offset < 1:
+                    await asyncio.sleep(0.05)
+            assert capture.status == "running" and capture.offset == 1
+            marker = {"started_at": capture.started_at, "offset": capture.offset}
+            (directory / "qualification-active.json").write_text(
+                json.dumps(marker), encoding="utf-8"
+            )
+            await hass.async_stop(force=True)
+            stopped = True
+        checkpoint = json.loads(
+            (directory / ".storage" / f"deltasol.{entry.entry_id}.discovery").read_text(
+                encoding="utf-8"
+            )
+        )["data"]
+        assert checkpoint["resume"] is True
+        assert checkpoint["capture"]["started_at"] == marker["started_at"]
+        assert 1 <= checkpoint["capture"]["offset"] < 3
     finally:
-        await hass.async_stop(force=True)
+        if not stopped:
+            await hass.async_stop(force=True)
 
 
 def main():
     directory = Path(sys.argv[1])
     phase = sys.argv[2]
+    additional_relays()
     Peer.persistent_file = directory / "qualification-peer-settings.json"
     if Peer.persistent_file.exists():
         Peer.settings = {

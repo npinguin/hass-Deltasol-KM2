@@ -20,11 +20,18 @@ from .configuration import (
     Setting,
     encode_action,
 )
-from .vbus import ParameterObservation, VBusError, VBusTransientError, open_vbus
+from .vbus import (
+    ERROR_CODES,
+    ParameterObservation,
+    VBusError,
+    VBusTransientError,
+    open_vbus,
+)
 
 # Initial conservative reconnect guard; tune against physical KM2 evidence.
 SESSION_GAP_SECONDS = 1.5
 RELAY_RETRY_DELAYS = (2, 5)
+SESSION_FAILURE_GAPS = (2, 5, 10, 20, 30)
 
 MODE_VALUES = {"Auto": 2, "Off": 0, "On": 4, "Min": 1, "Max": 3}
 OBSERVED_MODES = {value: name for name, value in MODE_VALUES.items()}
@@ -204,10 +211,18 @@ class RelayDiscovery:
 
 def _checked_parameters(session, profile, changeset, expected):
     """Resolve dynamically and verify the reference layout."""
-    found = session.read_parameters(profile.address, expected, changeset)
-    if any(index != expected[name] for name, (index, _) in found.items()):
+    found = session.read_parameter_observations(
+        profile.address, expected, changeset, strict=True, expected=expected
+    )
+    if any(
+        result.status == "layout_mismatch"
+        or (result.index is not None and result.index != expected[name])
+        for name, result in found.items()
+    ):
         raise VBusError("Unrecognized controller parameter layout")
-    return {name: value for name, (_, value) in found.items()}
+    return {
+        name: result.value for name, result in found.items() if result.status == "read"
+    }
 
 
 def _read_settings(
@@ -323,17 +338,43 @@ def _read_group(
     return ("supported" if capabilities else "no_supported_relays"), capabilities
 
 
-async def refresh_relay_modes(telemetry):
-    """Short read-only recovery before marking native relay refresh failed."""
-    for delay in (*RELAY_RETRY_DELAYS, None):
+async def run_parameter_job(hass, function, *args):
+    """Keep ownership until a cancelled executor operation has drained."""
+    job = asyncio.ensure_future(hass.async_add_executor_job(function, *args))
+    try:
+        return await asyncio.shield(job)
+    except asyncio.CancelledError:
+        # Drain even after cancellation; the original cancellation remains
+        # the caller's outcome, not any late worker response.
+        drained = asyncio.gather(job, return_exceptions=True)
+        while not drained.done():
+            try:
+                await asyncio.shield(drained)
+            except asyncio.CancelledError:
+                continue
+        raise
+
+
+async def refresh_relay_modes(telemetry, lock=None, *, guard=None, initial=False):
+    """Retry reads, releasing async ownership between attempts."""
+
+    async def read():
+        if guard is not None:
+            guard()
+        return await run_parameter_job(
+            telemetry.hass, telemetry.api.fetch_relay_modes, telemetry.data
+        )
+
+    for delay in (None,) if initial else (*RELAY_RETRY_DELAYS, None):
         try:
             if not telemetry.last_update_success:
                 raise VBusTransientError(
                     "Controller telemetry is unavailable", "telemetry"
                 )
-            return await telemetry.hass.async_add_executor_job(
-                telemetry.api.fetch_relay_modes, telemetry.data
-            )
+            if lock is None:
+                return await read()
+            async with lock:
+                return await read()
         except VBusTransientError:
             if delay is None:
                 raise
@@ -350,6 +391,74 @@ class RelayParameters:
         self.password = password
         self._lock = RLock()
         self._next_session = 0.0
+        self._failure_streak = 0
+        self._health = {
+            "sessions": 0,
+            "successful_sessions": 0,
+            "failed_sessions": 0,
+            "release_attempts": 0,
+            "release_failures": 0,
+            "other_live_packets": 0,
+            "failure_counts": {},
+            "phase_timings": {},
+            "last_failure": None,
+        }
+
+    def transport_health(self):
+        """Return an immutable snapshot without blocking the event loop."""
+        return self._health
+
+    def cooldown_remaining(self):
+        return max(0, self._next_session - monotonic())
+
+    def _cooldown(self):
+        if not self._failure_streak:
+            return SESSION_GAP_SECONDS
+        return SESSION_FAILURE_GAPS[
+            min(self._failure_streak, len(SESSION_FAILURE_GAPS)) - 1
+        ]
+
+    def _record_session(self, session, error, elapsed, connect_seconds):
+        previous = self._health
+        phases = {"session": elapsed, "connect_and_auth": connect_seconds}
+        real_session = session is not None and isinstance(session.phase_seconds, dict)
+        if real_session:
+            phases.update(session.phase_seconds)
+        timings = dict(previous["phase_timings"])
+        for phase, seconds in phases.items():
+            old = timings.get(phase, {})
+            timings[phase] = {
+                "count": old.get("count", 0) + 1,
+                "last_seconds": round(seconds, 3),
+                "max_seconds": max(old.get("max_seconds", 0), round(seconds, 3)),
+            }
+        counts = dict(previous["failure_counts"])
+        failure = previous["last_failure"]
+        if error is not None:
+            code = ERROR_CODES.get(str(error), "parameter_error")
+            counts[code] = counts.get(code, 0) + 1
+            failure = {
+                "error": code,
+                "phase": getattr(error, "phase", None),
+                "observed_at": datetime.now(UTC).isoformat(),
+            }
+        self._health = {
+            **previous,
+            "sessions": previous["sessions"] + 1,
+            "successful_sessions": previous["successful_sessions"] + (error is None),
+            "failed_sessions": previous["failed_sessions"] + (error is not None),
+            "release_attempts": previous["release_attempts"]
+            + (session.release_attempts if real_session else 0),
+            "release_failures": previous["release_failures"]
+            + (int(session.release_failed) if real_session else 0),
+            "other_live_packets": previous["other_live_packets"]
+            + (session.other_live_packets if real_session else 0),
+            "failure_counts": counts,
+            "phase_timings": timings,
+            "last_failure": failure,
+            "consecutive_transport_failures": self._failure_streak,
+            "cooldown_seconds": self._cooldown(),
+        }
 
     @contextmanager
     def _session(self, address):
@@ -358,14 +467,35 @@ class RelayParameters:
             delay = self._next_session - monotonic()
             if delay > 0:
                 sleep(delay)
+            started = monotonic()
+            connect_seconds = None
+            session = None
+            failure = None
             try:
-                with (
-                    open_vbus(self.host, self.password) as session,
-                    session.bus(address),
+                with open_vbus(self.host, self.password) as session:
+                    connect_seconds = monotonic() - started
+                    with session.bus(address):
+                        yield session
+            except BaseException as error:
+                failure = error
+                if (
+                    isinstance(error, VBusTransientError)
+                    or str(error) == "VBus write outcome uncertain"
+                    or (session is not None and session.release_failed is True)
                 ):
-                    yield session
+                    self._failure_streak += 1
+                raise
+            else:
+                self._failure_streak = 0
             finally:
-                self._next_session = monotonic() + SESSION_GAP_SECONDS
+                elapsed = monotonic() - started
+                self._next_session = monotonic() + self._cooldown()
+                self._record_session(
+                    session,
+                    failure,
+                    elapsed,
+                    elapsed if connect_seconds is None else connect_seconds,
+                )
 
     def discover(self, telemetry):
         inventory = device_inventory(telemetry)

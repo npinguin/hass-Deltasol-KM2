@@ -1,5 +1,6 @@
 """Regression tests for profile, device, mode and parameter write gates."""
 
+import asyncio
 import importlib
 import sys
 import types
@@ -360,6 +361,23 @@ class ParameterTests(unittest.TestCase):
         self.discover()
         self.sleep.assert_called_once_with(parameters.SESSION_GAP_SECONDS)
 
+    def test_adaptive_transport_cooldown_and_health(self):
+        failure = parameters.VBusTransientError(
+            "VBus bus acquisition failed", "acquire"
+        )
+        self.ctx.__enter__.side_effect = failure
+        for _ in range(2):
+            with self.assertRaises(parameters.VBusTransientError):
+                self.discover()
+        self.assertEqual(
+            self.api.transport_health()["failure_counts"], {"bus_acquisition": 2}
+        )
+        self.assertEqual(self.api.transport_health()["cooldown_seconds"], 5)
+        self.ctx.__enter__.side_effect = None
+        self.discover()
+        self.assertEqual(self.api.transport_health()["cooldown_seconds"], 1.5)
+        self.assertEqual(self.api.transport_health()["successful_sessions"], 1)
+
     def test_profile_specific_unresolved_presence_uses_positive_live_evidence(self):
         self.activate_modules()
         self.session.read.return_value = 0x2734DABC
@@ -419,6 +437,37 @@ class RelayRecoveryTests(unittest.IsolatedAsyncioTestCase):
             hass=SimpleNamespace(async_add_executor_job=execute),
             api=SimpleNamespace(fetch_relay_modes=operation),
         )
+
+    async def test_cancelled_executor_drains_before_releasing_ownership(self):
+        started = asyncio.Event()
+        finish = asyncio.Event()
+
+        async def execute(*args):
+            started.set()
+            await finish.wait()
+            return "read"
+
+        hass = SimpleNamespace(async_add_executor_job=execute)
+        task = asyncio.create_task(parameters.run_parameter_job(hass, Mock()))
+        await started.wait()
+        task.cancel()
+        await asyncio.sleep(0)
+        self.assertFalse(task.done())
+        finish.set()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+    async def test_initial_refresh_attempts_only_once(self):
+        operation = Mock(
+            side_effect=parameters.VBusTransientError(
+                "VBus bus acquisition failed", "acquire"
+            )
+        )
+        with self.assertRaises(parameters.VBusTransientError):
+            await parameters.refresh_relay_modes(
+                self.coordinator(operation), initial=True
+            )
+        operation.assert_called_once()
 
     async def test_relay_read_recovers_before_update_failure(self):
         failure = parameters.VBusTransientError(

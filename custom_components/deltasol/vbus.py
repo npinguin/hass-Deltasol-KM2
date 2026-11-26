@@ -30,6 +30,7 @@ ERROR_CODES = {
     "VBus connection closed": "connection_closed",
     "VBus release not confirmed": "release_unconfirmed",
     "Controller telemetry is unavailable": "telemetry_unavailable",
+    "Controller parameter access is unavailable": "parameter_unavailable",
     "Unrecognized controller parameter layout": "unsupported_layout",
     "Relay options changed; rediscover first": "options_changed",
     "Unrecognized BX Plus parameter layout": "unsupported_layout",
@@ -145,11 +146,15 @@ class VBusSession:
     def __init__(self, connection):
         self.connection = connection
         self.buffer = bytearray()
+        self.phase_seconds = {}
+        self.release_attempts = 0
+        self.other_live_packets = 0
+        self.release_failed = False
 
     def _receive(self, deadline):
         remaining = deadline - monotonic()
         if remaining <= 0:
-            raise VBusTransientError("VBus response timed out", "receive")
+            raise TimeoutError("VBus response timed out")
         self.connection.settimeout(remaining)
         data = self.connection.recv(4096)
         if not data:
@@ -260,12 +265,12 @@ class VBusSession:
             raise VBusReadRefused("Controller refused parameter read")
         return reply.value
 
-    def _wait_for_master(self, address):
+    def _wait_for_master(self, address, timeout):
         """Confirm a valid live-data packet from the controller after release."""
-        deadline = monotonic() + 3
+        deadline = monotonic() + timeout
         while True:
             if monotonic() >= deadline:
-                raise VBusError("VBus release not confirmed")
+                raise TimeoutError("VBus release not confirmed")
             start = self.buffer.find(b"\xaa")
             if start == -1:
                 self.buffer.clear()
@@ -279,17 +284,23 @@ class VBusSession:
                     and (sum(header[1:]) & 127) == 127
                 ):
                     size = 10 + 6 * header[8]
+                    next_sync = self.buffer.find(b"\xaa", 1, size)
+                    if next_sync != -1:
+                        del self.buffer[:next_sync]
+                        continue
                     if len(self.buffer) < size:
                         self.buffer.extend(self._receive(deadline))
                         continue
                     frame = self.buffer[:size]
                     del self.buffer[:size]
-                    if int.from_bytes(header[3:5], "little") == address and all(
+                    if all(
                         all(byte < 128 for byte in frame[i : i + 6])
                         and (sum(frame[i : i + 6]) & 127) == 127
                         for i in range(10, size, 6)
                     ):
-                        return
+                        if int.from_bytes(header[3:5], "little") == address:
+                            return
+                        self.other_live_packets += 1
                 else:
                     del self.buffer[0]
                 continue
@@ -298,6 +309,7 @@ class VBusSession:
     @contextmanager
     def bus(self, address):
         """Acquire only the expected controller's offer; release in all cases."""
+        started = monotonic()
         try:
             self.receive_matching(
                 lambda packet: (
@@ -311,27 +323,52 @@ class VBusSession:
             raise VBusTransientError(
                 "VBus bus acquisition failed", "acquire"
             ) from error
+        finally:
+            self.phase_seconds["acquire"] = monotonic() - started
+        started = monotonic()
         try:
             yield self
         except BaseException as error:
+            self.phase_seconds["operation"] = monotonic() - started
             try:
                 self._release(address)
             except (OSError, VBusError):
                 error.add_note("VBus bus release also failed")
             raise
         else:
+            self.phase_seconds["operation"] = monotonic() - started
             self._release(address)
 
     def _release(self, address):
-        """Return ownership and confirm the controller resumed live data."""
+        """Retry release only on silence, never repeat a parameter write.
+
+        Other live traffic is not proof of the expected master's return.
+        If observed, wait rather than sending another release on an active bus.
+        """
+        started = monotonic()
+        self.release_failed = True
         try:
-            self.connection.settimeout(2)
-            self.connection.sendall(Datagram(address, SELF_ADDRESS, 0x0600).encode())
-            self._wait_for_master(address)
+            for attempt, timeout in enumerate((1.5, 4.5)):
+                if attempt == 0 or not self.other_live_packets:
+                    self.connection.settimeout(2)
+                    self.connection.sendall(
+                        Datagram(address, SELF_ADDRESS, 0x0600).encode()
+                    )
+                    self.release_attempts += 1
+                try:
+                    self._wait_for_master(address, timeout)
+                except TimeoutError:
+                    if attempt == 1:
+                        raise
+                else:
+                    self.release_failed = False
+                    return
         except (OSError, VBusError) as error:
             raise VBusTransientError(
                 "VBus release not confirmed", "release", command=0x0600
             ) from error
+        finally:
+            self.phase_seconds["release"] = monotonic() - started
 
     def read_parameter_observations(
         self, address, names, changeset, *, strict=False, expected=None, schema=None

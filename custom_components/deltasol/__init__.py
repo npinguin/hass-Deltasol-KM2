@@ -12,7 +12,7 @@ from datetime import timedelta
 
 import voluptuous as vol
 from homeassistant.components.sensor import PLATFORM_SCHEMA_BASE
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import (
     CONF_API_KEY,
     CONF_HOST,
@@ -25,6 +25,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import (
+    ConfigEntryError,
     ConfigEntryNotReady,
     HomeAssistantError,
     IntegrationError,
@@ -49,14 +50,16 @@ from .const import (
     DEFAULT_NAME,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TIMEOUT,
+    DOMAIN,
     MIN_SCAN_INTERVAL,
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
 from .discovery import ConfigurationCapture, capture_batches, capture_identity
-from .parameters import refresh_relay_modes
+from .parameters import refresh_relay_modes, run_parameter_job
 from .vbus import VBusError, VBusTransientError
 
 _LOGGER = logging.getLogger(__name__)
+DISCOVERY_BATCH_GAP_SECONDS = 1
 
 PLATFORMS: list[Platform] = [
     Platform.SENSOR,
@@ -129,6 +132,27 @@ async def async_setup_entry(
     if not coordinator.api.product_details:
         raise ConfigEntryNotReady
 
+    # Reject a second parameter owner on the same physical gateway, including
+    # aliases of the same IP. No new owner or sensor registry is introduced.
+    if coordinator.api.supports_parameter_access:
+        serial = coordinator.api.product_details.get("serial")
+        for other in hass.config_entries.async_entries(DOMAIN):
+            existing = getattr(other, "runtime_data", None)
+            if (
+                other.entry_id != config_entry.entry_id
+                and other.state
+                in (
+                    ConfigEntryState.LOADED,
+                    ConfigEntryState.SETUP_IN_PROGRESS,
+                    ConfigEntryState.UNLOAD_IN_PROGRESS,
+                    ConfigEntryState.FAILED_UNLOAD,
+                )
+                and existing
+                and existing.coordinator.api.supports_parameter_access
+                and existing.coordinator.api.product_details.get("serial") == serial
+            ):
+                raise ConfigEntryError("RESOL gateway already has a parameter owner")
+
     # Add the coordinator and update listener to config runtime data to make
     # accessible throughout your integration
     config_entry.runtime_data = RuntimeData(
@@ -198,7 +222,12 @@ async def async_unload_entry(
             await runtime.capture_task
         if runtime.capture:
             await _async_save_capture(runtime)
-    return await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
+    if runtime.relay_coordinator:
+        await runtime.relay_coordinator.async_close()
+    unloaded = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
+    if not unloaded and runtime.relay_coordinator:
+        runtime.relay_coordinator.closing = False
+    return unloaded
 
 
 async def async_remove_entry(hass, entry):
@@ -424,6 +453,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         self.telemetry = telemetry
         self.api = telemetry.api
         self._lock = asyncio.Lock()
+        self.closing = False
+        self.initial_refresh = True
         super().__init__(
             hass,
             _LOGGER,
@@ -431,21 +462,58 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             update_interval=max(telemetry.update_interval, timedelta(seconds=60)),
         )
 
-    async def _async_update_data(self):
+    def _check_open(self):
+        if self.closing:
+            raise VBusError("Parameter owner is unloading")
+
+    async def async_close(self):
+        self.closing = True
+        # Drain any already-running command; do not let a replacement owner
+        # reconnect before the physical gateway cooldown has elapsed.
         async with self._lock:
-            try:
-                return await refresh_relay_modes(self.telemetry)
-            except VBusError as error:
-                raise UpdateFailed(str(error)) from error
+            await asyncio.sleep(self.api.parameter_cooldown_remaining())
+
+    async def _async_update_data(self):
+        try:
+            result = await refresh_relay_modes(
+                self.telemetry,
+                self._lock,
+                guard=self._check_open,
+                initial=self.initial_refresh,
+            )
+        except VBusError as error:
+            # Retry ordinary polling sooner while unavailable, not by issuing
+            # additional writes or keeping the bus occupied.
+            self.update_interval = timedelta(seconds=30)
+            raise UpdateFailed(str(error)) from error
+        else:
+            self.update_interval = max(
+                self.telemetry.update_interval, timedelta(seconds=60)
+            )
+            return result
+        finally:
+            self.initial_refresh = False
 
     async def async_read_configuration_batch(self, capture, names):
-        """One background batch at a time, behind queued native actions."""
+        """Give foreground work a scheduling window before each batch."""
+        await asyncio.sleep(DISCOVERY_BATCH_GAP_SECONDS)
+        if not self.last_update_success:
+            await self.async_refresh()
+            if not self.last_update_success:
+                cause = getattr(self.last_exception, "__cause__", None)
+                if isinstance(cause, VBusError):
+                    raise cause
+                raise VBusTransientError(
+                    "Controller parameter access is unavailable", "availability"
+                )
         async with self._lock:
+            self._check_open()
             if not self.telemetry.last_update_success:
                 raise VBusTransientError(
                     "Controller telemetry is unavailable", "telemetry"
                 )
-            return await self.hass.async_add_executor_job(
+            return await run_parameter_job(
+                self.hass,
                 self.api.read_configuration_batch,
                 self.telemetry.data,
                 capture.controller,
@@ -455,25 +523,27 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
 
     async def _async_action_failed(self, error):
         """Refresh capabilities, not the failed command; preserve real errors."""
-        self.async_set_update_error(error)
         if isinstance(error, VBusTransientError) or str(error) in (
             "VBus write outcome uncertain",
             "VBus write acknowledgement differs",
             "VBus write readback differs",
             "Configuration reconnect readback differs",
         ):
-            try:
-                recovered = await refresh_relay_modes(self.telemetry)
-            except VBusError as recovery_error:
-                self.async_set_update_error(recovery_error)
-            else:
-                self.async_set_updated_data(recovered)
+            await self.async_refresh()
 
     async def async_set_configuration(self, unique_id, value):
         """Native entities use one live validated configuration action."""
+        try:
+            await self._async_set_configuration(unique_id, value)
+        except VBusError as error:
+            await self._async_action_failed(error)
+            raise HomeAssistantError(str(error)) from error
+
+    async def _async_set_configuration(self, unique_id, value):
         async with self._lock:
             if (
-                not self.last_update_success
+                self.closing
+                or not self.last_update_success
                 or not self.telemetry.last_update_success
                 or not self.data
                 or unique_id not in self.data.configuration
@@ -488,12 +558,16 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             if not self.telemetry.last_update_success:
                 raise HomeAssistantError("Controller telemetry is unavailable")
             try:
-                verified = await self.hass.async_add_executor_job(
-                    self.api.set_configuration, self.telemetry.data, capability, value
+                verified = await run_parameter_job(
+                    self.hass,
+                    self.api.set_configuration,
+                    self.telemetry.data,
+                    capability,
+                    value,
                 )
             except VBusError as error:
-                await self._async_action_failed(error)
-                raise HomeAssistantError(str(error)) from error
+                self.async_set_update_error(error)
+                raise
             self.async_set_updated_data(
                 replace(
                     self.data,
@@ -503,9 +577,17 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
 
     async def async_set_mode(self, unique_id, option):
         """Do not accept calls that bypass entity availability."""
+        try:
+            await self._async_set_mode(unique_id, option)
+        except VBusError as error:
+            await self._async_action_failed(error)
+            raise HomeAssistantError(str(error)) from error
+
+    async def _async_set_mode(self, unique_id, option):
         async with self._lock:
             if (
-                not self.last_update_success
+                self.closing
+                or not self.last_update_success
                 or not self.telemetry.last_update_success
                 or not self.data
                 or unique_id not in self.data.capabilities
@@ -519,15 +601,16 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 if not self.telemetry.last_update_success:
                     raise HomeAssistantError("Controller telemetry is unavailable")
             try:
-                capability = await self.hass.async_add_executor_job(
+                capability = await run_parameter_job(
+                    self.hass,
                     self.api.set_relay_mode,
                     self.telemetry.data,
                     capability,
                     option,
                 )
             except VBusError as error:
-                await self._async_action_failed(error)
-                raise HomeAssistantError(str(error)) from error
+                self.async_set_update_error(error)
+                raise
             self.async_set_updated_data(
                 replace(
                     self.data,

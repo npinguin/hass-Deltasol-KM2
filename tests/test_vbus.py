@@ -80,6 +80,74 @@ class VBusTests(unittest.TestCase):
         packet = vbus.Datagram.decode(conn.sendall.call_args.args[0])
         self.assertEqual(packet.command, 0x0600)
 
+    def test_release_retries_only_release_on_silence(self):
+        conn = Mock()
+        conn.recv.side_effect = [response(0x0500), TimeoutError(), live_packet()]
+        session = vbus.VBusSession(conn)
+        with session.bus(ADDRESS):
+            pass
+        sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+        self.assertEqual([p.command for p in sent], [0x0600, 0x0600])
+        self.assertEqual(session.release_attempts, 2)
+        self.assertFalse(session.release_failed)
+
+    def test_release_waits_for_expected_master_after_other_live_packet(self):
+        conn = Mock()
+        header = bytes.fromhex("1000516610000100")
+        other = b"\xaa" + header + bytes([127 - (sum(header) & 127)])
+        conn.recv.side_effect = [
+            response(0x0500),
+            other,
+            TimeoutError(),
+            live_packet(),
+        ]
+        session = vbus.VBusSession(conn)
+        with session.bus(ADDRESS):
+            pass
+        self.assertEqual(session.release_attempts, 1)
+        self.assertEqual(session.other_live_packets, 1)
+
+    def test_release_retry_does_not_repeat_verified_write(self):
+        conn = Mock()
+        conn.recv.side_effect = [
+            response(0x0500),
+            response(0x0100, 1321, 2),
+            response(0x0100, 0, 12345),
+            response(0x0100, 1321, 2),
+            TimeoutError(),
+            live_packet(),
+        ]
+        session = vbus.VBusSession(conn)
+        with session.bus(ADDRESS):
+            session.write_verified(ADDRESS, 1321, 2, 12345)
+        sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+        self.assertEqual(
+            [p.command for p in sent], [0x0200, 0x0300, 0x0300, 0x0600, 0x0600]
+        )
+
+    def test_release_resyncs_after_truncated_frame(self):
+        conn = Mock()
+        header = bytes.fromhex("100012711000017f")
+        truncated = b"\xaa" + header + bytes([127 - (sum(header) & 127)])
+        conn.recv.side_effect = [
+            response(0x0500),
+            truncated + live_packet()[:6],
+            live_packet()[6:],
+        ]
+        session = vbus.VBusSession(conn)
+        with session.bus(ADDRESS):
+            pass
+        self.assertEqual(session.release_attempts, 1)
+
+    def test_release_unconfirmed_preserves_failure(self):
+        conn = Mock()
+        conn.recv.side_effect = [response(0x0500), TimeoutError(), TimeoutError()]
+        session = vbus.VBusSession(conn)
+        with self.assertRaises(vbus.VBusTransientError), session.bus(ADDRESS):
+            pass
+        self.assertTrue(session.release_failed)
+        self.assertEqual(session.release_attempts, 2)
+
     def test_authentication_preserves_buffered_bus_data(self):
         conn = Mock()
         conn.recv.side_effect = [

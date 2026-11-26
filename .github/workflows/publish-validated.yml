@@ -66,7 +66,7 @@ jobs:
       startsWith(github.event.head_commit.message, 'release:'))
     needs: [test-and-lint, validate-hassfest, validate-hacs]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       GH_TOKEN: ${{ github.token }}
       HA_IMAGE: ghcr.io/home-assistant/home-assistant:2026.11.0
@@ -92,7 +92,8 @@ jobs:
           unzip -Z1 "$PACKAGE" | grep -Fx switch.py
           unzip -Z1 "$PACKAGE" | grep -Fx button.py
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
-          gh release download 1.2.13 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
+          gh release download 1.2.14 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
+          echo "5773aa62b9181ba98d433f5371a4bab298eea3f8f96cab321268d6a87849124b  $Q/rollback/deltasol.zip" | sha256sum -c -
           sha256sum "$PACKAGE" "$Q/rollback/deltasol.zip"
           docker pull "$HA_IMAGE"
           install_zip() {
@@ -101,7 +102,7 @@ jobs:
             unzip -q "$1" -d "$Q/config/custom_components/deltasol"
           }
           run_phase() {
-            timeout 240 docker run --rm --entrypoint python3 \
+            timeout 480 docker run --rm --entrypoint python3 \
               -e PYTHONDONTWRITEBYTECODE=1 \
               -v "$Q/config:/qualification" \
               -v "$GITHUB_WORKSPACE/tests/qualify_ha.py:/qualify.py:ro" \
@@ -185,5 +186,5 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "DeltaSol $VERSION TEST" \
             --prerelease \
-            --notes "Stabilization TEST: prioritize native relay and configuration operations between Discovery batches, recover capabilities with fresh read-only observations after transient faults, preserve active scan checkpoints and terminal evidence. All 1.2.13 controls and safe inventory retained. No automatic or blind write retries, no proprietary catalogue packaged. Broader thermal/compound settings, production numeric controls and device enrichment remain open in #10. Isolated HA and protocol qualification passed; physical HA actuation remains open. Manual overrides may persist; restore Auto after safe supervised tests."
+            --notes "VBus operational stability TEST: bounded release recovery, adaptive reconnect cooldown, foreground scheduling, transport diagnostics, protected historical Discovery observations and bounded HTTP requests. Preserves 1.2.14 controls and checkpoint. No automatic retry of uncertain writes. Physical control availability and full configuration coverage remain open."
           echo "Published $VERSION with deltasol.zip for HACS."

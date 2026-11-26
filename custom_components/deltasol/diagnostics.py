@@ -171,6 +171,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
                 "write_access": "profile_verified" if valid else "not_confirmed",
                 "storage_action": "save" if capability.setting.save else "volatile",
                 "value": capability.value if valid else None,
+                "last_observed_value": capability.value,
             }
     # Do not present historical inventory values as live control readback.
     # The capture is a snapshot; the existing coordinator owns current controls.
@@ -209,6 +210,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
             "reference_profile": profile.name if profile else None,
             "devices": devices,
             "last_error": last_error,
+            "transport": api.parameter_transport_health(),
             "relays": relays,
             "module_flags": module_flags,
             "discovery_observed_at": discovery.observed_at.isoformat()

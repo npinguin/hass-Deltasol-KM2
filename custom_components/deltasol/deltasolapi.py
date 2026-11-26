@@ -17,6 +17,7 @@ from .parameters import RelayDiscovery, RelayParameters
 from .vbus import VBusError
 
 _LOGGER = logging.getLogger(__name__)
+HTTP_TIMEOUT = (5, 15)
 
 DeltasolEndpoint = namedtuple(
     "DeltasolEndpoint",
@@ -79,7 +80,7 @@ class DeltasolApi:
         try:
             url = f"http://{self.host}:{self.port}/cgi-bin/get_resol_device_information"
             _LOGGER.info(f"Auto detecting Resol product from {url}")
-            response = requests.request("GET", url)
+            response = requests.request("GET", url, timeout=HTTP_TIMEOUT)
             if response.status_code == 200:
                 _LOGGER.debug(f"response: {response.text}")
                 matches = re.search(r'product\s=\s["](.*?)["]', response.text)
@@ -117,10 +118,8 @@ class DeltasolApi:
                 _LOGGER.error(error)
                 raise IntegrationError(error)
 
-        except RequestException as e:
-            error = f"Error detecting Resol product - {e}, please file an issue at: https://github.com/dm82m/hass-Deltasol-KM2/issues/new/choose"
-            _LOGGER.error(error)
-            raise IntegrationError(error)
+        except RequestException:
+            raise IntegrationError("RESOL HTTP product detection failed") from None
 
         return self.product
 
@@ -129,15 +128,15 @@ class DeltasolApi:
 
         product = self.detect_product()
 
-        response = {}
-        if product == "km2" or product == "dl2plus":
-            response = self.fetch_data_km2()
-        elif product == "dl2" or product == "dl3":
-            response = self.fetch_data_dlx()
-        else:
-            error = f"We detected your Resol product as {product} and this product is currently not supported. If you want you can file an issue to support this device here: https://github.com/dm82m/hass-Deltasol-KM2/issues/new/choose"
-            _LOGGER.error(error)
-            raise IntegrationError(error)
+        try:
+            if product in ("km2", "dl2plus"):
+                response = self.fetch_data_km2()
+            elif product in ("dl2", "dl3"):
+                response = self.fetch_data_dlx()
+            else:
+                raise IntegrationError("Unsupported RESOL gateway product")
+        except RequestException:
+            raise IntegrationError("RESOL HTTP telemetry request failed") from None
 
         return self.__parse_data(response)
 
@@ -145,6 +144,13 @@ class DeltasolApi:
     def supports_parameter_access(self):
         """Parameter access is separate from the existing HTTP credentials."""
         return self._parameters is not None and self.product in ("km2", "dl2plus")
+
+    def parameter_transport_health(self):
+        """Cached, sanitized transport metrics, independent of HTTP state."""
+        return self._parameters.transport_health() if self._parameters else None
+
+    def parameter_cooldown_remaining(self):
+        return self._parameters.cooldown_remaining() if self._parameters else 0
 
     def fetch_relay_modes(self, telemetry):
         """Discover available relay parameters without altering any setting."""
@@ -194,7 +200,7 @@ class DeltasolApi:
                 + "'}}]"
             )
             response = requests.request(
-                "POST", url, headers=headers, data=payload
+                "POST", url, headers=headers, data=payload, timeout=HTTP_TIMEOUT
             ).json()
             authId = response[0]["result"]["authId"]
 
@@ -204,7 +210,7 @@ class DeltasolApi:
                 + "'}}]"
             )
             response = requests.request(
-                "POST", url, headers=headers, data=payload
+                "POST", url, headers=headers, data=payload, timeout=HTTP_TIMEOUT
             ).json()
             _LOGGER.debug(f"KM2 response: {response}")
             response = response[0]["result"]
@@ -234,7 +240,7 @@ class DeltasolApi:
 
         _LOGGER.debug(debugMessage)
 
-        response = requests.request("GET", url)
+        response = requests.request("GET", url, timeout=HTTP_TIMEOUT)
 
         if response.status_code == 200:
             response = response.json()
