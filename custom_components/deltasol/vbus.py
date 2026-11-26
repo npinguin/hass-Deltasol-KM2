@@ -14,6 +14,49 @@ SELF_ADDRESS = 0x0020
 VBUS_PORT = 7053
 
 
+# Only fixed, integration-defined messages can leave the integration. Never
+# export arbitrary exception text, as HTTP failures may contain credentials.
+ERROR_CODES = {
+    "VBus gateway rejected connection or credentials": "authentication",
+    "Invalid VBus password": "invalid_credentials",
+    "VBus connection failed or timed out": "connection",
+    "VBus gateway connection failed": "gateway_connection",
+    "VBus gateway handshake failed": "gateway_handshake",
+    "VBus bus acquisition failed": "bus_acquisition",
+    "VBus command send failed": "command_send",
+    "VBus parameter response failed": "parameter_response",
+    "VBus write outcome uncertain": "write_outcome_uncertain",
+    "VBus response timed out": "timeout",
+    "VBus connection closed": "connection_closed",
+    "VBus release not confirmed": "release_unconfirmed",
+    "Controller telemetry is unavailable": "telemetry_unavailable",
+    "Unrecognized controller parameter layout": "unsupported_layout",
+    "Relay options changed; rediscover first": "options_changed",
+    "Unrecognized BX Plus parameter layout": "unsupported_layout",
+    "Unrecognized BX Plus relay parameter layout": "unsupported_layout",
+    "Controller changeset is unknown": "unknown_changeset",
+    "Controller changeset changed; rediscover first": "changeset_changed",
+    "Controller changeset changed before write": "changeset_changed",
+    "Controller changeset changed during write": "changeset_changed",
+    "Controller changeset changed during discovery": "changeset_changed",
+    "Relay parameter is no longer supported": "unsupported_parameter",
+    "Controller refused parameter read": "read_refused",
+    "Unsupported current relay mode": "unsupported_mode",
+    "Unsupported relay mode": "unsupported_mode",
+    "VBus write acknowledgement differs": "acknowledgement_mismatch",
+    "VBus write readback differs": "readback_mismatch",
+    "Relay capability or controller identity changed": "identity_changed",
+    "Configuration capability or controller identity changed": "identity_changed",
+    "Configuration parameter is no longer supported": "unsupported_parameter",
+    "Configuration reconnect readback differs": "readback_mismatch",
+    "Invalid configuration value": "invalid_value",
+    "Configuration conditional constraint rejected": "constraint_rejected",
+    "Controller identity changed during discovery": "identity_changed",
+    "capture_cancelled": "capture_cancelled",
+    "parameter_error": "parameter_error",
+}
+
+
 class VBusError(Exception):
     """VBus operation failed."""
 

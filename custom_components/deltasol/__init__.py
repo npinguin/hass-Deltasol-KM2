@@ -23,7 +23,7 @@ from homeassistant.const import (
     CONF_USERNAME,
     Platform,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import (
     ConfigEntryNotReady,
     HomeAssistantError,
@@ -54,7 +54,7 @@ from .const import (
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
 from .discovery import ConfigurationCapture, capture_batches, capture_identity
 from .parameters import refresh_relay_modes
-from .vbus import VBusError
+from .vbus import VBusError, VBusTransientError
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -152,11 +152,26 @@ async def async_setup_entry(
         )
     await hass.config_entries.async_forward_entry_setups(config_entry, PLATFORMS)
     if runtime.relay_coordinator:
-        await runtime.relay_coordinator.async_refresh()
-    if await _async_restore_capture(hass, runtime):
-        if runtime.resume_on_load and runtime.capture.status == "paused":
-            await _start_capture(hass, config_entry, runtime)
-        runtime.notify_capture()
+        relay = runtime.relay_coordinator
+        await relay.async_refresh()
+        if relay.last_update_success:
+            await _async_restore_and_resume(hass, config_entry, runtime)
+        else:
+            runtime.checkpoint_error = "checkpoint_waiting_for_controller"
+            restore_pending = True
+
+            @callback
+            def restore_when_ready():
+                nonlocal restore_pending
+                if restore_pending and relay.last_update_success:
+                    restore_pending = False
+                    config_entry.async_create_background_task(
+                        hass,
+                        _async_restore_and_resume(hass, config_entry, runtime),
+                        "deltasol_restore_capture",
+                    )
+
+            config_entry.async_on_unload(relay.async_add_listener(restore_when_ready))
 
     # Return true to denote a successful setup.
     return True
@@ -248,6 +263,7 @@ async def _async_restore_capture(hass, runtime):
     try:
         stored = await runtime.capture_store.async_load()
         if stored is None:
+            runtime.checkpoint_error = None
             return False
         controller, source = _catalog_identity(runtime)
         catalog = await _async_catalog(hass, source)
@@ -278,6 +294,15 @@ async def _async_restore_capture(hass, runtime):
         runtime.checkpoint_error = "checkpoint_incompatible"
         _LOGGER.warning("RESOL Discovery checkpoint unavailable or incompatible")
         return False
+
+
+async def _async_restore_and_resume(hass, entry, runtime):
+    """Restore once after verified parameter access returns, not on every poll."""
+    async with runtime.capture_lock:
+        if runtime.capture is None and await _async_restore_capture(hass, runtime):
+            if runtime.resume_on_load and runtime.capture.status == "paused":
+                await _start_capture(hass, entry, runtime)
+            runtime.notify_capture()
 
 
 async def async_toggle_configuration_capture(hass, entry):
@@ -413,6 +438,37 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             except VBusError as error:
                 raise UpdateFailed(str(error)) from error
 
+    async def async_read_configuration_batch(self, capture, names):
+        """One background batch at a time, behind queued native actions."""
+        async with self._lock:
+            if not self.telemetry.last_update_success:
+                raise VBusTransientError(
+                    "Controller telemetry is unavailable", "telemetry"
+                )
+            return await self.hass.async_add_executor_job(
+                self.api.read_configuration_batch,
+                self.telemetry.data,
+                capture.controller,
+                names,
+                capture.changeset,
+            )
+
+    async def _async_action_failed(self, error):
+        """Refresh capabilities, not the failed command; preserve real errors."""
+        self.async_set_update_error(error)
+        if isinstance(error, VBusTransientError) or str(error) in (
+            "VBus write outcome uncertain",
+            "VBus write acknowledgement differs",
+            "VBus write readback differs",
+            "Configuration reconnect readback differs",
+        ):
+            try:
+                recovered = await refresh_relay_modes(self.telemetry)
+            except VBusError as recovery_error:
+                self.async_set_update_error(recovery_error)
+            else:
+                self.async_set_updated_data(recovered)
+
     async def async_set_configuration(self, unique_id, value):
         """Native entities use one live validated configuration action."""
         async with self._lock:
@@ -436,7 +492,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                     self.api.set_configuration, self.telemetry.data, capability, value
                 )
             except VBusError as error:
-                self.async_set_update_error(error)
+                await self._async_action_failed(error)
                 raise HomeAssistantError(str(error)) from error
             self.async_set_updated_data(
                 replace(
@@ -470,7 +526,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                     option,
                 )
             except VBusError as error:
-                self.async_set_update_error(error)
+                await self._async_action_failed(error)
                 raise HomeAssistantError(str(error)) from error
             self.async_set_updated_data(
                 replace(

@@ -45,6 +45,11 @@ class Peer:
     persistent_file = None
     drop_discovery_response = False
     drop_relay_response = False
+    drop_next_offer = False
+    hold_next_offer = False
+    offer_waiting = threading.Event()
+    offer_release = threading.Event()
+    events: ClassVar[list[str]] = []
 
 
 def datagram(destination, source, command, index=0, value=0):
@@ -67,7 +72,15 @@ class VBusHandler(socketserver.StreamRequestHandler):
         self.wfile.write(b"+OK\r\n")
         if self.rfile.readline() != b"DATA\r\n":
             return
-        self.wfile.write(b"+OK\r\n" + datagram(0, ADDRESS, 0x0500))
+        self.wfile.write(b"+OK\r\n")
+        if Peer.drop_next_offer:
+            Peer.drop_next_offer = False
+            return
+        if Peer.hold_next_offer:
+            Peer.hold_next_offer = False
+            Peer.offer_waiting.set()
+            assert Peer.offer_release.wait(timeout=10)
+        self.wfile.write(datagram(0, ADDRESS, 0x0500))
         while frame := self.rfile.read(16):
             assert len(frame) == 16 and frame[0] == 170
             assert sum(frame[1:]) & 127 == 127
@@ -78,6 +91,8 @@ class VBusHandler(socketserver.StreamRequestHandler):
             )
             index, value = struct.unpack("<Hi", payload)
             if command == 0x1100:
+                if value == 613666522:
+                    Peer.events.append("missing")
                 if value == 463603356 and Peer.drop_relay_response:
                     Peer.drop_relay_response = False
                     return
@@ -123,11 +138,13 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert value in (0, 1, 2, 3)
                     Peer.em_mode = value
                 Peer.writes += 1
+                Peer.events.append("relay_write")
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0400:
                 assert index in Peer.settings and value in (0, 1)
                 Peer.settings[index] = value
                 Peer.saves += 1
+                Peer.events.append("save")
                 temporary = Peer.persistent_file.with_suffix(".tmp")
                 temporary.write_text(json.dumps(Peer.settings), encoding="utf-8")
                 temporary.replace(Peer.persistent_file)
@@ -279,6 +296,17 @@ async def qualify(directory, phase):
         em = registry.async_get_entity_id("select", "deltasol", EM_UID)
         assert em and hass.states.get(em).state == "Auto"
         identity["em_select"] = em
+        identity["display"] = registry.async_get_entity_id(
+            "select",
+            "deltasol",
+            "isolated-gateway_7112_TemperatureHysteresisSelector_configuration",
+        )
+        identity["daylight"] = registry.async_get_entity_id(
+            "switch",
+            "deltasol",
+            "isolated-gateway_7112_AutoSommerWinterzeit_configuration",
+        )
+        assert identity["display"] and identity["daylight"]
         if phase == "baseline":
             baseline.write_text(json.dumps(identity), encoding="utf-8")
             assert Peer.writes == 0
@@ -609,6 +637,100 @@ async def qualify(directory, phase):
         assert float(hass.states.get(sensor).state) == 42
         assert Peer.writes == 7
         assert Peer.saves == 2
+
+        # A real native action must take its turn before the next Discovery
+        # batch. Hold the independent peer's first offer, queue two actions,
+        # then allow that batch to finish. No second bus or optimistic state.
+        def hold_offer():
+            Peer.offer_waiting.clear()
+            Peer.offer_release.clear()
+            Peer.hold_next_offer = True
+
+        async def start_held_capture():
+            hold_offer()
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            assert await hass.async_add_executor_job(Peer.offer_waiting.wait, 10)
+            assert entry.runtime_data.capture.status == "running"
+            return entry.runtime_data.capture
+
+        with (
+            patch("custom_components.deltasol.load_catalog", return_value=fixture),
+            patch("custom_components.deltasol.discovery.BATCH_SIZE", 1),
+        ):
+            Peer.events.clear()
+            active = await start_held_capture()
+            relay_action = asyncio.create_task(
+                hass.services.async_call(
+                    "select",
+                    "select_option",
+                    {"entity_id": select, "option": "Off"},
+                    blocking=True,
+                )
+            )
+            config_action = asyncio.create_task(
+                hass.services.async_call(
+                    "select",
+                    "select_option",
+                    {"entity_id": display, "option": "°C"},
+                    blocking=True,
+                )
+            )
+            try:
+                await asyncio.sleep(0.1)
+                assert not relay_action.done() and not config_action.done()
+            finally:
+                Peer.offer_release.set()
+            await asyncio.gather(relay_action, config_action)
+            await entry.runtime_data.capture_task
+            assert active.status == "complete" and active.offset == 3
+            assert Peer.events.index("relay_write") < Peer.events.index("missing")
+            assert Peer.events.index("save") < Peer.events.index("missing")
+            assert hass.states.get(select).state == "Off"
+            assert hass.states.get(display).state == "°C"
+            assert Peer.mode == 0 and Peer.settings[60] == 0
+
+            # Reload while an actual read is in progress. The committed batch
+            # must survive and the same capture must resume, not restart.
+            active = await start_held_capture()
+            started_at = active.started_at
+            reload_task = asyncio.create_task(
+                hass.config_entries.async_reload(entry.entry_id)
+            )
+            try:
+                await asyncio.sleep(0.1)
+                assert not reload_task.done()
+            finally:
+                Peer.offer_release.set()
+            assert await reload_task
+            resumed = entry.runtime_data.capture
+            assert resumed.started_at == started_at
+            assert resumed.offset >= 1
+            if entry.runtime_data.capture_task:
+                await entry.runtime_data.capture_task
+            assert resumed.status == "complete" and resumed.offset == 3
+            assert float(hass.states.get(percent).state) == 100
+
+        # An acquisition failure must recover the native entity without
+        # repeating a write. The user sees the failed action and can retry.
+        writes_before = Peer.writes
+        Peer.drop_next_offer = True
+        try:
+            await set_mode(select, "Auto")
+        except HomeAssistantError:
+            pass
+        else:
+            raise AssertionError("Failed acquisition reported success")
+        assert not Peer.drop_next_offer
+        assert Peer.writes == writes_before and Peer.mode == 0
+        assert hass.states.get(select).state == "Off"
+        assert hass.states.get(em).state == "Auto"
+        await set_mode(select, "Auto")
+        await set_mode(display, "°F")
+        assert Peer.mode == 2 and Peer.settings[60] == 1
+        assert Peer.writes == writes_before + 1
+        assert Peer.saves == 4
     finally:
         await hass.async_stop(force=True)
 

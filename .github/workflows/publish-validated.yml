@@ -92,7 +92,7 @@ jobs:
           unzip -Z1 "$PACKAGE" | grep -Fx switch.py
           unzip -Z1 "$PACKAGE" | grep -Fx button.py
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
-          gh release download 1.2.12 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
+          gh release download 1.2.13 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
           sha256sum "$PACKAGE" "$Q/rollback/deltasol.zip"
           docker pull "$HA_IMAGE"
           install_zip() {
@@ -101,7 +101,7 @@ jobs:
             unzip -q "$1" -d "$Q/config/custom_components/deltasol"
           }
           run_phase() {
-            timeout 180 docker run --rm --entrypoint python3 \
+            timeout 240 docker run --rm --entrypoint python3 \
               -e PYTHONDONTWRITEBYTECODE=1 \
               -v "$Q/config:/qualification" \
               -v "$GITHUB_WORKSPACE/tests/qualify_ha.py:/qualify.py:ro" \
@@ -185,5 +185,5 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "DeltaSol $VERSION TEST" \
             --prerelease \
-            --notes "Configuration Foundation TEST: five initial basic settings (one Switch and four Select controls), exact-profile typed configuration engine, validated save and reconnect readback, persistent Discovery inventory, automatic pinned catalogue acquisition, diagnostic progress and positive EM registration evidence. Existing telemetry and relay controls retained. No proprietary catalogue packaged, no automatic writes or blind write retries. Broader thermal/compound settings, production numeric controls and device enrichment remain open in #10. See README for supported settings and limitations. Isolated HA and protocol qualification passed; physical RESOL acceptance remains open. Manual relay overrides may persist; restore Auto after safe supervised tests."
+            --notes "Stabilization TEST: prioritize native relay and configuration operations between Discovery batches, recover capabilities with fresh read-only observations after transient faults, preserve active scan checkpoints and terminal evidence. All 1.2.13 controls and safe inventory retained. No automatic or blind write retries, no proprietary catalogue packaged. Broader thermal/compound settings, production numeric controls and device enrichment remain open in #10. Isolated HA and protocol qualification passed; physical HA actuation remains open. Manual overrides may persist; restore Auto after safe supervised tests."
           echo "Published $VERSION with deltasol.zip for HACS."
