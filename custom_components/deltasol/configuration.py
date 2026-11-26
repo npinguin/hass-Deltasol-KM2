@@ -37,9 +37,7 @@ class RelativeConstraint:
 
     def matches(self, raw, values):
         other = values.get(self.name)
-        compare = {"lt": lt, "le": le, "gt": gt, "ge": ge, "ne": ne}.get(
-            self.operation
-        )
+        compare = {"lt": lt, "le": le, "gt": gt, "ge": ge, "ne": ne}.get(self.operation)
         return (
             compare is not None
             and type(raw) is int

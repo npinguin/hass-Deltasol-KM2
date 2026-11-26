@@ -199,7 +199,8 @@ async def async_get_config_entry_diagnostics(hass, entry):
             valid = (
                 current
                 and capability.controller == controller
-                and find_device(inventory, capability.device.address) == capability.device
+                and find_device(inventory, capability.device.address)
+                == capability.device
             )
             settings[capability.setting.name] = {
                 "status": "supported" if valid else "stale",

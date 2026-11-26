@@ -337,19 +337,31 @@ async def qualify(directory, phase):
         from custom_components.deltasol.catalog import Catalog, Definition
 
         display = registry.async_get_entity_id(
-            "select", "deltasol",
+            "select",
+            "deltasol",
             "isolated-gateway_7112_TemperatureHysteresisSelector_configuration",
         )
         daylight = registry.async_get_entity_id(
-            "switch", "deltasol",
+            "switch",
+            "deltasol",
             "isolated-gateway_7112_AutoSommerWinterzeit_configuration",
         )
         assert display and daylight
-        assert registry.async_get(display).device_id == registry.async_get(sensor).device_id
+        assert (
+            registry.async_get(display).device_id
+            == registry.async_get(sensor).device_id
+        )
         assert registry.async_get(display).entity_category == "config"
         assert hass.states.get(display).state == ("°F" if phase == "restart" else "°C")
-        assert hass.states.get(daylight).state == ("off" if phase == "restart" else "on")
-        assert diagnostic["configuration_controls"]["TemperatureHysteresisSelector"]["write_access"] == "profile_verified"
+        assert hass.states.get(daylight).state == (
+            "off" if phase == "restart" else "on"
+        )
+        assert (
+            diagnostic["configuration_controls"]["TemperatureHysteresisSelector"][
+                "write_access"
+            ]
+            == "profile_verified"
+        )
         assert Peer.saves == 0
 
         fixture = Catalog(
@@ -607,8 +619,10 @@ def main():
     Peer.persistent_file = directory / "qualification-peer-settings.json"
     if Peer.persistent_file.exists():
         Peer.settings = {
-            int(index): value for index, value in
-            json.loads(Peer.persistent_file.read_text(encoding="utf-8")).items()
+            int(index): value
+            for index, value in json.loads(
+                Peer.persistent_file.read_text(encoding="utf-8")
+            ).items()
         }
     with (
         ThreadingHTTPServer(("127.0.0.1", 18080), HttpHandler) as http,

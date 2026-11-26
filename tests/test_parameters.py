@@ -160,7 +160,11 @@ class ParameterTests(unittest.TestCase):
         from dataclasses import replace
 
         setting = parameters.Setting(
-            "Threshold", 200, "Threshold", "number", True,
+            "Threshold",
+            200,
+            "Threshold",
+            "number",
+            True,
             limits=("0", "10", "0.5", "0.1"),
             dependencies=(parameters_configuration.Dependency("Active", 201, (1,)),),
             relative_constraints=(
@@ -168,9 +172,9 @@ class ParameterTests(unittest.TestCase):
             ),
         )
         self.session.read.return_value = 0x2734DABC
-        self.values.update({
-            "Threshold": (200, 25), "Active": (201, 1), "Maximum": (202, 60)
-        })
+        self.values.update(
+            {"Threshold": (200, 25), "Active": (201, 1), "Maximum": (202, 60)}
+        )
         profile = replace(parameters.PROFILES[0], settings=(setting,))
         with patch.object(parameters, "PROFILES", (profile,)):
             cap = next(iter(self.api.discover(telemetry()).configuration.values()))
