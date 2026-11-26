@@ -57,7 +57,6 @@ ERROR_CODES = {
 }
 
 
-
 class VBusError(Exception):
     """VBus operation failed."""
 
