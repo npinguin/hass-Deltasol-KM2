@@ -50,8 +50,8 @@ from .const import (
     DEFAULT_NAME,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_TIMEOUT,
-    MIN_SCAN_INTERVAL,
     DOMAIN,
+    MIN_SCAN_INTERVAL,
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
 from .discovery import ConfigurationCapture, capture_batches, capture_identity
