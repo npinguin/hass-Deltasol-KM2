@@ -405,6 +405,31 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(pumps())
         self.session.write_verified.assert_called_once()
 
+    def test_loading_pair_rejects_bad_sibling_and_keeps_topology_unchanged(self):
+        setting = next(
+            candidate
+            for candidate in parameters_configuration.BX_PLUS_LOADING_SETTINGS
+            if candidate.name == "Heizung_Wf1_ThBwErwaermung_TEin"
+            and candidate.unit == "°C"
+        )
+        values = {
+            "Heizung_Wf1_Type": 2,
+            "Heizung_Wf1_Aktiviert_Modus": 2,
+            "Heizung_Wf1_ThBwErwaermung_Modus": 0,
+            "TemperatureHysteresisSelector": 0,
+            "Heizung_Wf1_ThBwErwaermung_TEin": 450,
+            "Heizung_Wf1_ThBwErwaermung_TEin_C": 450,
+            "Heizung_Wf1_ThBwErwaermung_TAus": 550,
+            "Heizung_Wf1_ThBwErwaermung_TAus_C": 550,
+        }
+        self.assertTrue(setting.accepts(values, setting.encode(50)))
+        self.assertFalse(setting.accepts(values, setting.encode(55)))
+        values["Heizung_Wf1_ThBwErwaermung_Modus"] = 1
+        self.assertTrue(setting.accepts(values, setting.encode(50)))
+        values["Heizung_Wf1_ThBwErwaermung_TAus"] = 9999
+        values["Heizung_Wf1_ThBwErwaermung_TAus_C"] = 9999
+        self.assertFalse(setting.accepts(values, setting.encode(50)))
+
     def test_thermostat_preserves_orientation_and_switch_controlled_mode(self):
         setting = next(
             setting

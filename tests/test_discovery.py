@@ -732,6 +732,26 @@ class DiscoveryTests(unittest.TestCase):
                         catalog.numeric_encoding(child),
                         tuple(Decimal(v) for v in setting.limits),
                     )
+        self.assertEqual(len(configuration.BX_PLUS_LOADING_SETTINGS), 128)
+        for setting in configuration.BX_PLUS_LOADING_SETTINGS:
+            parent = definitions[setting.name]
+            self.assertEqual(parent.index, setting.index)
+            self.assertTrue(parent.metadata["compound_parent_read_candidate"])
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(
+                selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
+                setting.name.split("_")[2],
+            )
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            for name, _, alias, _ in setting.compound_mirrors:
+                child = definitions[alias]
+                self.assertEqual(child.metadata["compound_ref"], name)
+                limits = setting.limits if name == setting.name else dict(setting.peer_limits)[name]
+                self.assertEqual(
+                    catalog.numeric_encoding(child),
+                    tuple(Decimal(v) for v in limits),
+                )
         self.assertEqual(len(configuration.BX_PLUS_THERMOSTAT_SETTINGS), 128)
         for setting in configuration.BX_PLUS_THERMOSTAT_SETTINGS:
             parent = definitions[setting.name]

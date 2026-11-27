@@ -98,6 +98,9 @@ class Setting:
     # and the relay's own reference. Never infer an address from its ordinal.
     output_assignment: tuple[str, int, str, int] | None = None
     unresolved_role: Dependency | None = None
+    # Exact encoding bounds for sibling settings that participate in a
+    # compound transaction. Their current values must also be valid.
+    peer_limits: tuple[tuple[str, tuple[str, str, str, str]], ...] = ()
 
     def numeric_definition(self):
         if self.kind != "number" or self.limits is None:
@@ -179,6 +182,10 @@ class Setting:
             and all(
                 type(values.get(parent)) is int and values[parent] == values.get(child)
                 for parent, _, child, _ in self.compound_mirrors
+            )
+            and all(
+                replace(self, limits=limits).decode(values.get(name)) is not None
+                for name, limits in self.peer_limits
             )
             and (self.installed_by is None or self.installed_by.matches(values))
             and all(dep.matches(values) for dep in self.dependencies)
@@ -545,6 +552,15 @@ def _differential_settings():
                         relative_constraints=tuple(constraints),
                         installed_by=installed,
                         compound_mirrors=mirrors,
+                        peer_limits=tuple(
+                            (
+                                other,
+                                tuple(str(Decimal(v) * multiplier) for v in bounds)
+                                + ("0.1",),
+                            )
+                            for other, _, bounds, _ in entries
+                            if other != name
+                        ),
                     )
 
 
@@ -633,6 +649,7 @@ def _thermostat_settings():
                         ),
                         installed_by=installed,
                         compound_mirrors=mirrors,
+                        peer_limits=((other, limits),),
                     )
 
 
@@ -720,6 +737,82 @@ def _timing_settings():
 
 
 BX_PLUS_TIMING_SETTINGS = tuple(_timing_settings())
+
+
+def _loading_temperature_settings():
+    """Documented store-zone and DHW thermostat pairs for all firmware slots.
+
+    The 2.03 manual describes the adjustable on/off temperature channels;
+    exact 2.08 RPT reference positions, ordinal dependencies and independent
+    Celsius/Fahrenheit limits are checked for every slot in the archive test.
+    This changes neither the installed function nor its output assignment.
+    """
+    for slot in range(1, 17):
+        for family, kind, type_index, activity_index, on, on_index, off, off_index, extra in (
+            (
+                f"Anlage_Wf{slot}",
+                3,
+                6559 + (slot - 1) * 251,
+                6566 + (slot - 1) * 251,
+                f"Anlage_Wf{slot}_Boilerladung_TBoilerEin",
+                6632 + (slot - 1) * 251,
+                f"Anlage_Wf{slot}_Boilerladung_TBoilerAus",
+                6635 + (slot - 1) * 251,
+                (),
+            ),
+            (
+                f"Heizung_Wf{slot}",
+                2,
+                11266 + (slot - 1) * 151,
+                11273 + (slot - 1) * 151,
+                f"Heizung_Wf{slot}_ThBwErwaermung_TEin",
+                11379 + (slot - 1) * 151,
+                f"Heizung_Wf{slot}_ThBwErwaermung_TAus",
+                11382 + (slot - 1) * 151,
+                (
+                    Dependency(
+                        f"Heizung_Wf{slot}_ThBwErwaermung_Modus",
+                        11378 + (slot - 1) * 151,
+                        (0, 1),
+                    ),
+                ),
+            ),
+        ):
+            installed = Dependency(f"{family}_Type", type_index, (kind,))
+            activity = Dependency(f"{family}_Aktiviert_Modus", activity_index, (1, 2))
+            for selector, suffix, unit, low, high in (
+                (0, "_C", "°C", ("0", "94", "1", "0.1"), ("1", "95", "1", "0.1")),
+                (1, "_F", "°F", ("32", "202", "2", "0.1"), ("34", "204", "2", "0.1")),
+            ):
+                mirrors = (
+                    (on, on_index, on + suffix, on_index + selector + 1),
+                    (off, off_index, off + suffix, off_index + selector + 1),
+                )
+                for name, index, other, other_index, limits, other_limits, operation in (
+                    (on, on_index, off, off_index, low, high, "lt"),
+                    (off, off_index, on, on_index, high, low, "gt"),
+                ):
+                    yield Setting(
+                        name,
+                        index,
+                        f"{family} loading {'on' if operation == 'lt' else 'off'} temperature",
+                        "number",
+                        True,
+                        limits=limits,
+                        unit=unit,
+                        dependencies=(
+                            activity,
+                            *extra,
+                            Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                        ),
+                        installed_by=installed,
+                        relative_constraints=(RelativeConstraint(other, other_index, operation),),
+                        compound_mirrors=mirrors,
+                        peer_limits=((other, other_limits),),
+                    )
+
+
+BX_PLUS_LOADING_SETTINGS = tuple(_loading_temperature_settings())
 
 
 def encode_action(setting, value):
