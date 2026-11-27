@@ -396,9 +396,12 @@ async def _async_start_initial_capture(hass, entry, runtime):
             runtime.notify_capture()
             return
         if restore_required:
-            if await _async_restore_capture(hass, runtime, catalog=catalog):
-                if runtime.resume_on_load and runtime.capture.status == "paused":
-                    await _start_capture(hass, entry, runtime)
+            if (
+                await _async_restore_capture(hass, runtime, catalog=catalog)
+                and runtime.resume_on_load
+                and runtime.capture.status == "paused"
+            ):
+                await _start_capture(hass, entry, runtime)
             runtime.notify_capture()
             return
         runtime.capture = ConfigurationCapture(catalog, controller, source.changeset)
