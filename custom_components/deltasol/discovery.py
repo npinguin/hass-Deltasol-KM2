@@ -482,9 +482,9 @@ class ConfigurationCapture:
                 definition.name,
             )
             if match and "Blob" in chain:
-                week = weeks.setdefault(match[1], {})
+                week = weeks.setdefault(match[1], {"days": {}})
                 observed = self.results.get(definition.name)
-                week[match[2]] = {
+                week["days"][match[2]] = {
                     "parameter": definition.name,
                     "reference_index": definition.index,
                     "observation": observed.status if observed else "not_scanned",
@@ -498,6 +498,26 @@ class ConfigurationCapture:
                     "reference": value,
                     "status": "observed" if value is not None else "unknown",
                 }
+        definitions = {d.name: d for d in self.catalog.definitions}
+        for name, week in weeks.items():
+            allocated = self._observed_raw(definitions.get(f"{name}_Belegt"))
+            initialized = self._observed_raw(
+                definitions.get(f"{name}_Schaltuhr_Woche_Initialisiert")
+            )
+            week["allocated"] = bool(allocated) if allocated in (0, 1) else None
+            week["initialized"] = (
+                bool(initialized) if initialized in (0, 1) else None
+            )
+            week["catalogue_days"] = len(week["days"])
+            week["schedule_status"] = (
+                "unallocated"
+                if allocated == 0
+                else "uninitialized"
+                if allocated == 1 and initialized == 0
+                else "payload_unverified"
+                if allocated == 1 and initialized == 1
+                else "unknown"
+            )
         return {
             "value_semantics": "catalogue_and_capture_evidence_not_decoded_schedule",
             "write_access": "not_verified",

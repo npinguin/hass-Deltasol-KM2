@@ -32,6 +32,25 @@ class VBusTests(unittest.TestCase):
         self.assertEqual(packet.encode(), raw)
         self.assertEqual(vbus.Datagram.decode(raw), packet)
 
+    def test_read_subindex_correlates_word_and_refusal(self):
+        conn = Mock()
+        conn.recv.return_value = (
+            response(0x0100, 18419, 17)
+            + response(0x0101, 18420, 18)
+            + response(0x0101, 18419, -1)
+            + response(0x4302, 18419)
+        )
+        session = vbus.VBusSession(conn)
+        self.assertEqual(session.read(ADDRESS, 18419, subindex=1), -1)
+        with self.assertRaises(vbus.VBusReadRefused):
+            session.read(ADDRESS, 18419, subindex=2)
+        for invalid in (-1, 128, True, 1.5):
+            with self.assertRaises(vbus.VBusError):
+                session.read(ADDRESS, 18419, subindex=invalid)
+        sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+        self.assertEqual([p.command for p in sent], [0x0301, 0x0302])
+        self.assertEqual([p.index for p in sent], [18419, 18419])
+
     def test_corrupt_frame_rejected(self):
         raw = bytearray(response(0x0100, 1321, 2))
         raw[-1] ^= 1

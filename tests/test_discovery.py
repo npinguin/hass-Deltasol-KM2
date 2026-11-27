@@ -459,12 +459,44 @@ class DiscoveryTests(unittest.TestCase):
             reference.name: vbus.ParameterObservation(11, 23, "read"),
         }
         result = capture.export(True)["weekly_programs"]
-        day = result["programs"]["Wsu23"]["Mo"]
+        week = result["programs"]["Wsu23"]
+        self.assertEqual(week["schedule_status"], "unknown")
+        day = week["days"]["Mo"]
         self.assertTrue(day["scalar_observed"])
         self.assertFalse(day["payload_verified"])
         self.assertEqual(result["references"][reference.name]["reference"], 23)
         self.assertEqual(result["write_access"], "not_verified")
         self.assertEqual(capture.export(False)["weekly_programs"]["status"], "stale")
+
+    def test_weekly_program_allocation_is_not_payload_evidence(self):
+        rows = tuple(
+            catalog.Definition(name, index, "unspecified", None, metadata)
+            for name, index, metadata in (
+                ("Wsu2_Belegt", 10, {"type_chain": ["Boolean"]}),
+                (
+                    "Wsu2_Schaltuhr_Woche_Initialisiert",
+                    11,
+                    {"type_chain": ["Boolean"]},
+                ),
+                ("Wsu2_Schaltuhr_Woche_TagMo_Daten", 12, {"type_chain": ["Blob"]}),
+            )
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", rows), SimpleNamespace(address=0x7112)
+        )
+        for allocated, initialized, status in (
+            (0, 0, "unallocated"),
+            (1, 0, "uninitialized"),
+            (1, 1, "payload_unverified"),
+            (2, 1, "unknown"),
+        ):
+            capture.results = {
+                d.name: vbus.ParameterObservation(d.index, value, "read")
+                for d, value in zip(rows, (allocated, initialized, 0), strict=True)
+            }
+            week = capture.weekly_program_evidence()["programs"]["Wsu2"]
+            self.assertEqual(week["schedule_status"], status)
+            self.assertFalse(week["days"]["Mo"]["payload_verified"])
 
     def test_function_context_is_catalogue_driven_not_fixed_slot_count(self):
         rows = (

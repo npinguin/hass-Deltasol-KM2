@@ -258,10 +258,23 @@ class VBusSession:
         )
         return result.index or None
 
-    def read(self, address, index):
-        """Read a parameter without modifying the installed program."""
-        reply = self.request(address, 0x0300, index, replies=(0x0100, 0x4300))
-        if reply.command != 0x0100:
+    def read(self, address, index, *, subindex=0):
+        """Read one correlated 32-bit parameter word.
+
+        MIT resol-vbus connection.js getValueById encodes the seven-bit
+        subindex in the command. A subindex does not change the semantic
+        parameter ID. No inference about Blob length or bit ordering.
+        """
+        if type(subindex) is not int or not 0 <= subindex <= 127:
+            raise VBusError("Invalid VBus parameter subindex")
+        ack = 0x0100 | subindex
+        reply = self.request(
+            address,
+            0x0300 | subindex,
+            index,
+            replies=(ack, 0x4300 | subindex),
+        )
+        if reply.command != ack:
             raise VBusReadRefused("Controller refused parameter read")
         return reply.value
 
