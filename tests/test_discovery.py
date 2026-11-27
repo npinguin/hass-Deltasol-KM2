@@ -735,6 +735,14 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
+        self.assertEqual(len(configuration.BX_PLUS_PUMP_ASSIGNMENT_SETTINGS), 480)
+        for setting in configuration.BX_PLUS_PUMP_ASSIGNMENT_SETTINGS:
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            assignment, _, relay, _ = setting.output_assignment
+            self.assertIn("AktorNr", definitions[assignment].metadata["type_chain"])
+            self.assertEqual(definitions[relay].storage, "abstract")
+            self.assertIn("AktorNr", definitions[relay].metadata["type_chain"])
         self.assertEqual(len(configuration.BX_PLUS_PUMP_SETTINGS), 30)
         for setting in configuration.BX_PLUS_PUMP_SETTINGS:
             target = definitions[setting.name]

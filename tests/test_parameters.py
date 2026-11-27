@@ -343,6 +343,58 @@ class ParameterTests(unittest.TestCase):
             self.values[name] = (index, valid)
         self.session.write_verified.assert_called_once()
 
+    def test_pump_assignment_requires_own_reference_and_unresolved_role(self):
+        self.session.read.return_value = 0x2734DABC
+        self.values.update(
+            {
+                "Relais_Regler_R1_Handbetrieb": (1977, 2),
+                "Relais_Regler_R1_ODrehzahl": (1973, 1),
+                "Relais_Regler_R1_MinDrehzahl": (1974, 30),
+                "Relais_Regler_R1_MaxDrehzahl": (1975, 80),
+                "Relais_Regler_R1_Nr": (1969, 1),
+                "Anlage_Wf1_Type": (6559, 6),
+                "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
+                "Anlage_Wf1_Relais1_Nr": (6592, 1),
+            }
+        )
+        hints = {
+            "Anlage_Wf1_Type": parameters.ParameterObservation(6559, 6, "read")
+        }
+
+        def pumps():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+                if cap.setting.owner_relay is not None
+            }
+
+        name = "Relais_Regler_R1_MinDrehzahl"
+        caps = pumps()
+        self.assertEqual(len(caps), 2)
+        cap = caps[name]
+        self.assertIsNotNone(cap.setting.output_assignment)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((index, value, save), (1974, 40, True))
+            self.values[name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 40).value, 40)
+        self.values["Anlage_Wf1_Relais1_Nr"] = (6592, 2)
+        self.assertFalse(pumps())
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 50)
+        self.values["Anlage_Wf1_Relais1_Nr"] = (6592, 1)
+        self.values["Relais_Regler_R1_AktorFunktion"] = (1971, 3)
+        self.assertFalse(pumps())
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 50)
+        del self.values["Relais_Regler_R1_AktorFunktion"]
+        del self.values["Relais_Regler_R1_Nr"]
+        self.assertFalse(pumps())
+        self.session.write_verified.assert_called_once()
+
     def test_verified_configuration_save_and_reconnect(self):
         self.session.read.return_value = 0x2734DABC
         self.values["AutoSommerWinterzeit"] = (56, 1)

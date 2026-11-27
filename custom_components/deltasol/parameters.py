@@ -19,6 +19,7 @@ from .configuration import (
     BX_PLUS_HEATING_SETTINGS,
     BX_PLUS_HQM_SETTINGS,
     BX_PLUS_MIXER_SETTINGS,
+    BX_PLUS_PUMP_ASSIGNMENT_SETTINGS,
     BX_PLUS_PUMP_SETTINGS,
     BX_PLUS_SETTINGS,
     ConfigurationCapability,
@@ -107,6 +108,7 @@ PROFILES = (
             *BX_PLUS_HQM_SETTINGS,
             *BX_PLUS_HEATING_SETTINGS,
             *BX_PLUS_PUMP_SETTINGS,
+            *BX_PLUS_PUMP_ASSIGNMENT_SETTINGS,
             *BX_PLUS_DIFFERENTIAL_SETTINGS,
         ),
     ),
@@ -305,7 +307,12 @@ def _read_settings(
         if result.status == "read" and result.index == expected[name]
     }
     result = {}
+    ambiguous = set()
     for setting in settings:
+        if setting.unresolved_role:
+            role = observed.get(setting.unresolved_role.name)
+            if role is None or role.status != "not_resolved" or role.index is not None:
+                continue
         device = find_device(inventory, setting.owner_address or profile.address)
         if (
             device is None
@@ -318,8 +325,11 @@ def _read_settings(
         capability = ConfigurationCapability(
             setting, controller, device, changeset, values[setting.name]
         )
-        result[capability.unique_id] = capability
-    return result
+        uid = capability.unique_id
+        if uid in result:
+            ambiguous.add(uid)
+        result[uid] = capability
+    return {uid: cap for uid, cap in result.items() if uid not in ambiguous}
 
 
 def _read_group(

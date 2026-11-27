@@ -277,7 +277,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     stored_value = value // factor
                     assert stored_value % 10 == 0
                     proposed = {
-                        parent: stored_value if parent == index else Peer.settings[parent]
+                        parent: stored_value
+                        if parent == index
+                        else Peer.settings[parent]
                         for parent in COMPOUND_PARENTS
                     }
                     assert proposed[6917] < proposed[6914] < proposed[6920]

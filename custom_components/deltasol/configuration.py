@@ -7,7 +7,7 @@ The latter confirms enumeration ordinals and save transactions, not current
 indices. No site-specific settings or proprietary catalogue are bundled.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from operator import ge, gt, le, lt, ne
 
@@ -84,6 +84,10 @@ class Setting:
     # Each tuple describes a parent and its selected child. Read both live
     # before accepting any adjustment; never issue a write to a child alias.
     compound_mirrors: tuple[tuple[str, int, str, int], ...] = ()
+    # Alternative pump ownership: positively read native output assignment
+    # and the relay's own reference. Never infer an address from its ordinal.
+    output_assignment: tuple[str, int, str, int] | None = None
+    unresolved_role: Dependency | None = None
 
     def numeric_definition(self):
         if self.kind != "number" or self.limits is None:
@@ -141,10 +145,25 @@ class Setting:
         for parent, index, child, child_index in self.compound_mirrors:
             result[parent] = index
             result[child] = child_index
+        if self.output_assignment:
+            assignment, index, relay, relay_index = self.output_assignment
+            result[assignment] = index
+            result[relay] = relay_index
+        if self.unresolved_role:
+            result[self.unresolved_role.name] = self.unresolved_role.index
         return result
 
     def accepts(self, values, requested=None):
         raw = values.get(self.name) if requested is None else requested
+        if self.output_assignment:
+            assignment, _, relay, _ = self.output_assignment
+            reference = values.get(relay)
+            if (
+                type(reference) is not int
+                or reference <= 0
+                or values.get(assignment) != reference
+            ):
+                return False
         return (
             self.decode(raw) is not None
             and all(
@@ -517,6 +536,41 @@ def _differential_settings():
 
 
 BX_PLUS_DIFFERENTIAL_SETTINGS = tuple(_differential_settings())
+
+
+def _pump_assignment_settings():
+    """Use native free-relay assignment as alternate positive pump evidence.
+
+    The vendor manual specifies exclusive allocation of a free relay and
+    identifies heat exchange and solid fuel functions as pump-controlled.
+    Only their primary output, with its own independently resolved relay
+    reference, is eligible. A positive role or any explicit contrary role
+    result takes precedence; the fallback is only for unresolved lookups.
+    """
+    for setting in BX_PLUS_PUMP_SETTINGS:
+        role = setting.installed_by
+        relay_name = role.name.removesuffix("_AktorFunktion") + "_Nr"
+        for slot in range(1, 17):
+            offset = (slot - 1) * 251
+            root = f"Anlage_Wf{slot}"
+            yield replace(
+                setting,
+                installed_by=Dependency(f"{root}_Type", 6559 + offset, (5, 6)),
+                dependencies=(
+                    *setting.dependencies,
+                    Dependency(f"{root}_Aktiviert_Modus", 6566 + offset, (1,)),
+                ),
+                output_assignment=(
+                    f"{root}_Relais1_Nr",
+                    6592 + offset,
+                    relay_name,
+                    role.index - 2,
+                ),
+                unresolved_role=role,
+            )
+
+
+BX_PLUS_PUMP_ASSIGNMENT_SETTINGS = tuple(_pump_assignment_settings())
 
 
 def encode_action(setting, value):
