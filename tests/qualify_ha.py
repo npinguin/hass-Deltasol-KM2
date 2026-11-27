@@ -274,7 +274,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         for alias, parent, factor in COMPOUND_ALIASES.values()
                     },
                     **{
-                        parent: temperature_wire(Peer.settings[parent], Peer.settings[60])
+                        parent: temperature_wire(
+                            Peer.settings[parent], Peer.settings[60]
+                        )
                         for parent in TEMPERATURE_PARENTS
                     },
                     **{
@@ -703,7 +705,8 @@ async def qualify(directory, phase):
                 *(
                     Definition(name, index, "unspecified", None, {})
                     for name, (index, _, _) in {
-                        **COMPOUND_ALIASES, **TEMPERATURE_ALIASES
+                        **COMPOUND_ALIASES,
+                        **TEMPERATURE_ALIASES,
                     }.items()
                 ),
             ),
