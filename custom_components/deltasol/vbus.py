@@ -46,6 +46,8 @@ ERROR_CODES = {
     "Unsupported relay mode": "unsupported_mode",
     "VBus write acknowledgement differs": "acknowledgement_mismatch",
     "VBus write readback differs": "readback_mismatch",
+    "VBus bulk transaction rejected": "bulk_transaction_rejected",
+    "VBus bulk transaction rollback unconfirmed": "bulk_rollback_unconfirmed",
     "Relay capability or controller identity changed": "identity_changed",
     "Configuration capability or controller identity changed": "identity_changed",
     "Configuration parameter is no longer supported": "unsupported_parameter",
@@ -224,7 +226,11 @@ class VBusSession:
                 Datagram(address, SELF_ADDRESS, command, index, value).encode()
             )
         except OSError as error:
-            if command in (0x0200, 0x0400):
+            if command & 0xFF80 in (0x0200, 0x0400, 0x1500) or command in (
+                0x1400,
+                0x1402,
+                0x1404,
+            ):
                 raise VBusError("VBus write outcome uncertain") from error
             raise VBusTransientError(
                 "VBus command send failed", "send", command=command, index=index
@@ -245,7 +251,11 @@ class VBusSession:
         try:
             return self.receive_matching(matches, 2)
         except (OSError, VBusError) as error:
-            if command in (0x0200, 0x0400):
+            if command & 0xFF80 in (0x0200, 0x0400, 0x1500) or command in (
+                0x1400,
+                0x1402,
+                0x1404,
+            ):
                 raise VBusError("VBus write outcome uncertain") from error
             raise VBusTransientError(
                 "VBus parameter response failed",
@@ -510,6 +520,71 @@ class VBusSession:
         if self.read(address, index) != value:
             raise VBusError("VBus write readback differs")
         return value
+
+
+    def write_packed_verified(self, address, index, before, wanted, changeset):
+        """Internal atomic three-word transport for a previously verified Blob.
+
+        MIT resol-vbus connection.js bulk transaction and upstream
+        connection.spec.js zero-status acknowledgements, including subindex
+        correlation. The caller must establish controller support, semantic
+        authorization, layout, packing and storage semantics before calling.
+        A transport implementation is not evidence of firmware support.
+        Never fall back to individual writes or retry an uncertain commit.
+        """
+        if (
+            type(index) is not int
+            or not 0 < index <= 65535
+            or any(
+                not isinstance(words, tuple)
+                or len(words) != 3
+                or any(type(word) is not int or not -(2**31) <= word < 2**31
+                       for word in words)
+                for words in (before, wanted)
+            )
+        ):
+            raise VBusError("Invalid configuration value")
+        if self.read(address, 0) != changeset:
+            raise VBusError("Controller changeset changed before write")
+
+        def read_words():
+            return tuple(self.read(address, index, subindex=n) for n in range(3))
+
+        if read_words() != before:
+            raise VBusError("VBus write readback differs")
+        if before == wanted:
+            return before
+
+        def acknowledged(command, reply, index=0, value=0):
+            response = self.request(address, command, index, value, replies=(reply,))
+            if response.value != 0:
+                raise VBusError("VBus bulk transaction rejected")
+
+        # Only roll back a transaction whose begin was acknowledged. If
+        # begin itself times out, inactivity expiration is the upstream
+        # recovery mechanism; do not attempt another begin or write.
+        acknowledged(0x1400, 0x1401, value=10)
+        try:
+            for subindex, word in enumerate(wanted):
+                acknowledged(0x1500 | subindex, 0x1600 | subindex, index, word)
+            if self.read(address, 0) != changeset:
+                raise VBusError("Controller changeset changed during write")
+        except (OSError, VBusError) as error:
+            try:
+                acknowledged(0x1404, 0x1405)
+            except (OSError, VBusError) as rollback_error:
+                raise VBusError(
+                    "VBus bulk transaction rollback unconfirmed"
+                ) from rollback_error
+            raise error
+        # A missing commit reply may mean it committed. Never send commit
+        # twice or attempt rollback after commit has been attempted.
+        acknowledged(0x1402, 0x1403)
+        if self.read(address, 0) != changeset:
+            raise VBusError("Controller changeset changed during write")
+        if read_words() != wanted:
+            raise VBusError("VBus write readback differs")
+        return wanted
 
 
 @contextmanager

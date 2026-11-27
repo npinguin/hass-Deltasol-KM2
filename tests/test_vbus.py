@@ -96,6 +96,122 @@ class VBusTests(unittest.TestCase):
                 [0x0301, 0x0302] if allocated else [],
             )
 
+    def test_bulk_packed_transaction_correlates_and_verifies_all_words(self):
+        index = 18419
+        changeset = 0x2734DABC
+        before = (-1, -1, -1)
+        wanted = (0x50482820, -1, -1)
+        conn = Mock()
+        conn.recv.return_value = b"".join(
+            (
+                response(0x0100, 0, changeset),
+                *(response(0x0100 | n, index, word) for n, word in enumerate(before)),
+                response(0x1401),
+                response(0x1601, index),  # unrelated staged reply
+                response(0x1600, index + 1),
+                response(0x1600, index),
+                response(0x1601, index),
+                response(0x1602, index),
+                response(0x0100, 0, changeset),
+                response(0x1403),
+                response(0x0100, 0, changeset),
+                *(response(0x0100 | n, index, word) for n, word in enumerate(wanted)),
+            )
+        )
+        session = vbus.VBusSession(conn)
+        self.assertEqual(
+            session.write_packed_verified(ADDRESS, index, before, wanted, changeset),
+            wanted,
+        )
+        sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+        self.assertEqual(
+            [p.command for p in sent],
+            [
+                0x0300, 0x0300, 0x0301, 0x0302, 0x1400, 0x1500, 0x1501, 0x1502,
+                0x0300, 0x1402, 0x0300, 0x0300, 0x0301, 0x0302,
+            ],
+        )
+        self.assertEqual([p.value for p in sent[5:8]], list(wanted))
+        self.assertEqual(sent[4].value, 10)
+
+    def test_bulk_packed_rejection_rolls_back_without_commit(self):
+        index, changeset = 18419, 123
+        before, wanted = (-1, -1, -1), (0x50482820, -1, -1)
+        for rollback_status in (0, 1):
+            conn = Mock()
+            conn.recv.return_value = b"".join(
+                (
+                    response(0x0100, 0, changeset),
+                    *(response(0x0100 | n, index, -1) for n in range(3)),
+                    response(0x1401),
+                    response(0x1600, index),
+                    response(0x1601, index, 1),
+                    response(0x1405, value=rollback_status),
+                )
+            )
+            expected = (
+                "bulk transaction rejected"
+                if rollback_status == 0
+                else "bulk transaction rollback unconfirmed"
+            )
+            with self.assertRaisesRegex(vbus.VBusError, expected):
+                vbus.VBusSession(conn).write_packed_verified(
+                    ADDRESS, index, before, wanted, changeset
+                )
+            sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+            self.assertEqual(
+                [p.command for p in sent[-4:]], [0x1400, 0x1500, 0x1501, 0x1404]
+            )
+
+    def test_bulk_packed_uncertain_commit_never_retries_or_rolls_back(self):
+        index, changeset = 18419, 123
+        conn = Mock()
+        conn.recv.side_effect = [
+            b"".join(
+                (
+                    response(0x0100, 0, changeset),
+                    *(response(0x0100 | n, index, -1) for n in range(3)),
+                    response(0x1401),
+                    *(response(0x1600 | n, index) for n in range(3)),
+                    response(0x0100, 0, changeset),
+                )
+            ),
+            TimeoutError(),
+        ]
+        with self.assertRaisesRegex(vbus.VBusError, "write outcome uncertain"):
+            vbus.VBusSession(conn).write_packed_verified(
+                ADDRESS, index, (-1, -1, -1), (0x50482820, -1, -1), changeset
+            )
+        sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+        self.assertEqual([p.command for p in sent[-2:]], [0x0300, 0x1402])
+        self.assertNotIn(0x1404, [p.command for p in sent])
+
+    def test_bulk_packed_stale_or_noop_never_begins_transaction(self):
+        index, changeset = 18419, 123
+        for before in ((-1, -1, -1), (1, -1, -1)):
+            conn = Mock()
+            conn.recv.return_value = b"".join(
+                (
+                    response(0x0100, 0, changeset),
+                    *(response(0x0100 | n, index, -1) for n in range(3)),
+                )
+            )
+            session = vbus.VBusSession(conn)
+            if before[0] == -1:
+                self.assertEqual(
+                    session.write_packed_verified(
+                        ADDRESS, index, before, before, changeset
+                    ),
+                    before,
+                )
+            else:
+                with self.assertRaisesRegex(vbus.VBusError, "readback differs"):
+                    session.write_packed_verified(
+                        ADDRESS, index, before, before, changeset
+                    )
+            sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+            self.assertEqual([p.command for p in sent], [0x0300, 0x0300, 0x0301, 0x0302])
+
     def test_corrupt_frame_rejected(self):
         raw = bytearray(response(0x0100, 1321, 2))
         raw[-1] ^= 1
