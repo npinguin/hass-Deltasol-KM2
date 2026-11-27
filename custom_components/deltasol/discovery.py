@@ -455,7 +455,7 @@ class ConfigurationCapture:
 
     def compound_parameters(self):
         """Consolidate temperature variants without guessing the write target."""
-        definitions = {d.name: d for d in self.catalog.definitions}
+        definitions = self.catalog.by_name
         groups = {}
         for definition in self.base_candidates:
             parent = definition.metadata.get("compound_ref")
@@ -564,7 +564,7 @@ class ConfigurationCapture:
                     "reference": value,
                     "status": "observed" if value is not None else "unknown",
                 }
-        definitions = {d.name: d for d in self.catalog.definitions}
+        definitions = self.catalog.by_name
         for name, week in weeks.items():
             allocated = self._observed_raw(definitions.get(f"{name}_Belegt"))
             initialized = self._observed_raw(
@@ -616,7 +616,7 @@ class ConfigurationCapture:
         writability. A mask or extraRef is retained as an unresolved condition
         until its vendor semantics are independently established.
         """
-        definitions = {d.name: d for d in self.catalog.definitions}
+        definitions = self.catalog.by_name
         slots, members = self.function_slots
         functions = {}
         contexts = {}

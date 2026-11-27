@@ -739,7 +739,10 @@ class ParameterTests(unittest.TestCase):
         self.session.read.return_value = source.changeset
         self.values["AutoSommerWinterzeit"] = (56, 1)
         definition = catalogue.Definition(
-            "AutoSommerWinterzeit", 56, "unspecified", "Boolean",
+            "AutoSommerWinterzeit",
+            56,
+            "unspecified",
+            "Boolean",
             {"type_chain": ["Boolean"]},
         )
         vendor = catalogue.Catalog(source.digest, (definition,), source)

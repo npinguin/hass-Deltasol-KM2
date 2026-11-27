@@ -820,7 +820,7 @@ class DiscoveryTests(unittest.TestCase):
         first = catalog.Definition("Limit", 17, "unspecified", "Number", {})
         second = catalog.Definition("Limit", 18, "unspecified", "Number", {})
         with self.assertRaises(catalog.CatalogError):
-            catalog.Catalog("test", (first, second)).by_name
+            _ = catalog.Catalog("test", (first, second)).by_name
 
     def test_invalid_xml_and_archive_rejected(self):
         with self.assertRaises(catalog.CatalogError):

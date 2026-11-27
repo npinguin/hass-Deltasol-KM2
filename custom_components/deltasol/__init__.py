@@ -555,7 +555,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         capture = self.runtime.capture
         if capture is None:
             return None
-        if capture.controller != capture_identity(self.telemetry.data):
+        _, controller = find_profile(device_inventory(self.telemetry.data))
+        if capture.controller != controller:
             return None
         if not capture.catalog.matches(capture.controller.address, capture.changeset):
             return None
