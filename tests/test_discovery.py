@@ -226,6 +226,58 @@ class DiscoveryTests(unittest.TestCase):
             definition = catalog.Definition("Setting", 1, storage, None, metadata)
             self.assertEqual(catalog.parameterization_evidence(definition), expected)
 
+    def test_compound_parent_reads_extend_legacy_checkpoint(self):
+        name = "Setpoint"
+        child = "Setpoint_K"
+        selector = "TemperatureHysteresisSelector"
+        xml = f"""
+        <root>
+          <type id="HysteresisProxy" selectorValueRef="{selector}"/>
+          <value id="{selector}" index="60" idHash="{vbus.parameter_hash(selector)}"/>
+          <value id="{name}" index="100" storage="abstract"
+                 idHash="{vbus.parameter_hash(name)}">
+            <type id="Proxy" base="HysteresisProxy"/>
+          </value>
+          <value id="{child}" index="101" compoundValueRef="{name}"
+                 idHash="{vbus.parameter_hash(child)}"/>
+          <value id="Unverified" index="200" storage="abstract" idHash="0">
+            <type id="UnverifiedProxy" base="HysteresisProxy"/>
+          </value>
+          <value id="Unverified_K" index="201" compoundValueRef="Unverified"
+                 idHash="{vbus.parameter_hash("Unverified_K")}"/>
+        </root>""".encode()
+        parsed = catalog.parse_menu(xml, "test")
+        controller = SimpleNamespace(
+            address=0x7112, channel=0, source="BX", serial="test"
+        )
+        capture = discovery.ConfigurationCapture(parsed, controller)
+        self.assertEqual(capture.candidates[-1].name, name)
+        self.assertNotIn("Unverified", [d.name for d in capture.candidates])
+        legacy = capture.base_candidates
+        capture.apply(
+            legacy,
+            {d.name: vbus.ParameterObservation(d.index, 1, "read") for d in legacy},
+        )
+        stored = capture.checkpoint()
+        stored["status"] = "complete"
+        stored["finished_at"] = stored["started_at"]
+        restored = discovery.ConfigurationCapture.restore(
+            stored, parsed, controller, capture.changeset
+        )
+        self.assertEqual(restored.status, "paused")
+        self.assertEqual(restored.offset, len(legacy))
+        self.assertEqual(restored.results, capture.results)
+        self.assertEqual([d.name for d in restored.next_batch()], [name])
+        restored.apply(
+            restored.next_batch(), {name: vbus.ParameterObservation(100, 65, "read")}
+        )
+        self.assertEqual(restored.status, "complete")
+        row = restored.export(True)["parameters"][name]
+        self.assertEqual(row["status"], "read")
+        self.assertEqual(row["raw_value"], 65)
+        self.assertEqual(row["write_access"], "not_verified")
+        self.assertEqual(row["write_access_reason"], "compound_parent_write_unverified")
+
     def test_configuration_evidence_preserves_compound_and_selector_boundary(self):
         selector = catalog.Definition("Unit", 60, "unspecified", "Enum", {})
         parent = catalog.Definition(
@@ -559,6 +611,12 @@ class DiscoveryTests(unittest.TestCase):
         )
         self.assertEqual(capture.next_batch()[0].name, "Schema")
         self.assertNotIn("Bedienercode", capture.export(True)["parameters"])
+        self.assertEqual(len(capture.base_candidates), 11325)
+        parents = capture.candidates[len(capture.base_candidates):]
+        self.assertIn("Solar_Sp1_dTein", {d.name for d in parents})
+        self.assertIn("Anlage_Wf1_Feststoffkessel_dTEin", {d.name for d in parents})
+        self.assertTrue(all(not catalog.is_sensitive(d) for d in parents))
+        print("RPT read-only compound parent extension:", len(parents))
         self.assertEqual(definitions["Relais_Regler_R4_Handbetrieb"].index, 2019)
         self.assertEqual(definitions["Modul1_Vorhanden"].storage, "volatile")
         self.assertEqual(

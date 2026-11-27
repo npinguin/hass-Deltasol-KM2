@@ -49,8 +49,8 @@ class ConfigurationCapture:
         }
 
     @cached_property
-    def candidates(self):
-        """Useful physical/configuration evidence first; keep full safe coverage."""
+    def base_candidates(self):
+        """Retain the exact pre-existing candidate order for checkpoint parity."""
 
         def priority(definition):
             name = definition.name
@@ -82,6 +82,24 @@ class ConfigurationCapture:
                 key=priority,
             )
         )
+
+    @cached_property
+    def candidates(self):
+        """Append verified read-only compound parents after legacy coverage."""
+        safe_children = {
+            d.metadata.get("compound_ref")
+            for d in self.base_candidates
+        }
+        parents = tuple(
+            d
+            for d in self.catalog.definitions
+            if d.excluded == "non_value_definition"
+            and d.metadata.get("compound_parent_read_candidate") is True
+            and d.name in safe_children
+            and not is_sensitive(d)
+            and d.index not in self.sensitive_indices
+        )
+        return self.base_candidates + parents
 
     @property
     def progress_percent(self):
@@ -160,13 +178,24 @@ class ConfigurationCapture:
             raise ValueError("Discovery checkpoint identity or layout changed")
         offset = data["offset"]
         rows = data["observations"]
+        # Previous releases never attempted abstract compound parents.
+        # A previously complete legacy prefix is now a paused, extendable
+        # capture, not corrupt data or falsely complete expanded coverage.
+        legacy_complete = (
+            data["status"] == "complete"
+            and offset == len(capture.base_candidates)
+            and len(capture.candidates) > offset
+        )
         if (
             type(offset) is not int
             or not 0 <= offset <= len(capture.candidates)
             or len(rows) != offset
             or data["status"]
             not in ("running", "recovering", "paused", "incomplete", "complete")
-            or (data["status"] == "complete") != (offset == len(capture.candidates))
+            or (
+                not legacy_complete
+                and (data["status"] == "complete") != (offset == len(capture.candidates))
+            )
             or type(data["retry_count"]) is not int
             or data["retry_count"] < 0
         ):
@@ -264,8 +293,12 @@ class ConfigurationCapture:
                 "observed_at": timestamp,
             }
         capture.status = (
-            data["status"] if data["status"] in ("complete", "incomplete") else "paused"
+            data["status"]
+            if not legacy_complete and data["status"] in ("complete", "incomplete")
+            else "paused"
         )
+        if legacy_complete:
+            capture.finished_at = None
         return capture
 
     def next_batch(self):
@@ -291,13 +324,16 @@ class ConfigurationCapture:
         parameters = {}
         counts = {}
         definitions = {d.name: d for d in self.catalog.definitions}
+        parent_names = {d.name for d in self.candidates[len(self.base_candidates):]}
         for definition in self.catalog.definitions:
             if is_sensitive(definition) or definition.index in self.sensitive_indices:
                 counts["sensitive_redacted"] = counts.get("sensitive_redacted", 0) + 1
                 continue
             observed = self.results.get(definition.name)
-            status = definition.excluded or (
+            status = (
                 observed.status if observed else "not_scanned"
+            ) if definition.name in parent_names else (
+                definition.excluded or (observed.status if observed else "not_scanned")
             )
             if observed and not current:
                 status = "stale"
@@ -309,6 +345,9 @@ class ConfigurationCapture:
                 "type": definition.type_id,
             }
             item.update(configuration_evidence(definition, definitions))
+            if definition.name in parent_names:
+                item["write_access_reason"] = "compound_parent_write_unverified"
+                item["read_evidence"] = "exact_proxy_parent"
             parameters[definition.name] = item
             if observed is None:
                 continue
@@ -367,6 +406,7 @@ class ConfigurationCapture:
             if self.status == "complete"
             else "partial",
             "candidate_count": len(self.candidates),
+            "compound_parent_candidate_count": len(parent_names),
             "counts": counts,
             "parameters": parameters,
         }

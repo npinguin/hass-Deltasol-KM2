@@ -239,8 +239,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
             elif command == 0x0400:
                 assert index in Peer.settings
                 bounds = {
-                    idx: (low, high)
-                    for idx, _, low, high in CONFIG_SETTINGS.values()
+                    idx: (low, high) for idx, _, low, high in CONFIG_SETTINGS.values()
                 }
                 low, high = bounds.get(index, (0, 1))
                 assert low <= value <= high
@@ -1002,7 +1001,9 @@ async def qualify(directory, phase):
         # Discover the actual installed-function selectors through TCP, not
         # direct runtime injection. Then operate native Number/Select/Switch
         # entities and check both wire persistence and HA observations.
-        with patch("custom_components.deltasol.load_catalog", return_value=config_fixture):
+        with patch(
+            "custom_components.deltasol.load_catalog", return_value=config_fixture
+        ):
             await hass.services.async_call(
                 "button", "press", {"entity_id": button}, blocking=True
             )
@@ -1020,7 +1021,9 @@ async def qualify(directory, phase):
             target = entity(name, "number")
             assert target
             await hass.services.async_call(
-                "number", "set_value", {"entity_id": target, "value": value},
+                "number",
+                "set_value",
+                {"entity_id": target, "value": value},
                 blocking=True,
             )
             assert float(hass.states.get(target).state) == value
@@ -1049,7 +1052,10 @@ async def qualify(directory, phase):
             raise AssertionError("Invalid pump pair accepted")
         assert Peer.saves == 11 and Peer.settings[2170] == 40
         pump = entity("Relais_Modul1_R1_MinDrehzahl", "number")
-        assert registry.async_get(pump).device_id == registry.async_get(em_sensor).device_id
+        assert (
+            registry.async_get(pump).device_id
+            == registry.async_get(em_sensor).device_id
+        )
         await set_mode(em, "Off")
         assert hass.states.get(pump).state == "unavailable"
         await set_mode(em, "Auto")
@@ -1060,7 +1066,9 @@ async def qualify(directory, phase):
         # Stop the actual HA process with an incomplete active capture. The
         # following restart phase must restore the same committed checkpoint.
         with (
-            patch("custom_components.deltasol.load_catalog", return_value=config_fixture),
+            patch(
+                "custom_components.deltasol.load_catalog", return_value=config_fixture
+            ),
             patch("custom_components.deltasol.discovery.BATCH_SIZE", 1),
             patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 3),
         ):

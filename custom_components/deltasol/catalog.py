@@ -244,6 +244,20 @@ def parse_menu(xml, digest):
             excluded = "sensitive"
         elif storage in ("abstract", "struct"):
             excluded = "non_value_definition"
+            # The upstream configuration optimizer resolves compound children
+            # through their parent. Read only exact temperature proxies, not
+            # arbitrary abstract structures, to establish actual wire evidence.
+            if (
+                storage == "abstract"
+                and name.isascii()
+                and _integer(node.get("idHash")) == parameter_hash(name)
+                and index is not None
+                and 0 < index <= 65535
+                and metadata.get("selector_ref") == "TemperatureHysteresisSelector"
+                and set(metadata.get("type_chain", ()))
+                & {"TemperatureProxy", "HysteresisProxy"}
+            ):
+                metadata["compound_parent_read_candidate"] = True
         elif not name.isascii() or _integer(node.get("idHash")) != parameter_hash(name):
             excluded = "unverified_identifier"
         elif index is not None and not 0 < index <= 65535:
@@ -264,6 +278,7 @@ def parse_menu(xml, digest):
         if len(names) > 1:
             for name in names:
                 definition = result[name]
+                definition.metadata.pop("compound_parent_read_candidate", None)
                 if definition.excluded is None:
                     result[name] = Definition(
                         name,
