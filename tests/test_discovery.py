@@ -990,7 +990,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(definitions["Schema"].index, 86)
         # Independent MX 2xx optimizer and BX Plus SET evidence agree on
         # the 51 x 9 timer layout. Verify the exact pinned RPT independently.
-        for slot in range(1, 52):
+        for slot in range(51):
             prefix = f"Wsu{slot}"
             base = 18401 + 13 * slot
             for suffix, offset, kind in (
