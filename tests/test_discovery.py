@@ -1260,6 +1260,17 @@ class DiscoveryTests(unittest.TestCase):
 
         # Aggregate schema evidence only: no vendor data or site values bundled.
         with zipfile.ZipFile(os.environ["RPT_ARCHIVE"]) as archive:
+            # Identify additional machine-readable firmware artifacts in the
+            # exact pinned vendor package (e.g. optimizer definitions).
+            # Report names and sizes only; do not redistribute vendor content.
+            print(
+                "RPT archive inventory:",
+                [
+                    (item.filename, item.file_size)
+                    for item in archive.infolist()
+                    if not item.is_dir()
+                ],
+            )
             root = ET.fromstring(archive.read(catalog.BX_PLUS_MENU))
         # Targeted structural evidence for the remaining protocol blockers.
         # Output tag/attribute names and counts only, never proprietary XML.
