@@ -17,8 +17,8 @@ from time import monotonic, sleep
 from .configuration import (
     BX_PLUS_DIFFERENTIAL_SETTINGS,
     BX_PLUS_HEATING_SETTINGS,
-    BX_PLUS_LOADING_SETTINGS,
     BX_PLUS_HQM_SETTINGS,
+    BX_PLUS_LOADING_SETTINGS,
     BX_PLUS_MIXER_SETTINGS,
     BX_PLUS_PUMP_ASSIGNMENT_SETTINGS,
     BX_PLUS_PUMP_SETTINGS,
@@ -314,6 +314,7 @@ def _read_settings(
     }
     result = {}
     ambiguous = set()
+    rejected = set()
     for setting in settings:
         if setting.unresolved_role:
             role = observed.get(setting.unresolved_role.name)
@@ -326,8 +327,6 @@ def _read_settings(
             or not setting.accepts(values)
         ):
             continue
-        if requested is not None and not setting.accepts(values, requested):
-            continue
         capability = ConfigurationCapability(
             setting, controller, device, changeset, values[setting.name]
         )
@@ -335,6 +334,10 @@ def _read_settings(
         if uid in result:
             ambiguous.add(uid)
         result[uid] = capability
+        if requested is not None and not setting.accepts(values, requested):
+            rejected.add(uid)
+    if rejected.difference(ambiguous):
+        raise VBusError("Configuration conditional constraint rejected")
     return {uid: cap for uid, cap in result.items() if uid not in ambiguous}
 
 
@@ -683,7 +686,7 @@ class RelayParameters:
             if candidate.name == setting.name
         )
 
-        def current_contract(session):
+        def current_contract(session, requested=None):
             selectors = {
                 candidate.installed_by.name: candidate.installed_by.index
                 for candidate in alternatives
@@ -718,13 +721,14 @@ class RelayParameters:
                 candidates,
                 controller,
                 inventory,
-            ).get(capability.unique_id), candidates
+                requested=requested,
+            ).get(capability.unique_id)
 
         # Hold the existing owner lock across both sessions. Never retry a save
         # when acknowledgement, release or verification is uncertain.
         with self._lock:
             with self._session(profile.address) as session:
-                current, candidates = current_contract(session)
+                current = current_contract(session, wanted)
                 if (
                     current is None
                     or current.device != capability.device
@@ -732,21 +736,6 @@ class RelayParameters:
                 ):
                     raise VBusError("Configuration parameter is no longer supported")
                 if current.raw == wanted:
-                    return current
-                # Repeat exact validation including the requested value; require
-                # the same contract rather than permitting a unit/owner change.
-                accepted = _read_settings(
-                    session,
-                    profile,
-                    capability.changeset,
-                    candidates,
-                    controller,
-                    inventory,
-                    requested=wanted,
-                ).get(capability.unique_id)
-                if accepted is None or accepted.setting != setting:
-                    raise VBusError("Configuration conditional constraint rejected")
-                if accepted.raw == wanted:
                     return current
                 session.write_verified(
                     profile.address,
@@ -756,7 +745,7 @@ class RelayParameters:
                     save=setting.save,
                 )
             with self._session(profile.address) as session:
-                verified, _ = current_contract(session)
+                verified = current_contract(session)
                 if (
                     verified is None
                     or verified.device != capability.device

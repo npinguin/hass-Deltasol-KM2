@@ -747,7 +747,11 @@ class DiscoveryTests(unittest.TestCase):
             for name, _, alias, _ in setting.compound_mirrors:
                 child = definitions[alias]
                 self.assertEqual(child.metadata["compound_ref"], name)
-                limits = setting.limits if name == setting.name else dict(setting.peer_limits)[name]
+                limits = (
+                    setting.limits
+                    if name == setting.name
+                    else dict(setting.peer_limits)[name]
+                )
                 self.assertEqual(
                     catalog.numeric_encoding(child),
                     tuple(Decimal(v) for v in limits),

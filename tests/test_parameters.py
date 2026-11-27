@@ -422,6 +422,7 @@ class ParameterTests(unittest.TestCase):
             "Heizung_Wf1_ThBwErwaermung_TAus": 550,
             "Heizung_Wf1_ThBwErwaermung_TAus_C": 550,
         }
+        self.assertEqual(setting.native_slot, ("Heizung_Wf1", "Heizung_Wf", 1))
         self.assertTrue(setting.accepts(values, setting.encode(50)))
         self.assertFalse(setting.accepts(values, setting.encode(55)))
         values["Heizung_Wf1_ThBwErwaermung_Modus"] = 1

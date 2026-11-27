@@ -1077,6 +1077,15 @@ async def qualify(directory, phase):
             assert float(hass.states.get(target).state) == value
 
         await number("Anlage_Wf1_Mischer_dtIntervall", 5)
+        mixer_device = registry.async_get(
+            entity("Anlage_Wf1_Mischer_dtIntervall", "number")
+        ).device_id
+        assert mixer_device != registry.async_get(sensor).device_id
+        from homeassistant.helpers import device_registry as dr
+
+        mixer = dr.async_get(hass).async_get(mixer_device)
+        assert mixer.via_device_id == registry.async_get(sensor).device_id
+        assert mixer.name == "RESOL Arrangement function 1"
         await number("Heizung_Heizkreis1_Heizkurve", 1.5)
         alternative = entity("Wmz1_OAlternativAnzeige", "switch")
         assert alternative and hass.states.get(alternative).state == "off"

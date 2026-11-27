@@ -7,6 +7,7 @@ The latter confirms enumeration ordinals and save transactions, not current
 indices. No site-specific settings or proprietary catalogue are bundled.
 """
 
+import re
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from operator import ge, gt, le, lt, ne
@@ -101,6 +102,22 @@ class Setting:
     # Exact encoding bounds for sibling settings that participate in a
     # compound transaction. Their current values must also be valid.
     peer_limits: tuple[tuple[str, tuple[str, str, str, str]], ...] = ()
+
+    @property
+    def native_slot(self):
+        """The native function owning the setting, not the connected equipment."""
+        if not self.installed_by or self.owner_relay is not None:
+            return None
+        match = re.fullmatch(
+            r"(Anlage_Wf|Solar_Wf|Heizung_Wf|Heizung_Heizkreis|Wmz)([1-9][0-9]*)_Type",
+            self.installed_by.name,
+        )
+        if not match:
+            return None
+        slot = f"{match[1]}{match[2]}"
+        if not self.name.startswith(slot + "_"):
+            return None
+        return slot, match[1], int(match[2])
 
     def numeric_definition(self):
         if self.kind != "number" or self.limits is None:
