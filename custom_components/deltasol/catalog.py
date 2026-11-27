@@ -478,6 +478,32 @@ ORDINAL_TYPES = frozenset(
 )
 
 
+# Identify native slot selectors from exact catalogue semantics. Slot counts
+# are discovered from definitions, never copied from an installation.
+FUNCTION_SELECTOR_TYPES = {
+    "Anlage_WfX_Type": "arrangement",
+    "Solar_WfX_Type": "solar_optional",
+    "Heizung_WfX_Type": "heating_optional",
+    "Heizung_HeizkreisX_Type": "heating_circuit",
+    "WmzX_Type": "heat_meter",
+}
+
+
+def function_selector(definition):
+    """Return the firmware-native slot ID and family, not a physical device."""
+    if definition.excluded or is_sensitive(definition):
+        return None
+    match = re.fullmatch(r"(.+?)([1-9][0-9]*)_Type", definition.name)
+    families = {
+        FUNCTION_SELECTOR_TYPES[t]
+        for t in definition.metadata.get("type_chain", ())
+        if t in FUNCTION_SELECTOR_TYPES
+    }
+    if not match or len(families) != 1 or not ordinal_options(definition):
+        return None
+    return match[1] + match[2], int(match[2]), families.pop()
+
+
 def ordinal_options(definition):
     """Exact reference ordinals for corroborated selector types only."""
     metadata = definition.metadata

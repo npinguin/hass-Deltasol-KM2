@@ -402,6 +402,20 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(inventory["Anlage_Wf2"]["status"], "unused")
         self.assertEqual(inventory["Anlage_Wf2"]["assignments"], {})
         self.assertEqual(inventory["Anlage_Wf3"]["status"], "unknown")
+        export = capture.export(True)["parameters"]
+        self.assertEqual(
+            export["Anlage_Wf1_Relais1_Nr"]["applicability"],
+            "selected_function_reference",
+        )
+        self.assertEqual(
+            export["Anlage_Wf2_Relais1_Nr"]["applicability"], "function_unused"
+        )
+        self.assertEqual(
+            capture.export(False)["parameters"]["Anlage_Wf1_Relais1_Nr"][
+                "applicability"
+            ],
+            "stale",
+        )
         self.assertIsNone(catalog.decoded_value(rows[-1], 1))
         self.assertEqual(catalog.decoded_value(rows[0], 1), "Mixer")
         temp = catalog.Definition(
@@ -420,6 +434,53 @@ class DiscoveryTests(unittest.TestCase):
         # Read semantics do not enable writing an unverified parent/child.
         with self.assertRaises(catalog.CatalogError):
             catalog.encode_numeric_value(temp, 60)
+
+    def test_function_context_is_catalogue_driven_not_fixed_slot_count(self):
+        rows = (
+            catalog.Definition(
+                "Anlage_Wf23_Type",
+                10,
+                "unspecified",
+                "Anlage_WfX_Type",
+                {
+                    "type_chain": ["Anlage_WfX_Type"],
+                    "value_text": [
+                        {"id": name, "value": None}
+                        for name in ("Frei", "Alpha", "Beta")
+                    ],
+                },
+            ),
+            catalog.Definition(
+                "Anlage_Wf23_Beta_Target",
+                11,
+                "unspecified",
+                "Number",
+                {"menu_refs": [{"menu": "Anlage_Wf23_Beta"}]},
+            ),
+            catalog.Definition(
+                "Anlage_Wf23_Alpha_Target",
+                12,
+                "unspecified",
+                "Number",
+                {"menu_refs": [{"menu": "Anlage_Wf23_Alpha", "mask": "Enabled"}]},
+            ),
+            catalog.Definition(
+                "Anlage_Wf230_Alpha_Target", 13, "unspecified", "Number", {}
+            ),
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", rows), SimpleNamespace(address=0x7112)
+        )
+        capture.results[rows[0].name] = vbus.ParameterObservation(10, 1, "read")
+        functions, contexts = capture.function_context()
+        self.assertEqual(functions["Anlage_Wf23"]["slot"], 23)
+        self.assertEqual(
+            contexts[rows[1].name]["applicability"], "other_function_type"
+        )
+        self.assertEqual(
+            contexts[rows[2].name]["applicability"], "conditional_unverified"
+        )
+        self.assertNotIn(rows[3].name, contexts)
 
     def test_compound_projection_requires_exact_selector_and_parent_evidence(self):
         parent = catalog.Definition(

@@ -12,6 +12,7 @@ from .catalog import (
     configuration_evidence,
     decoded_value,
     explicit_options,
+    function_selector,
     is_sensitive,
     ordinal_options,
 )
@@ -462,110 +463,146 @@ class ConfigurationCapture:
             }
         return result
 
-    def native_functions(self):
-        """Project native installed slots and raw reference assignments.
+    @cached_property
+    def function_slots(self):
+        """Index catalogue-defined slots and their members once per capture."""
+        slots = {}
+        for definition in self.catalog.definitions:
+            selector = function_selector(definition)
+            if selector:
+                name, slot, family = selector
+                slots[name] = (slot, family, definition)
+        members = {name: [] for name in slots}
+        for definition in self.catalog.definitions:
+            # A slot owns its prefix only, not slot 10 through slot 19.
+            parts = definition.name.split("_")
+            for end in range(1, len(parts)):
+                name = "_".join(parts[:end])
+                if name in slots:
+                    members[name].append(definition)
+                    break
+        return slots, members
 
-        This is a capture projection, not a second live owner, a mapping to
-        physical equipment, or permission to change the controller program.
+    def function_context(self):
+        """One catalogue-derived projection used by inventory and parameter rows.
+
+        Menu membership and captured selectors establish context, not live
+        writability. A mask or extraRef is retained as an unresolved condition
+        until its vendor semantics are independently established.
         """
         definitions = {d.name: d for d in self.catalog.definitions}
-
-        def observation(name):
-            return self._observed_raw(definitions.get(name))
-
-        families = (
-            ("arrangement", "Anlage_Wf", 16),
-            ("solar_optional", "Solar_Wf", 16),
-            ("heating_optional", "Heizung_Wf", 16),
-            ("heating_circuit", "Heizung_Heizkreis", 7),
-            ("heat_meter", "Wmz", 7),
-        )
+        slots, members = self.function_slots
         functions = {}
-        for family, prefix, count in families:
-            for slot in range(1, count + 1):
-                name = f"{prefix}{slot}"
-                type_name = f"{name}_Type"
-                if type_name not in definitions:
+        contexts = {}
+        for name, (slot, family, selector) in slots.items():
+            raw = self._observed_raw(selector)
+            options = ordinal_options(selector)
+            kind = options.get(raw)
+            activity = self._observed_raw(definitions.get(f"{name}_Aktiviert_Modus"))
+            status = (
+                "unknown"
+                if kind is None
+                else "unused"
+                if kind == "Frei"
+                else "configured"
+            )
+            item = {
+                "family": family,
+                "slot": slot,
+                "type_parameter": selector.name,
+                "type_raw": raw,
+                "type": kind,
+                "status": status,
+                "activity_raw": activity,
+                "activity_mode": {
+                    0: "disabled",
+                    1: "enabled",
+                    2: "switch_controlled",
+                }.get(activity),
+                "assignments": {},
+            }
+            typed_menus = {
+                f"{name}_{option}" for option in options.values() if option != "Frei"
+            }
+            for definition in members[name]:
+                if (
+                    is_sensitive(definition)
+                    or definition.index in self.sensitive_indices
+                ):
                     continue
-                raw = observation(type_name)
-                options = ordinal_options(definitions[type_name])
-                kind = options.get(raw)
-                activity = observation(f"{name}_Aktiviert_Modus")
-                status = (
-                    "unknown"
-                    if kind is None
-                    else "unused"
-                    if kind == "Frei"
-                    else "configured"
-                )
-                item = {
-                    "family": family,
-                    "slot": slot,
-                    "type_parameter": type_name,
-                    "type_raw": raw,
-                    "type": kind,
-                    "status": status,
-                    "activity_raw": activity,
-                    "activity_mode": {
-                        0: "disabled",
-                        1: "enabled",
-                        2: "switch_controlled",
-                    }.get(activity),
-                    "assignments": {},
+                parent = definitions.get(definition.metadata.get("compound_ref"))
+                refs = definition.metadata.get("menu_refs", ())
+                if not refs and parent and not is_sensitive(parent):
+                    refs = parent.metadata.get("menu_refs", ())
+                selected = []
+                other = []
+                common = []
+                for ref in refs:
+                    menu = ref.get("menu")
+                    if menu in typed_menus:
+                        (selected if menu == f"{name}_{kind}" else other).append(ref)
+                    elif menu and (menu == name or menu.startswith(name + "_")):
+                        common.append(ref)
+                if definition.name == selector.name:
+                    applicability = "function_selector"
+                elif status == "unknown":
+                    applicability = "function_unknown"
+                elif status == "unused":
+                    applicability = "function_unused"
+                elif activity == 0:
+                    applicability = "function_disabled"
+                elif selected:
+                    applicability = (
+                        "conditional_unverified"
+                        if any(ref.get("mask") or ref.get("extraRef") for ref in selected)
+                        else "selected_function_reference"
+                    )
+                elif other and not common:
+                    applicability = "other_function_type"
+                elif common:
+                    applicability = "slot_menu_unverified"
+                else:
+                    applicability = "not_assessed"
+                contexts[definition.name] = {
+                    "function_slot": name,
+                    "function_type": kind,
+                    "applicability": applicability,
                 }
-                if status == "configured":
-                    for ref, definition in definitions.items():
-                        if not ref.startswith(name + "_"):
-                            continue
-                        chain = definition.metadata.get("type_chain", ())
-                        reference_types = {
-                            "AktorNr",
-                            "RelaisNr",
-                            "AusgangNr",
-                            "SensorNr",
-                            "SensorSchalterNr",
-                            "SensorSchalterExtNr",
-                            "SensorVolumenstromNr",
-                            "SensorVolumenstromImpulsNr",
-                            "RelaisOderAusgangAlleNr",
-                        }
-                        if not reference_types.intersection(chain):
-                            continue
-                        menu_refs = definition.metadata.get("menu_refs", ())
-                        if family in (
-                            "arrangement",
-                            "solar_optional",
-                            "heating_optional",
-                        ):
-                            # A slot contains values for all possible function
-                            # types. Only its selected menu supplies candidates.
-                            menu_refs = [
-                                menu
-                                for menu in menu_refs
-                                if menu.get("menu") == f"{name}_{kind}"
-                            ]
-                            if not menu_refs:
-                                continue
-                        value = observation(ref)
-                        if value is None or value == 0:
-                            continue
-                        # Keep raw reference IDs; their electrical/physical
-                        # interpretation is deliberately not inferred.
-                        item["assignments"][ref] = {
-                            "reference": value,
-                            "reference_type": chain[-1],
-                            "applicability": (
-                                "conditional_unverified"
-                                if any(
-                                    menu.get("mask") or menu.get("extraRef")
-                                    for menu in menu_refs
-                                )
-                                else "selected_function_reference"
-                                if menu_refs
-                                else "unverified"
-                            ),
-                        }
-                functions[name] = item
+                chain = definition.metadata.get("type_chain", ())
+                reference_types = {
+                    "AktorNr",
+                    "RelaisNr",
+                    "AusgangNr",
+                    "SensorNr",
+                    "SensorSchalterNr",
+                    "SensorSchalterExtNr",
+                    "SensorVolumenstromNr",
+                    "SensorVolumenstromImpulsNr",
+                    "RelaisOderAusgangAlleNr",
+                }
+                if (
+                    status != "configured"
+                    or applicability not in (
+                        "selected_function_reference",
+                        "conditional_unverified",
+                        "slot_menu_unverified",
+                    )
+                    or not reference_types.intersection(chain)
+                ):
+                    continue
+                value = self._observed_raw(definition)
+                if value is None or value == 0:
+                    continue
+                item["assignments"][definition.name] = {
+                    "reference": value,
+                    "reference_type": chain[-1],
+                    "applicability": applicability,
+                }
+            functions[name] = item
+        return functions, contexts
+
+    def native_functions(self):
+        functions, _ = self.function_context()
         return {
             "value_semantics": "observations_during_capture_not_live_poll",
             "functions": functions,
@@ -576,6 +613,7 @@ class ConfigurationCapture:
         counts = {}
         definitions = {d.name: d for d in self.catalog.definitions}
         parent_names = {d.name for d in self.candidates[len(self.base_candidates) :]}
+        functions, contexts = self.function_context()
         for definition in self.catalog.definitions:
             if is_sensitive(definition) or definition.index in self.sensitive_indices:
                 counts["sensitive_redacted"] = counts.get("sensitive_redacted", 0) + 1
@@ -599,6 +637,10 @@ class ConfigurationCapture:
                 "type": definition.type_id,
             }
             item.update(configuration_evidence(definition, definitions))
+            if context := contexts.get(definition.name):
+                item.update(context)
+                if not current:
+                    item["applicability"] = "stale"
             if definition.name in parent_names:
                 item["write_access_reason"] = "compound_parent_write_unverified"
                 item["read_evidence"] = "exact_proxy_parent"
@@ -664,7 +706,8 @@ class ConfigurationCapture:
             "compound_parent_candidate_count": len(parent_names),
             "counts": counts,
             "native_function_inventory": {
-                **self.native_functions(),
+                "functions": functions,
+                "value_semantics": "observations_during_capture_not_live_poll",
                 "status": "capture_observation" if current else "stale",
             },
             "compound_parameters": {
