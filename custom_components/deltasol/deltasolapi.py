@@ -152,11 +152,15 @@ class DeltasolApi:
     def parameter_cooldown_remaining(self):
         return self._parameters.cooldown_remaining() if self._parameters else 0
 
-    def fetch_relay_modes(self, telemetry, configuration_hints=None, catalog=None):
+    def fetch_relay_modes(
+        self, telemetry, configuration_hints=None, catalog=None, previous=None
+    ):
         """Discover available relay parameters without altering any setting."""
         if not self.supports_parameter_access:
             return RelayDiscovery(None, {}, {})
-        return self._parameters.discover(telemetry, configuration_hints, catalog)
+        return self._parameters.discover(
+            telemetry, configuration_hints, catalog, previous
+        )
 
     def read_configuration_batch(
         self, telemetry, controller, names, changeset, packed=None

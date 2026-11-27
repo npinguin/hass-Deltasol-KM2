@@ -672,6 +672,66 @@ class ParameterTests(unittest.TestCase):
         self.session.read.return_value = 12345
         self.assertEqual(self.api.discover(telemetry()).configuration, {})
 
+    def test_native_function_changes_without_rescanning_capture(self):
+        from dataclasses import replace
+
+        catalogue = importlib.import_module(f"{PACKAGE}.catalog")
+        settings = tuple(
+            parameters.Setting(
+                f"Value{i}",
+                200 + i,
+                f"Value {i}",
+                "number",
+                True,
+                limits=("0", "10", "1", "1"),
+                installed_by=parameters_configuration.Dependency(
+                    f"Type{i}", 300 + i, (1,)
+                ),
+            )
+            for i in range(5)
+        )
+        definitions = tuple(
+            catalogue.Definition(
+                setting.name,
+                setting.index,
+                "unspecified",
+                "Number",
+                {"type_chain": ["Number"], "minimum": "0", "maximum": "10"},
+            )
+            for setting in settings
+        ) + tuple(
+            catalogue.Definition(
+                setting.installed_by.name,
+                setting.installed_by.index,
+                "unspecified",
+                "Selector",
+                {},
+            )
+            for setting in settings
+        )
+        vendor = catalogue.Catalog(catalogue.BX_PLUS_SHA256, definitions)
+        profile = replace(parameters.PROFILES[0], settings=settings)
+        self.session.read.return_value = 0x2734DABC
+        for i in range(5):
+            self.values[f"Type{i}"] = (300 + i, 0)
+            self.values[f"Value{i}"] = (200 + i, 5)
+        with patch.object(parameters, "PROFILES", (profile,)):
+            first = self.api.discover(telemetry(), {}, vendor)
+            self.assertEqual(len(first.selector_hints), 4)
+            self.assertFalse(first.configuration)
+            self.values["Type4"] = (304, 1)
+            second = self.api.discover(telemetry(), {}, vendor, first)
+            self.assertEqual(len(second.selector_hints), 5)
+            capability = next(iter(second.configuration.values()))
+            self.assertEqual(capability.setting.name, "Value4")
+            self.assertEqual(capability.value, 5)
+            self.values["Type4"] = (304, 0)
+            third = self.api.discover(telemetry(), {}, vendor, second)
+            self.assertFalse(third.configuration)
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), capability, 6, vendor)
+        self.session.write_verified.assert_not_called()
+
     def test_configuration_numeric_and_dependency_contract(self):
         setting = parameters.Setting(
             "Setting",

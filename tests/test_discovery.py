@@ -831,13 +831,23 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(bound.decode(42), 42)
         self.assertEqual(bound.value_definition.metadata["step"], "1")
         for altered in (
-            catalog.Definition("Limit", 18, "unspecified", "Number", definition.metadata),
+            catalog.Definition(
+                "Limit", 18, "unspecified", "Number", definition.metadata
+            ),
             catalog.Definition("Limit", 17, "volatile", "Number", definition.metadata),
             catalog.Definition(
-                "Limit", 17, "unspecified", "Number", {**definition.metadata, "maximum": "101"}
+                "Limit",
+                17,
+                "unspecified",
+                "Number",
+                {**definition.metadata, "maximum": "101"},
             ),
             catalog.Definition(
-                "Limit", 17, "unspecified", "Number", {**definition.metadata, "quant": "2"}
+                "Limit",
+                17,
+                "unspecified",
+                "Number",
+                {**definition.metadata, "quant": "2"},
             ),
         ):
             with self.assertRaises(catalog.CatalogError):

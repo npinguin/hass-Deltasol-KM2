@@ -595,6 +595,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 initial=self.initial_refresh,
                 configuration_hints=self._configuration_hints(),
                 catalog=self._configuration_catalog(),
+                previous=self.data,
             )
         except VBusError as error:
             # Retry ordinary polling sooner while unavailable, not by issuing
@@ -787,10 +788,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 self.data.profile
                 and option == "Auto"
                 and any(
-                    (
-                        setting.installed_by is None
-                        or setting.installed_by.name in hints
-                    )
+                    (setting.installed_by is None or setting.installed_by.name in hints)
                     and capability.name in setting.expected
                     for setting in self.data.profile.settings_for(capability.changeset)
                 )

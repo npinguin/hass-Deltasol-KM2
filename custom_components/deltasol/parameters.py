@@ -256,6 +256,13 @@ class RelayDiscovery:
     changeset: int | None = None
     observed_at: datetime | None = None
     configuration: dict[str, ConfigurationCapability] = field(default_factory=dict)
+    # Latest bounded selector observations are scheduling hints, not write
+    # authorization and not changes to the historical Discovery capture.
+    selector_hints: dict[str, ParameterObservation] = field(default_factory=dict)
+    selector_cursor: int = 0
+
+
+SELECTORS_PER_REFRESH = 4
 
 
 def _checked_parameters(session, profile, changeset, expected):
@@ -474,6 +481,7 @@ async def refresh_relay_modes(
     initial=False,
     configuration_hints=None,
     catalog=None,
+    previous=None,
 ):
     """Retry reads, releasing async ownership between attempts."""
 
@@ -484,7 +492,7 @@ async def refresh_relay_modes(
         if configuration_hints is not None or catalog is not None:
             arguments += (configuration_hints,)
         if catalog is not None:
-            arguments += (catalog,)
+            arguments += (catalog, previous)
         return await run_parameter_job(
             telemetry.hass, telemetry.api.fetch_relay_modes, *arguments
         )
@@ -621,7 +629,9 @@ class RelayParameters:
                     elapsed if connect_seconds is None else connect_seconds,
                 )
 
-    def discover(self, telemetry, configuration_hints=None, catalog=None):
+    def discover(
+        self, telemetry, configuration_hints=None, catalog=None, previous=None
+    ):
         inventory = device_inventory(telemetry)
         profile, controller = find_profile(inventory)
         if profile is None:
@@ -653,16 +663,56 @@ class RelayParameters:
                     module_flags,
                 )
                 capabilities.update(relays)
-            # Historical inventory is only a scheduling hint for installed
-            # families. _read_settings independently verifies live selectors,
-            # layout, current values and identity before exposing controls.
+            contracts = profile.settings_for(changeset, catalog)
+            selector_hints = {}
+            cursor = 0
+            # A completed capture is historical. Rotate a small number of
+            # exact, authorized selectors through normal polling so a native
+            # installer change is discovered without a new 12,812-item scan.
+            if catalog is not None:
+                selectors = sorted(
+                    {
+                        (setting.installed_by.name, setting.installed_by.index)
+                        for setting in contracts
+                        if setting.installed_by
+                    },
+                    key=lambda item: item[1],
+                )
+                if (
+                    previous is not None
+                    and previous.controller == controller
+                    and previous.changeset == changeset
+                ):
+                    selector_hints.update(previous.selector_hints)
+                    cursor = previous.selector_cursor
+                if selectors:
+                    cursor %= len(selectors)
+                    count = min(SELECTORS_PER_REFRESH, len(selectors))
+                    batch = dict(
+                        selectors[(cursor + i) % len(selectors)] for i in range(count)
+                    )
+                    selector_hints.update(
+                        session.read_parameter_observations(
+                            profile.address,
+                            batch,
+                            changeset,
+                            expected=batch,
+                            schema=profile.schema_index,
+                        )
+                    )
+                    cursor = (cursor + count) % len(selectors)
+            configuration_hints = {
+                **(configuration_hints or {}),
+                **selector_hints,
+            }
+            # Historical/live hints never authorize writes. _read_settings
+            # independently checks live conditions and identity.
             settings = tuple(
                 setting
-                for setting in profile.settings_for(changeset, catalog)
+                for setting in contracts
                 if setting.installed_by is None
                 or (
-                    configuration_hints is not None
-                    and (
+                    (
                         observation := configuration_hints.get(
                             setting.installed_by.name
                         )
@@ -693,6 +743,8 @@ class RelayParameters:
             changeset,
             datetime.now(UTC),
             configuration,
+            selector_hints,
+            cursor,
         )
 
     def read_configuration_batch(
@@ -750,9 +802,7 @@ class RelayParameters:
         # assignment evidence). Recheck competing live contracts, not just the
         # one in an older entity snapshot. First read selectors to bound work.
         alternatives = tuple(
-            candidate
-            for candidate in contracts
-            if candidate.name == setting.name
+            candidate for candidate in contracts if candidate.name == setting.name
         )
 
         def current_contract(session, requested=None):
