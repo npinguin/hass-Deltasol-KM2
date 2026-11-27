@@ -1292,7 +1292,13 @@ class DiscoveryTests(unittest.TestCase):
             import re
 
             identifiers = set(re.findall(rb"[A-Za-z_][A-Za-z0-9_]{3,100}", binary))
-            keywords = (b"wochenschalt", b"schaltuhr", b"zeitfenster", b"blob", b"systemid")
+            keywords = (
+                b"wochenschalt",
+                b"schaltuhr",
+                b"zeitfenster",
+                b"blob",
+                b"systemid",
+            )
             print(
                 "RPT assembly symbol evidence:",
                 [
