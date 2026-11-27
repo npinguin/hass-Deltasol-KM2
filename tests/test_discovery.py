@@ -531,6 +531,25 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
+        self.assertEqual(len(configuration.BX_PLUS_PUMP_SETTINGS), 30)
+        for setting in configuration.BX_PLUS_PUMP_SETTINGS:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertIsNone(target.excluded)
+            self.assertEqual(target.storage, "unspecified")
+            self.assertIn("Number", target.metadata["type_chain"])
+            self.assertEqual(target.metadata["minimum"], "20")
+            self.assertEqual(target.metadata["maximum"], "100")
+            self.assertEqual(target.metadata["unit"], "%")
+            self.assertFalse(target.metadata.get("compound_ref"))
+            self.assertFalse(target.metadata.get("selector_ref"))
+            role = definitions[setting.installed_by.name]
+            self.assertEqual(role.index, setting.installed_by.index)
+            for raw, semantic_id in configuration.PUMP_ROLES:
+                self.assertEqual(role.metadata["value_text"][raw]["id"], semantic_id)
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+                self.assertIsNone(definitions[name].excluded)
         self.assertEqual(definitions["Bedienercode"].excluded, "sensitive")
         self.assertEqual(
             definitions["MesseModus_BedienercodeReset"].excluded, "sensitive"

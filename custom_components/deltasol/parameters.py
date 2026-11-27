@@ -18,6 +18,7 @@ from .configuration import (
     BX_PLUS_HEATING_SETTINGS,
     BX_PLUS_HQM_SETTINGS,
     BX_PLUS_MIXER_SETTINGS,
+    BX_PLUS_PUMP_SETTINGS,
     BX_PLUS_SETTINGS,
     ConfigurationCapability,
     Setting,
@@ -104,6 +105,7 @@ PROFILES = (
             *BX_PLUS_MIXER_SETTINGS,
             *BX_PLUS_HQM_SETTINGS,
             *BX_PLUS_HEATING_SETTINGS,
+            *BX_PLUS_PUMP_SETTINGS,
         ),
     ),
 )
@@ -234,9 +236,47 @@ def _checked_parameters(session, profile, changeset, expected):
 
 
 def _read_settings(
-    session, profile, changeset, settings, controller, inventory, requested=None
+    session,
+    profile,
+    changeset,
+    settings,
+    controller,
+    inventory,
+    requested=None,
+    relay_capabilities=None,
 ):
     """Re-read exact hashes and conditional dependencies, never probe writes."""
+    # Reuse relay registration evidence during ordinary polling. Before a
+    # direct configuration action, independently re-read the specific relay
+    # (including the existing EM registration exception) in the same session.
+    eligible = []
+    for setting in settings:
+        if setting.owner_relay is not None:
+            group = next(
+                (g for g in profile.groups if g.address == setting.owner_address),
+                None,
+            )
+            device = find_device(inventory, setting.owner_address)
+            if group is None or device is None or device.serial != controller.serial:
+                continue
+            if relay_capabilities is None:
+                _, relays = _read_group(
+                    session, profile, changeset, group, controller, device,
+                    (setting.owner_relay,),
+                )
+            else:
+                relays = relay_capabilities
+            if not any(
+                cap.group == group
+                and cap.number == setting.owner_relay
+                and cap.device == device
+                and cap.speed_control
+                and cap.current_option == "Auto"
+                for cap in relays.values()
+            ):
+                continue
+        eligible.append(setting)
+    settings = eligible
     expected = {}
     for setting in settings:
         for name, index in setting.expected.items():
@@ -571,6 +611,7 @@ class RelayParameters:
                 settings,
                 controller,
                 inventory,
+                relay_capabilities=capabilities,
             )
         return RelayDiscovery(
             profile,

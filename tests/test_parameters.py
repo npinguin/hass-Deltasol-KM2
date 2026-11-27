@@ -218,6 +218,58 @@ class ParameterTests(unittest.TestCase):
             self.api.set_configuration(telemetry(), cap, 1.6)
         self.session.write_verified.assert_called_once()
 
+    def test_pump_speed_requires_registered_speed_controlled_pump_and_pair(self):
+        self.session.read.return_value = 0x2734DABC
+        self.activate_modules()
+        minimum, maximum = parameters_configuration.BX_PLUS_PUMP_SETTINGS[10:12]
+        role = minimum.installed_by
+        self.values.update(
+            {
+                role.name: (role.index, 2),
+                minimum.name: (minimum.index, 30),
+                maximum.name: (maximum.index, 80),
+            }
+        )
+        hints = {
+            role.name: parameters.ParameterObservation(role.index, 2, "read")
+        }
+        data = {**telemetry(), **module(1)}
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(data, hints).configuration.values()
+            }
+
+        caps = controls()
+        self.assertEqual(set(caps), {minimum.name, maximum.name})
+        self.assertEqual(caps[minimum.name].device.address, 0x6651)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertTrue(save)
+            self.values[minimum.name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(
+            self.api.set_configuration(data, caps[minimum.name], 40).value, 40
+        )
+        for value in (19, 81, 40.5):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(data, caps[minimum.name], value)
+        for name, index, invalid, valid in (
+            (role.name, role.index, 3, 2),
+            (M1_SPEED, 2169, 0, 1),
+            (M1_NAME, 2173, 1, 2),
+            ("Modul1_Aktiviert", 191, 0, 1),
+        ):
+            self.values[name] = (index, invalid)
+            self.assertFalse(controls())
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(data, caps[minimum.name], 50)
+            self.values[name] = (index, valid)
+        self.session.write_verified.assert_called_once()
+
     def test_verified_configuration_save_and_reconnect(self):
         self.session.read.return_value = 0x2734DABC
         self.values["AutoSommerWinterzeit"] = (56, 1)

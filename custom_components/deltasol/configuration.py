@@ -80,6 +80,7 @@ class Setting:
     # Installed program selector: may be used as a Discovery hint, never as
     # authorization. The same dependency is always re-read live for an action.
     installed_by: Dependency | None = None
+    owner_relay: int | None = None
 
     def numeric_definition(self):
         if self.kind != "number" or self.limits is None:
@@ -314,6 +315,70 @@ BX_PLUS_HEATING_SETTINGS = tuple(
     )
     for number in range(1, 8)
     for offset in ((number - 1) * 495,)
+)
+
+
+# BX Plus firmware 2.03 manual, Output submenu, p. 16: relative pump
+# minimum and maximum are 20..100% when speed control is enabled.
+# 2.08 exact RPT establishes names, indices and actuator roles. A speed
+# flag alone does not distinguish a pump from a mixing valve or a relay.
+# Permit only positively identified pump roles, keep output assignment,
+# signal type, safety limits and manual override unchanged.
+PUMP_ROLES = (
+    (2, "Kollektorpumpe"),
+    (4, "Primaerpumpe"),
+    (5, "Sekundaerpumpe"),
+    (6, "Speicherpumpe"),
+    (8, "BypassPumpe"),
+    (10, "ExtWTPrimaerpumpe"),
+    (11, "ExtWTSekundaerpumpe"),
+)
+
+
+def _pump_settings(prefix, address, first_mode_index):
+    for number in range(1, 6):
+        name = f"{prefix}_R{number}"
+        mode_index = first_mode_index + 14 * (number - 1)
+        installed = Dependency(
+            f"{name}_AktorFunktion",
+            mode_index - 6,
+            tuple(raw for raw, _ in PUMP_ROLES),
+        )
+        speed = Dependency(f"{name}_ODrehzahl", mode_index - 4, (1,))
+        automatic = Dependency(f"{name}_Handbetrieb", mode_index, (2,))
+        for label, suffix, index, other_suffix, other_index, operation in (
+            ("minimum", "MinDrehzahl", mode_index - 3, "MaxDrehzahl", mode_index - 2, "le"),
+            ("maximum", "MaxDrehzahl", mode_index - 2, "MinDrehzahl", mode_index - 3, "ge"),
+        ):
+            other = f"{name}_{other_suffix}"
+            yield Setting(
+                f"{name}_{suffix}",
+                index,
+                f"Relay {number} pump {label} speed",
+                "number",
+                True,
+                limits=("20", "100", "1", "1"),
+                unit="%",
+                dependencies=(
+                    speed,
+                    automatic,
+                    RangeDependency(other, other_index, 20, 100),
+                ),
+                owner_address=address,
+                relative_constraints=(RelativeConstraint(other, other_index, operation),),
+                installed_by=installed,
+                owner_relay=number,
+            )
+
+
+BX_PLUS_PUMP_SETTINGS = tuple(
+    setting
+    for prefix, address, index in (
+        ("Relais_Regler", 0x7112, 1977),
+        ("Relais_Modul1", 0x6651, 2173),
+        ("Relais_Modul2", 0x6652, 2243),
+    )
+    for setting in _pump_settings(prefix, address, index)
 )
 
 
