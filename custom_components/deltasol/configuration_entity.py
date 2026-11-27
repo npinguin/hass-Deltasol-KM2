@@ -55,8 +55,10 @@ def configuration_device_info(capability):
         identifiers={
             (
                 DOMAIN,
-                f"{controller.serial}_{controller.channel:02X}_"
-                f"{controller.address:04X}_function_{slot_id}",
+                (
+                    f"{controller.serial}_{controller.channel:02X}_"
+                    f"{controller.address:04X}_function_{slot_id}"
+                ),
             )
         },
         name=f"RESOL {label} {number}",

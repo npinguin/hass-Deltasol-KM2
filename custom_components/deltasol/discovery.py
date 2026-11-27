@@ -555,7 +555,10 @@ class ConfigurationCapture:
                     applicability = (
                         "conditional_unverified"
                         if any(
-                            ref.get("mask") or ref.get("extraRef") for ref in selected
+                            ref.get("mask")
+                            or ref.get("maskVal")
+                            or ref.get("extraRef")
+                            for ref in selected
                         )
                         else "selected_function_reference"
                     )
