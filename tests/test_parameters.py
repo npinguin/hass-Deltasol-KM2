@@ -1,10 +1,10 @@
 """Regression tests for profile, device, mode and parameter write gates."""
 
 import asyncio
+import dataclasses
 import importlib
 import sys
 import types
-import dataclasses
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
