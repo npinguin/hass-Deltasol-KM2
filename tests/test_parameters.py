@@ -709,7 +709,8 @@ class ParameterTests(unittest.TestCase):
             )
             for setting in settings
         )
-        vendor = catalogue.Catalog(catalogue.BX_PLUS_SHA256, definitions)
+        source = catalogue.source_for(0x7112, 0x2734DABC)
+        vendor = catalogue.Catalog(source.digest, definitions, source)
         profile = replace(parameters.PROFILES[0], settings=settings)
         self.session.read.return_value = 0x2734DABC
         for i in range(5):
@@ -730,6 +731,28 @@ class ParameterTests(unittest.TestCase):
             self.assertFalse(third.configuration)
             with self.assertRaises(parameters.VBusError):
                 self.api.set_configuration(telemetry(), capability, 6, vendor)
+        self.session.write_verified.assert_not_called()
+
+    def test_catalogue_provenance_never_changes_identity_or_authorizes_write(self):
+        catalogue = importlib.import_module(f"{PACKAGE}.catalog")
+        source = catalogue.source_for(0x7112, 0x2734DABC)
+        self.session.read.return_value = source.changeset
+        self.values["AutoSommerWinterzeit"] = (56, 1)
+        definition = catalogue.Definition(
+            "AutoSommerWinterzeit", 56, "unspecified", "Boolean",
+            {"type_chain": ["Boolean"]},
+        )
+        vendor = catalogue.Catalog(source.digest, (definition,), source)
+        unverified = catalogue.Catalog(source.digest, (definition,))
+        data = telemetry()
+        before = self.api.discover(data).configuration
+        after = self.api.discover(data, {}, vendor).configuration
+        self.assertEqual(set(before), set(after))
+        uid = next(iter(before))
+        self.assertEqual(before[uid].value, after[uid].value)
+        self.assertEqual(self.api.discover(data, {}, unverified).configuration, {})
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(data, before[uid], False, unverified)
         self.session.write_verified.assert_not_called()
 
     def test_solar_defaults_are_not_installed_store_evidence(self):

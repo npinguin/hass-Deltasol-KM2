@@ -555,11 +555,11 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         capture = self.runtime.capture
         if capture is None:
             return None
-        try:
-            source = source_for(capture.controller.address, capture.changeset)
-        except CatalogError:
+        if capture.controller != capture_identity(self.telemetry.data):
             return None
-        return capture.catalog if capture.catalog.digest == source.digest else None
+        if not capture.catalog.matches(capture.controller.address, capture.changeset):
+            return None
+        return capture.catalog
 
     def _configuration_hints(self):
         profile, controller = find_profile(device_inventory(self.telemetry.data))

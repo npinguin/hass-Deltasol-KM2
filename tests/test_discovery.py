@@ -802,11 +802,25 @@ class DiscoveryTests(unittest.TestCase):
                     catalog.load_catalog(path, source)
                 downloaded = catalog.download_catalog(path, source)
                 self.assertEqual(downloaded, catalog.load_catalog(path, source))
+                self.assertTrue(downloaded.matches(source.address, source.changeset))
+                self.assertFalse(downloaded.matches(0x7E11, source.changeset))
+                self.assertFalse(downloaded.matches(source.address, 123))
+                self.assertFalse(
+                    catalog.parse_menu(menu(), source.digest).matches(
+                        source.address, source.changeset
+                    )
+                )
                 self.assertEqual(path.read_bytes(), raw)
                 response.read.return_value = b"wrong digest"
                 with self.assertRaises(catalog.CatalogError):
                     catalog.download_catalog(path, source)
                 self.assertEqual(path.read_bytes(), raw)
+
+    def test_normalized_catalogue_rejects_conflicting_definitions(self):
+        first = catalog.Definition("Limit", 17, "unspecified", "Number", {})
+        second = catalog.Definition("Limit", 18, "unspecified", "Number", {})
+        with self.assertRaises(catalog.CatalogError):
+            catalog.Catalog("test", (first, second)).by_name
 
     def test_invalid_xml_and_archive_rejected(self):
         with self.assertRaises(catalog.CatalogError):

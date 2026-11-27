@@ -14,7 +14,7 @@ from datetime import UTC, datetime
 from threading import RLock
 from time import monotonic, sleep
 
-from .catalog import CatalogError, source_for
+from .catalog import CatalogError
 from .configuration import (
     BX_PLUS_ADDITIONAL_OPERATING_SETTINGS,
     BX_PLUS_DIFFERENTIAL_SETTINGS,
@@ -86,24 +86,21 @@ class ControllerProfile:
             # Existing exact firmware contracts remain usable before the
             # catalogue is acquired; they are independently source-verified.
             return self.settings
+        if not catalog.matches(self.address, changeset):
+            return ()
         try:
-            source = source_for(self.address, changeset)
+            definitions = catalog.by_name
         except CatalogError:
             return ()
-        if catalog.digest != source.digest:
-            return ()
-        return tuple(
-            setting
-            for original in self.settings
-            if (setting := self.bind(original, catalog)) is not None
-        )
-
-    @staticmethod
-    def bind(setting, catalog):
-        try:
-            return bind_setting(setting, catalog.by_name)
-        except CatalogError:
-            return None
+        bound = []
+        for setting in self.settings:
+            try:
+                bound.append(bind_setting(setting, definitions))
+            except CatalogError:
+                # A contradictory definition cannot authorize this setting.
+                # Unrelated, independently validated contracts still work.
+                continue
+        return tuple(bound)
 
 
 PROFILES = (

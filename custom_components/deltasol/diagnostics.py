@@ -179,6 +179,10 @@ async def async_get_config_entry_diagnostics(hass, entry):
     relay_contracts = {item["parameter"]: item for item in relays.values()}
     reference_contracts = {}
     if profile and capture and capture.changeset == profile.configuration_changeset:
+        bound_names = {
+            setting.name
+            for setting in profile.settings_for(capture.changeset, capture.catalog)
+        }
         for setting in profile.settings_for(capture.changeset):
             row = reference_contracts.setdefault(
                 setting.name,
@@ -188,7 +192,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
                     "catalogue_binding": "not_confirmed",
                 },
             )
-            if profile.bind(setting, capture.catalog) is not None:
+            if setting.name in bound_names:
                 row["catalogue_binding"] = "verified"
     coverage = Counter()
     contract_coverage = Counter()

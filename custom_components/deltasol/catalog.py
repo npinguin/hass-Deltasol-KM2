@@ -7,7 +7,7 @@ import re
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 from functools import cached_property
 from pathlib import Path
@@ -109,10 +109,26 @@ def is_sensitive(definition):
 class Catalog:
     digest: str
     definitions: tuple[Definition, ...]
+    # Set by the verified source adapter, never inferred from a raw parse.
+    source: CatalogSource | None = None
+
+    def matches(self, address, changeset):
+        """One compatibility check for all consumers of normalized metadata."""
+        return (
+            self.source is not None
+            and self.source in CATALOG_SOURCES
+            and self.digest == self.source.digest
+            and (address, changeset) == (self.source.address, self.source.changeset)
+        )
 
     @cached_property
     def by_name(self):
-        return {definition.name: definition for definition in self.definitions}
+        result = {}
+        for definition in self.definitions:
+            if definition.name in result and result[definition.name] != definition:
+                raise CatalogError("Conflicting parameter definitions")
+            result[definition.name] = definition
+        return result
 
 
 def _number(text):
@@ -305,13 +321,15 @@ def _parse_archive(data, source):
             info = archive.getinfo(source.menu_member)
             if info.file_size > MAX_XML:
                 raise CatalogError("RPT menu exceeds size limit")
-            return parse_menu(archive.read(info), digest)
+            return replace(parse_menu(archive.read(info), digest), source=source)
     except (KeyError, zipfile.BadZipFile) as err:
         raise CatalogError("Invalid RPT archive") from err
 
 
 def load_catalog(path, source=CATALOG_SOURCES[0]):
     """Validate the exact cached archive, never execute vendor binaries."""
+    if source not in CATALOG_SOURCES:
+        raise CatalogError("Untrusted RPT catalogue source")
     try:
         with open(path, "rb") as stream:
             data = stream.read(MAX_ARCHIVE + 1)

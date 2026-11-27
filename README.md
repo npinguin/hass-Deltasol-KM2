@@ -197,6 +197,15 @@ Owner authorized this independently usable corrective TEST following repeated fi
 
 ### Catalogue-bound configuration (development)
 
+The normalized catalogue carries its verified source identity (controller,
+changeset and pinned archive digest). Runtime binding and diagnostics use
+the same compatibility and contract checks; a raw parser result or
+conflicting parameter definitions cannot authorize writes. Existing exact
+firmware contracts remain usable without a catalogue, and native HA
+identities and checkpoint format are unchanged. A future source adapter
+must provide equally verified evidence to the same model, not introduce a
+second discovery state store or communication owner.
+
 The existing profile authorizes semantic writes, conditional relationships and storage actions; the exact pinned catalogue supplies numeric encoding and verifies identities, aliases and enum/boolean types at runtime once acquired. A mismatched definition is rejected, not silently converted to a writable entity. Previously source-verified exact-profile settings remain usable before initial catalogue acquisition. Explicitly corroborated integer-step, duration and HQM-factor encoding exceptions are centralized in the existing typed model. No new writer, state store, or vendor-data redistribution. The normal foreground poll also rotates at most four authorized native function selectors per refresh; newer observations supersede capture hints, while all action conditions are re-read independently. Newly enabled native functions do not require another full Discovery. A complete historical capture remains unchanged. Returning a speed-controlled relay to Auto re-evaluates its controls even when its volatile role was unresolved. All authorized contracts must bind to the exact vendor archive in the source test.
 
 ### Additional operating controls (development)

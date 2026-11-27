@@ -741,7 +741,7 @@ class ConfigurationCapture:
     def export(self, current):
         parameters = {}
         counts = {}
-        definitions = {d.name: d for d in self.catalog.definitions}
+        definitions = self.catalog.by_name
         parent_names = {d.name for d in self.candidates[len(self.base_candidates) :]}
         functions, contexts = self.function_context()
         for definition in self.catalog.definitions:
@@ -817,6 +817,16 @@ class ConfigurationCapture:
             "unread_write_access": "not_verified",
             "value_semantics": "observations_during_capture_not_live_poll",
             "catalog_digest": self.catalog.digest,
+            "catalogue_source": (
+                {
+                    "format": "rpt_xml",
+                    "artifact": self.catalog.source.filename,
+                    "sha256": self.catalog.source.digest,
+                    "compatibility": "verified",
+                }
+                if self.catalog.matches(self.controller.address, self.changeset)
+                else {"compatibility": "not_verified"}
+            ),
             "controller_address": f"0x{self.controller.address:04X}",
             "changeset": f"{self.changeset:08X}",
             "started_at": self.started_at,
