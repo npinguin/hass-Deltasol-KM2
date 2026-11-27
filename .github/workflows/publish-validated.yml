@@ -186,5 +186,5 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "DeltaSol $VERSION TEST" \
             --prerelease \
-            --notes "Full Configuration TEST (DS-PAR-01–05). See README and issue #10 for exact supported configuration, verification boundaries and site acceptance. Includes prior 1.2.15 stability controls and checkpoint compatibility. Physical acceptance remains separate from isolated Home Assistant qualification."
+            --notes "Configuration Expansion TEST (owner-approved bounded DS-PAR-01–05 scope): expanded inventory, native device/function grouping and conditional typed controls. Preserves 1.2.15 stability and checkpoint compatibility. Weekly schedule editing, solar topology, alternate pump assignment and remaining configuration contracts stay open in #10. Compound writes and other new controls require physical acceptance; isolated HA qualification is not site proof."
           echo "Published $VERSION with deltasol.zip for HACS."

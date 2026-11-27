@@ -21,7 +21,6 @@ from .configuration import (
     BX_PLUS_HQM_SETTINGS,
     BX_PLUS_LOADING_SETTINGS,
     BX_PLUS_MIXER_SETTINGS,
-    BX_PLUS_PUMP_ASSIGNMENT_SETTINGS,
     BX_PLUS_PUMP_SETTINGS,
     BX_PLUS_SETTINGS,
     BX_PLUS_THERMOSTAT_SETTINGS,
@@ -113,7 +112,8 @@ PROFILES = (
             *BX_PLUS_HEATING_SETTINGS,
             *BX_PLUS_HEATING_COMFORT_SETTINGS,
             *BX_PLUS_PUMP_SETTINGS,
-            *BX_PLUS_PUMP_ASSIGNMENT_SETTINGS,
+            # Alternative assignment namespaces are not corroborated yet.
+            # Keep direct, positively identified pump roles above.
             *BX_PLUS_DIFFERENTIAL_SETTINGS,
             *BX_PLUS_THERMOSTAT_SETTINGS,
             *BX_PLUS_TIMING_SETTINGS,

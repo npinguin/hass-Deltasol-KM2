@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import sys
 import types
+import dataclasses
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -385,6 +386,22 @@ class ParameterTests(unittest.TestCase):
             }
 
         name = "Relais_Regler_R1_MinDrehzahl"
+        # The bounded TEST must not authorize this uncorroborated namespace.
+        self.assertFalse(pumps())
+        self.session.write_verified.assert_not_called()
+        # Exercise the retained candidate contract in isolation only, so its
+        # existing negative and ambiguity checks are not lost.
+        profile = parameters.PROFILES[0]
+        candidate = dataclasses.replace(
+            profile,
+            settings=(
+                *profile.settings,
+                *parameters_configuration.BX_PLUS_PUMP_ASSIGNMENT_SETTINGS,
+            ),
+        )
+        patcher = patch.object(parameters, "PROFILES", (candidate,))
+        patcher.start()
+        self.addCleanup(patcher.stop)
         caps = pumps()
         self.assertEqual(len(caps), 2)
         cap = caps[name]
