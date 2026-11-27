@@ -92,8 +92,8 @@ jobs:
           unzip -Z1 "$PACKAGE" | grep -Fx switch.py
           unzip -Z1 "$PACKAGE" | grep -Fx button.py
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
-          gh release download 1.2.14 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
-          echo "5773aa62b9181ba98d433f5371a4bab298eea3f8f96cab321268d6a87849124b  $Q/rollback/deltasol.zip" | sha256sum -c -
+          gh release download 1.2.15 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
+          echo "4a17e54c112a45a3c767f616d642023b2edbe0cda65a6f50fc881078b36b23cd  $Q/rollback/deltasol.zip" | sha256sum -c -
           sha256sum "$PACKAGE" "$Q/rollback/deltasol.zip"
           docker pull "$HA_IMAGE"
           install_zip() {
@@ -186,5 +186,5 @@ jobs:
             --target "$GITHUB_SHA" \
             --title "DeltaSol $VERSION TEST" \
             --prerelease \
-            --notes "VBus operational stability TEST: bounded release recovery, adaptive reconnect cooldown, foreground scheduling, transport diagnostics, protected historical Discovery observations and bounded HTTP requests. Preserves 1.2.14 controls and checkpoint. No automatic retry of uncertain writes. Physical control availability and full configuration coverage remain open."
+            --notes "Configuration Expansion TEST (owner-approved bounded DS-PAR-01–05 scope): expanded inventory, native device/function grouping and conditional typed controls. Preserves 1.2.15 stability and checkpoint compatibility. Weekly schedule editing, solar topology, alternate pump assignment and remaining configuration contracts stay open in #10. Compound writes and other new controls require physical acceptance; isolated HA qualification is not site proof."
           echo "Published $VERSION with deltasol.zip for HACS."

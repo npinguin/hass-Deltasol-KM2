@@ -32,8 +32,43 @@ def register_configuration_entities(entry, async_add_entities, kind, entity_type
     add_discovered()
 
 
+def configuration_device_info(capability):
+    """Preserve existing hardware identities; group new native function controls.
+
+    HQM uses the verified, observed vendor telemetry device, not a synthetic
+    meter. Configuration transactions still target its owning controller.
+    """
+    physical = (DOMAIN, f"{capability.device.serial}_{capability.device.source}")
+    slot = capability.setting.native_slot
+    if slot is None or slot[1] == "Wmz":
+        return DeviceInfo(identifiers={physical})
+    slot_id, family, number = slot
+    controller = capability.controller
+    label = {
+        "Anlage_Wf": "Arrangement function",
+        "Solar_Wf": "Solar optional function",
+        "Heizung_Wf": "Heating optional function",
+        "Heizung_Heizkreis": "Heating circuit",
+    }[family]
+    return DeviceInfo(
+        identifiers={
+            (
+                DOMAIN,
+                (
+                    f"{controller.serial}_{controller.channel:02X}_"
+                    f"{controller.address:04X}_function_{slot_id}"
+                ),
+            )
+        },
+        name=f"RESOL {label} {number}",
+        manufacturer="RESOL",
+        model="Native controller function",
+        via_device=(DOMAIN, f"{controller.serial}_{controller.source}"),
+    )
+
+
 class ConfigurationEntity(CoordinatorEntity):
-    """One existing-device projection of a positively discovered setting."""
+    """One native configuration projection of a positively discovered setting."""
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
@@ -43,11 +78,7 @@ class ConfigurationEntity(CoordinatorEntity):
         self.setting = capability.setting
         self._attr_unique_id = capability.unique_id
         self._attr_name = self.setting.label
-        self._attr_device_info = DeviceInfo(
-            identifiers={
-                (DOMAIN, f"{capability.device.serial}_{capability.device.source}")
-            }
-        )
+        self._attr_device_info = configuration_device_info(capability)
 
     @property
     def capability(self):
@@ -78,6 +109,9 @@ class ConfigurationEntity(CoordinatorEntity):
         capability = self.capability
         return {
             "parameter": self.setting.name,
+            "native_function_slot": (
+                self.setting.native_slot[0] if self.setting.native_slot else None
+            ),
             "storage_action": "save" if self.setting.save else "volatile",
             "changeset": f"{capability.changeset:08X}" if capability else None,
         }

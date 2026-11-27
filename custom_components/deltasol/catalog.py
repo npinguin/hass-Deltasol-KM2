@@ -111,6 +111,10 @@ class Catalog:
 
 
 def _number(text):
+    # RPT uses both decimal points and decimal commas, but not thousands
+    # separators. Normalize only an unambiguous decimal literal.
+    if isinstance(text, str) and re.fullmatch(r"[+-]?[0-9]+,[0-9]+", text):
+        text = text.replace(",", ".")
     try:
         number = Decimal(text)
         return number if number.is_finite() else None
@@ -146,7 +150,11 @@ def _metadata(type_node, types):
         if node.get("unit") is not None:
             result["unit"] = node.get("unit")
         if node.get("selectorValueRef") is not None:
-            result["selector_ref"] = node.get("selectorValueRef")
+            selector = node.get("selectorValueRef")
+            result["selector_ref"] = selector
+            refs = result.setdefault("selector_refs", [])
+            if selector not in refs:
+                refs.append(selector)
         for tag in (
             "storeFactor",
             "displayFactor",
@@ -229,11 +237,27 @@ def parse_menu(xml, digest):
             metadata["allow_parameterization"] = node.get("allowParameterization")
         if node.get("priority"):
             metadata["priority"] = node.get("priority")
+        if node.get("forceUse") is not None:
+            metadata["force_use"] = node.get("forceUse")
         excluded = None
         if is_sensitive(Definition(name, index, storage, type_id, metadata)):
             excluded = "sensitive"
         elif storage in ("abstract", "struct"):
             excluded = "non_value_definition"
+            # The upstream configuration optimizer resolves compound children
+            # through their parent. Read only exact temperature proxies, not
+            # arbitrary abstract structures, to establish actual wire evidence.
+            if (
+                storage == "abstract"
+                and name.isascii()
+                and _integer(node.get("idHash")) == parameter_hash(name)
+                and index is not None
+                and 0 < index <= 65535
+                and metadata.get("selector_ref") == "TemperatureHysteresisSelector"
+                and set(metadata.get("type_chain", ()))
+                & {"TemperatureProxy", "HysteresisProxy"}
+            ):
+                metadata["compound_parent_read_candidate"] = True
         elif not name.isascii() or _integer(node.get("idHash")) != parameter_hash(name):
             excluded = "unverified_identifier"
         elif index is not None and not 0 < index <= 65535:
@@ -254,6 +278,7 @@ def parse_menu(xml, digest):
         if len(names) > 1:
             for name in names:
                 definition = result[name]
+                definition.metadata.pop("compound_parent_read_candidate", None)
                 if definition.excluded is None:
                     result[name] = Definition(
                         name,
@@ -359,17 +384,171 @@ def parameterization_evidence(definition):
     return "unclassified"
 
 
+def configuration_evidence(definition, definitions):
+    """Classify catalogue structure and proof gaps without granting write access."""
+    metadata = definition.metadata
+    compound = metadata.get("compound_ref")
+    selectors = tuple(
+        dict.fromkeys(
+            (
+                *metadata.get("selector_refs", ()),
+                *((metadata["selector_ref"],) if metadata.get("selector_ref") else ()),
+            )
+        )
+    )
+    parent = definitions.get(compound) if compound else None
+    if parent:
+        selectors = tuple(
+            dict.fromkeys(
+                (
+                    *selectors,
+                    *parent.metadata.get("selector_refs", ()),
+                    *(
+                        (parent.metadata["selector_ref"],)
+                        if parent.metadata.get("selector_ref")
+                        else ()
+                    ),
+                )
+            )
+        )
+    dependencies = tuple(
+        name
+        for name in selectors
+        if name in definitions and not is_sensitive(definitions[name])
+    )
+    result = {
+        "parameterization_evidence": parameterization_evidence(definition),
+        "write_access": "not_verified",
+        "applicability": "not_assessed",
+        "storage_action": "not_verified",
+    }
+    if definition.excluded:
+        result["write_access_reason"] = definition.excluded
+    elif "Blob" in metadata.get("type_chain", ()):
+        result["write_access_reason"] = "packed_storage_contract_unverified"
+    elif compound:
+        result["write_access_reason"] = "compound_target_unverified"
+        if parent and not is_sensitive(parent):
+            result["compound_target"] = compound
+    elif selectors:
+        result["write_access_reason"] = "selector_contract_unverified"
+    elif metadata.get("allow_parameterization") == "true":
+        result["write_access_reason"] = "explicit_hint_requires_contract"
+    elif definition.storage in ("volatile", "persistent"):
+        result["write_access_reason"] = "storage_not_write_permission"
+    elif metadata.get("unresolved_base") or not metadata.get("type_chain"):
+        result["write_access_reason"] = "type_unverified"
+    else:
+        result["write_access_reason"] = "no_verified_configuration_contract"
+    if dependencies:
+        result["selector_dependencies"] = dependencies
+    if len(dependencies) != len(selectors):
+        result["selector_evidence_incomplete"] = True
+    if metadata.get("menu_refs"):
+        result["menu_evidence"] = (
+            "conditional"
+            if any(
+                any(key in ref for key in ("mask", "maskVal", "extraRef"))
+                for ref in metadata["menu_refs"]
+            )
+            else "menu_reference"
+        )
+    return result
+
+
+# Ordinal interpretation is corroborated for these controller selectors by
+# the MIT BaseConfigurationOptimizer and the exact BX Plus 2.08 archive.
+# In particular, AktorFunktion is NOT in this list: the live reference values
+# may contain encoded function identities rather than plain enum ordinals.
+ORDINAL_TYPES = frozenset(
+    (
+        "Anlage_WfX_Type",
+        "Solar_WfX_Type",
+        "Heizung_WfX_Type",
+        "Heizung_HeizkreisX_Type",
+        "WmzX_Type",
+        "ActivityMode",
+        "Heizung_HeizkreisX_Heizsystem",
+        "VtTemperatureHysteresisSelector",
+        "VtFlowSelector",
+        "VtPressureSelector",
+        "VtEnergySelector",
+        "Wmz_WmzX_Struct_Vt{0}_AlternativAnzeigeEinheit",
+    )
+)
+
+
+# Identify native slot selectors from exact catalogue semantics. Slot counts
+# are discovered from definitions, never copied from an installation.
+FUNCTION_SELECTOR_TYPES = {
+    "Anlage_WfX_Type": "arrangement",
+    "Solar_WfX_Type": "solar_optional",
+    "Heizung_WfX_Type": "heating_optional",
+    "Heizung_HeizkreisX_Type": "heating_circuit",
+    "WmzX_Type": "heat_meter",
+}
+
+
+def function_selector(definition):
+    """Return the firmware-native slot ID and family, not a physical device."""
+    if definition.excluded or is_sensitive(definition):
+        return None
+    match = re.fullmatch(r"(.+?)([1-9][0-9]*)_Type", definition.name)
+    families = {
+        FUNCTION_SELECTOR_TYPES[t]
+        for t in definition.metadata.get("type_chain", ())
+        if t in FUNCTION_SELECTOR_TYPES
+    }
+    if not match or len(families) != 1 or not ordinal_options(definition):
+        return None
+    return match[1] + match[2], int(match[2]), families.pop()
+
+
+def ordinal_options(definition):
+    """Exact reference ordinals for corroborated selector types only."""
+    metadata = definition.metadata
+    if not ORDINAL_TYPES.intersection(metadata.get("type_chain", ())):
+        return {}
+    options = metadata.get("value_text", ())
+    if (
+        metadata.get("unresolved_base")
+        or not options
+        or any(item.get("value") is not None for item in options)
+    ):
+        return {}
+    labels = [item.get("id") or item.get("label") for item in options]
+    if not all(labels) or len(set(labels)) != len(labels):
+        return {}
+    return dict(enumerate(labels))
+
+
+def _known_display_scaling(chain, factor, display):
+    return display == factor or (
+        factor == Decimal("0.1")
+        and display == 1
+        and bool(
+            {
+                "TemperatureCelsius",
+                "TemperatureFahrenheit",
+                "HysteresisKelvinShort",
+                "HysteresisRankineShort",
+            }.intersection(chain)
+        )
+    )
+
+
 def decoded_value(definition, raw):
     """Decode verified numeric scaling, booleans and enum mappings."""
     chain = definition.metadata.get("type_chain", [])
-    if raw is None:
+    if type(raw) is not int:
         return None
     if "Boolean" in chain:
         return bool(raw) if raw in (0, 1) else None
     if "Handbetrieb" in chain:
         return {0: "Off", 1: "Min", 2: "Auto", 3: "Max", 4: "On"}.get(raw)
     if "Number" not in chain:
-        return explicit_options(definition).get(raw)
+        explicit = explicit_options(definition)
+        return (explicit or ordinal_options(definition)).get(raw)
     factor = _number(definition.metadata.get("storeFactor", "1"))
     if factor is None or factor <= 0:
         return None
@@ -380,17 +559,22 @@ def decoded_value(definition, raw):
         if item.get("label") == "-" and _number(item.get("value")) == value:
             return None
     display = _number(definition.metadata.get("displayFactor", str(factor)))
-    # The displayed unit is not established when the factors differ.
-    if display != factor:
+    # For corroborated temperature-short types the storage factor is the
+    # wire-to-engineering conversion; displayFactor only affects display.
+    # Keep unrelated or unknown factor differences undecoded.
+    if not _known_display_scaling(chain, factor, display):
         return None
     return int(value) if value == value.to_integral_value() else float(value)
 
 
-def encode_numeric_value(definition, value):
-    """Validate exact static bounds, step and signed wire encoding.
+def numeric_encoding(definition):
+    """Return established static numeric bounds, increment and wire factor.
 
-    This is conversion only, not permission to write. Conditional constraints,
-    active function, current mapping and storage still require separate proof.
+    The RPT quant field supplies a plain engineering-unit increment when
+    no alternate quant step expression exists. A valueText sentinel is
+    measurement absence, not an enumerated choice. This function establishes
+    encoding only; applicability, permission, storage and dynamic bounds
+    are separate requirements.
     """
     metadata = definition.metadata
     chain = metadata.get("type_chain", [])
@@ -400,27 +584,51 @@ def encode_numeric_value(definition, value):
         or "Number" not in chain
         or "Boolean" in chain
         or "Handbetrieb" in chain
-        or metadata.get("value_text")
         or metadata.get("unresolved_base")
-        or isinstance(value, bool)
+        or any(
+            item.get("label") != "-" or _number(item.get("value")) is None
+            for item in metadata.get("value_text", ())
+        )
+        or metadata.get("quant_step") is not None
     ):
         raise CatalogError("Numeric encoding not established")
     factor = _number(metadata.get("storeFactor", "1"))
+    display = _number(metadata.get("displayFactor", str(factor)))
     minimum = _number(metadata.get("minimum"))
     maximum = _number(metadata.get("maximum"))
-    step = _number(metadata.get("step"))
-    number = _number(str(value))
+    step = _number(metadata.get("step", metadata.get("quant")))
     if (
-        number is None
-        or factor is None
+        factor is None
         or factor <= 0
+        or not _known_display_scaling(chain, factor, display)
         or minimum is None
         or maximum is None
         or step is None
         or step <= 0
         or minimum > maximum
+        or any(number % factor for number in (minimum, maximum, step))
     ):
         raise CatalogError("Numeric bounds or step not established")
+    return minimum, maximum, step, factor
+
+
+def encode_numeric_value(definition, value):
+    """Validate exact static bounds, step and signed wire encoding.
+
+    This is conversion only, not permission to write. Conditional constraints,
+    active function, current mapping and storage still require separate proof.
+    """
+    if isinstance(value, bool):
+        raise CatalogError("Numeric encoding not established")
+    minimum, maximum, step, factor = numeric_encoding(definition)
+    number = _number(str(value))
+    if number is None:
+        raise CatalogError("Invalid numeric value")
+    if any(
+        _number(item.get("value")) == number
+        for item in definition.metadata.get("value_text", ())
+    ):
+        raise CatalogError("Numeric sentinel is not an adjustable value")
     if not minimum <= number <= maximum:
         raise CatalogError("Value outside parameter range")
     if (number - minimum) % step:

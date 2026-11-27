@@ -32,6 +32,70 @@ class VBusTests(unittest.TestCase):
         self.assertEqual(packet.encode(), raw)
         self.assertEqual(vbus.Datagram.decode(raw), packet)
 
+    def test_read_subindex_correlates_word_and_refusal(self):
+        conn = Mock()
+        conn.recv.return_value = (
+            response(0x0100, 18419, 17)
+            + response(0x0101, 18420, 18)
+            + response(0x0101, 18419, -1)
+            + response(0x4302, 18419)
+        )
+        session = vbus.VBusSession(conn)
+        self.assertEqual(session.read(ADDRESS, 18419, subindex=1), -1)
+        with self.assertRaises(vbus.VBusReadRefused):
+            session.read(ADDRESS, 18419, subindex=2)
+        for invalid in (-1, 128, True, 1.5):
+            with self.assertRaises(vbus.VBusError):
+                session.read(ADDRESS, 18419, subindex=invalid)
+        sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+        self.assertEqual([p.command for p in sent], [0x0301, 0x0302])
+        self.assertEqual([p.index for p in sent], [18419, 18419])
+
+    def test_packed_words_require_live_allocation_and_keep_refusal(self):
+        names = {"Day": 10, "Allocated": 11, "Initialized": 12}
+        for allocated, first_refused in ((0, False), (1, False), (1, True)):
+            conn = Mock()
+            conn.recv.return_value = b"".join(
+                (
+                    *(
+                        response(0x0100, i, vbus.parameter_hash(n))
+                        for n, i in names.items()
+                    ),
+                    response(0x0100, 0, 123),
+                    response(0x0100, 10, 1),
+                    response(0x0100, 11, allocated),
+                    response(0x0100, 12, 1),
+                    *(
+                        (
+                            (response(0x4301, 10), response(0x0102, 10, 0))
+                            if first_refused
+                            else (response(0x0101, 10, -1), response(0x4302, 10))
+                        )
+                        if allocated
+                        else ()
+                    ),
+                    response(0x0100, 0, 123),
+                )
+            )
+            result = vbus.VBusSession(conn).read_parameter_observations(
+                ADDRESS,
+                names,
+                123,
+                expected=names,
+                packed={"Day": {"Allocated": 11, "Initialized": 12}},
+            )
+            expected_words = (1, None, 0) if first_refused else (1, -1, None)
+            self.assertEqual(
+                result["Day"].packed_words, expected_words if allocated else ()
+            )
+            sent = [
+                vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list
+            ]
+            self.assertEqual(
+                [p.command for p in sent if p.command in (0x0301, 0x0302)],
+                [0x0301, 0x0302] if allocated else [],
+            )
+
     def test_corrupt_frame_rejected(self):
         raw = bytearray(response(0x0100, 1321, 2))
         raw[-1] ^= 1

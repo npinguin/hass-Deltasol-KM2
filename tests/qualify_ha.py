@@ -31,6 +31,47 @@ SELECT_UID = "isolated-gateway_7112_R4_mode"
 EM_UID = "isolated-gateway_7112_M1_R1_mode"
 EM_RELAY = 2173
 EM_SENSOR_UID = "00_7112_6651_0100__000_4_0"
+HQM_SENSOR_UID = "00_0010_7131_0100__004_4_0"
+
+# Independent wire fixtures: exact 2.08 reference positions, not imported
+# production Setting objects. Persistent state belongs to the protocol peer.
+CONFIG_SELECTORS = {
+    "Anlage_Wf1_Type": (6559, 2),
+    "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
+    "Anlage_Wf2_Type": (6810, 6),
+    "Anlage_Wf2_Aktiviert_Modus": (6817, 1),
+    "Heizung_Heizkreis1_Type": (13684, 1),
+    "Heizung_Heizkreis1_Aktiviert_Modus": (13689, 1),
+    "Heizung_Heizkreis1_Heizsystem": (13978, 1),
+    "Wmz1_Type": (17260, 1),
+    "Wmz1_Aktiviert_Modus": (17263, 1),
+    "Relais_Modul1_R1_AktorFunktion": (2167, 2),
+}
+CONFIG_SETTINGS = {
+    "Anlage_Wf1_Mischer_dtIntervall": (6625, 4, 1, 20),
+    "Heizung_Heizkreis1_Heizkurve": (13698, 12, 3, 30),
+    "Wmz1_OAlternativAnzeige": (17273, 0, 0, 1),
+    "Wmz1_AlternativAnzeigeEinheit": (17274, 0, 0, 3),
+    "Wmz1_AlternativAnzeigeFaktor": (17275, 5000000, 1, 1000000000),
+    "Relais_Modul1_R1_MinDrehzahl": (2170, 30, 20, 100),
+    "Relais_Modul1_R1_MaxDrehzahl": (2171, 80, 20, 100),
+    "Anlage_Wf2_Feststoffkessel_dTEin": (6914, 50, 20, 300),
+    "Anlage_Wf2_Feststoffkessel_dTAus": (6917, 30, 10, 290),
+    "Anlage_Wf2_Feststoffkessel_dTSoll": (6920, 100, 30, 400),
+}
+# This peer deliberately models the selected-unit parent contract. It is
+# independent software evidence, not a physical observation of this encoding.
+COMPOUND_NAMES = (
+    "Anlage_Wf2_Feststoffkessel_dTEin",
+    "Anlage_Wf2_Feststoffkessel_dTAus",
+    "Anlage_Wf2_Feststoffkessel_dTSoll",
+)
+COMPOUND_ALIASES = {
+    name + suffix: (CONFIG_SETTINGS[name][0] + delta, CONFIG_SETTINGS[name][0], factor)
+    for name in COMPOUND_NAMES
+    for suffix, delta, factor in (("_K", 1, 1), ("_R", 2, 2))
+}
+COMPOUND_PARENTS = {CONFIG_SETTINGS[name][0] for name in COMPOUND_NAMES}
 
 
 class Peer:
@@ -43,7 +84,14 @@ class Peer:
     deny = False
     writes = 0
     saves = 0
-    settings: ClassVar[dict[int, int]] = {56: 1, 60: 0, 61: 0, 62: 0, 63: 0}
+    settings: ClassVar[dict[int, int]] = {
+        56: 1,
+        60: 0,
+        61: 0,
+        62: 0,
+        63: 0,
+        **{index: value for index, value, _, _ in CONFIG_SETTINGS.values()},
+    }
     persistent_file = None
     drop_discovery_response = False
     drop_relay_response = False
@@ -96,6 +144,16 @@ def additional_relays():
             )
             Peer.extra_values[index] = 2
             Peer.extra_values[index - 4] = number % 2
+
+
+def additional_configuration():
+    for name, (index, value) in CONFIG_SELECTORS.items():
+        Peer.extra_lookups[semantic_hash(name)] = index
+        Peer.extra_values[index] = value
+    for name, (index, _, _, _) in CONFIG_SETTINGS.items():
+        Peer.extra_lookups[semantic_hash(name)] = index
+    for name, (index, _, _) in COMPOUND_ALIASES.items():
+        Peer.extra_lookups[semantic_hash(name)] = index
 
 
 def datagram(destination, source, command, index=0, value=0):
@@ -186,6 +244,14 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     2169: 1,
                     **Peer.settings,
                     **Peer.extra_values,
+                    **{
+                        parent: Peer.settings[parent] * (1 + Peer.settings[60])
+                        for parent in COMPOUND_PARENTS
+                    },
+                    **{
+                        alias: Peer.settings[parent] * factor
+                        for alias, parent, factor in COMPOUND_ALIASES.values()
+                    },
                 }[index]
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0200:
@@ -200,8 +266,37 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 Peer.events.append("relay_write")
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0400:
-                assert index in Peer.settings and value in (0, 1)
-                Peer.settings[index] = value
+                assert index in Peer.settings
+                bounds = {
+                    idx: (low, high) for idx, _, low, high in CONFIG_SETTINGS.values()
+                }
+                low, high = bounds.get(index, (0, 1))
+                stored_value = value
+                if index in COMPOUND_PARENTS:
+                    factor = 1 + Peer.settings[60]
+                    assert value % factor == 0
+                    stored_value = value // factor
+                    assert stored_value % 10 == 0
+                    proposed = {
+                        parent: stored_value
+                        if parent == index
+                        else Peer.settings[parent]
+                        for parent in COMPOUND_PARENTS
+                    }
+                    assert proposed[6917] < proposed[6914] < proposed[6920]
+                assert low <= stored_value <= high
+                # Peer independently verifies installed program constraints.
+                if index in (2170, 2171):
+                    assert Peer.em_present and Peer.em_mode == 2
+                    assert Peer.extra_values[2167] == 2
+                    assert (
+                        value <= Peer.settings[2171]
+                        if index == 2170
+                        else value >= Peer.settings[2170]
+                    )
+                if index in (17274, 17275):
+                    assert Peer.settings[17273] == 1
+                Peer.settings[index] = stored_value
                 Peer.saves += 1
                 Peer.events.append("save")
                 temporary = Peer.persistent_file.with_suffix(".tmp")
@@ -277,6 +372,18 @@ class HttpHandler(BaseHTTPRequestHandler):
                     }
                 ],
             }
+            result["headers"].append(
+                {
+                    "id": "00_0010_7131_0100",
+                    "description": "HQM #1",
+                    "destination_name": "Broadcast",
+                    "source_name": "DeltaSol BX Plus [HQM #1]",
+                    "fields": [{"id": "004_4_0", "name": "Power", "unit": "W"}],
+                }
+            )
+            result["headersets"][0]["packets"].append(
+                {"field_values": [{"raw_value": 1000.0}]}
+            )
             if Peer.em_present:
                 result["headers"].append(
                     {
@@ -366,6 +473,9 @@ async def qualify(directory, phase):
         em_sensor = registry.async_get_entity_id("sensor", "deltasol", EM_SENSOR_UID)
         assert em_sensor and float(hass.states.get(em_sensor).state) == 30
         identity["em_sensor"] = em_sensor
+        hqm_sensor = registry.async_get_entity_id("sensor", "deltasol", HQM_SENSOR_UID)
+        assert hqm_sensor and float(hass.states.get(hqm_sensor).state) == 1000
+        identity["hqm_sensor"] = hqm_sensor
         em = registry.async_get_entity_id("select", "deltasol", EM_UID)
         assert em and hass.states.get(em).state == "Auto"
         identity["em_select"] = em
@@ -508,6 +618,27 @@ async def qualify(directory, phase):
                 Definition("Bedienercode", 55, "unspecified", "Number", {}),
             ),
         )
+        config_fixture = Catalog(
+            "isolated-full-configuration",
+            (
+                *fixture.definitions,
+                *(
+                    Definition(name, index, "unspecified", None, {})
+                    for name, (index, _) in CONFIG_SELECTORS.items()
+                ),
+                *(
+                    Definition(name, index, "unspecified", None, {})
+                    for name, (index, _, _, _) in CONFIG_SETTINGS.items()
+                ),
+                *(
+                    Definition(name, index, "unspecified", None, {})
+                    for name, (index, _, _) in COMPOUND_ALIASES.items()
+                ),
+            ),
+        )
+        expected_config_count = (
+            3 + len(CONFIG_SELECTORS) + len(CONFIG_SETTINGS) + len(COMPOUND_ALIASES)
+        )
         button = registry.async_get_entity_id(
             "button", "deltasol", f"{entry.entry_id}_configuration_discovery"
         )
@@ -528,7 +659,10 @@ async def qualify(directory, phase):
         for entity_id in (button, progress, percent):
             assert registry.async_get(entity_id).entity_category == "diagnostic"
         assert diagnostic["configuration_discovery"]["status"] == "not_started"
-        with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+        with patch(
+            "custom_components.deltasol.load_catalog",
+            return_value=config_fixture if phase == "restart" else fixture,
+        ):
             if phase == "restart":
                 # The independent peer's small catalogue is injected in the test
                 # only; the real pinned archive is verified by the source gate.
@@ -543,11 +677,30 @@ async def qualify(directory, phase):
                 assert resumed.offset >= marker["offset"]
                 if entry.runtime_data.capture_task:
                     await entry.runtime_data.capture_task
-                assert resumed.status == "complete" and resumed.offset == 3
+                assert resumed.status == "complete"
+                assert resumed.offset == expected_config_count
                 assert float(hass.states.get(percent).state) == 100
                 assert Peer.writes == 0
                 assert Peer.saves == 0
                 assert Peer.settings[60] == 1 and Peer.settings[56] == 0
+                await entry.runtime_data.relay_coordinator.async_refresh()
+                await hass.async_block_till_done()
+                for name, kind, value in (
+                    ("Anlage_Wf1_Mischer_dtIntervall", "number", 5),
+                    ("Heizung_Heizkreis1_Heizkurve", "number", 1.5),
+                    ("Wmz1_OAlternativAnzeige", "switch", "on"),
+                    ("Wmz1_AlternativAnzeigeEinheit", "select", "Gas"),
+                    ("Wmz1_AlternativAnzeigeFaktor", "number", 0.5000001),
+                    ("Relais_Modul1_R1_MinDrehzahl", "number", 40),
+                    ("Relais_Modul1_R1_MaxDrehzahl", "number", 70),
+                    ("Anlage_Wf2_Feststoffkessel_dTEin", "number", 14),
+                ):
+                    entity = registry.async_get_entity_id(
+                        kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
+                    )
+                    assert entity
+                    observed = hass.states.get(entity).state
+                    assert (float(observed) if kind == "number" else observed) == value
                 assert hass.states.get(display).state == "°F"
                 assert hass.states.get(daylight).state == "off"
                 assert em == json.loads(
@@ -909,10 +1062,110 @@ async def qualify(directory, phase):
         assert Peer.writes == writes_before + 1
         assert Peer.saves == 4
 
+        # Discover the actual installed-function selectors through TCP, not
+        # direct runtime injection. Then operate native Number/Select/Switch
+        # entities and check both wire persistence and HA observations.
+        with patch(
+            "custom_components.deltasol.load_catalog", return_value=config_fixture
+        ):
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            await entry.runtime_data.capture_task
+            assert entry.runtime_data.capture.offset == expected_config_count
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        await hass.async_block_till_done()
+
+        def entity(name, kind):
+            return registry.async_get_entity_id(
+                kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
+            )
+
+        async def number(name, value):
+            target = entity(name, "number")
+            assert target
+            await hass.services.async_call(
+                "number",
+                "set_value",
+                {"entity_id": target, "value": value},
+                blocking=True,
+            )
+            assert float(hass.states.get(target).state) == value
+
+        await number("Anlage_Wf1_Mischer_dtIntervall", 5)
+        mixer_device = registry.async_get(
+            entity("Anlage_Wf1_Mischer_dtIntervall", "number")
+        ).device_id
+        assert mixer_device != registry.async_get(sensor).device_id
+        from homeassistant.helpers import device_registry as dr
+
+        mixer = dr.async_get(hass).async_get(mixer_device)
+        assert mixer.via_device_id == registry.async_get(sensor).device_id
+        assert mixer.name == "RESOL Arrangement function 1"
+        await number("Heizung_Heizkreis1_Heizkurve", 1.5)
+        alternative = entity("Wmz1_OAlternativAnzeige", "switch")
+        assert alternative and hass.states.get(alternative).state == "off"
+        assert (
+            registry.async_get(alternative).device_id
+            == registry.async_get(hqm_sensor).device_id
+        )
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": alternative}, blocking=True
+        )
+        await hass.async_block_till_done()
+        assert hass.states.get(alternative).state == "on"
+        await set_mode(entity("Wmz1_AlternativAnzeigeEinheit", "select"), "Gas")
+        await number("Wmz1_AlternativAnzeigeFaktor", 0.5000001)
+        await number("Relais_Modul1_R1_MinDrehzahl", 40)
+        await number("Relais_Modul1_R1_MaxDrehzahl", 70)
+        assert Peer.saves == 11
+        await number("Relais_Modul1_R1_MinDrehzahl", 40)
+        assert Peer.saves == 11
+        try:
+            await number("Relais_Modul1_R1_MinDrehzahl", 71)
+        except HomeAssistantError:
+            pass
+        else:
+            raise AssertionError("Invalid pump pair accepted")
+        assert Peer.saves == 11 and Peer.settings[2170] == 40
+        pump = entity("Relais_Modul1_R1_MinDrehzahl", "number")
+        assert (
+            registry.async_get(pump).device_id
+            == registry.async_get(em_sensor).device_id
+        )
+        await set_mode(em, "Off")
+        assert hass.states.get(pump).state == "unavailable"
+        await set_mode(em, "Auto")
+        assert float(hass.states.get(pump).state) == 40
+        assert Peer.saves == 11
+        assert float(hass.states.get(sensor).state) == 42
+
+        # The native Number remains the same entity as the active display
+        # unit changes. Write the parent only and verify reconnect/persistence.
+        name = COMPOUND_NAMES[0]
+        compound = entity(name, "number")
+        assert compound
+        assert float(hass.states.get(compound).state) == 10
+        await number(name, 12)
+        assert Peer.settings[6914] == 60 and Peer.saves == 12
+        await set_mode(display, "°C")
+        assert entity(name, "number") == compound
+        assert float(hass.states.get(compound).state) == 6
+        assert hass.states.get(compound).attributes["unit_of_measurement"] == "K"
+        await number(name, 7)
+        assert Peer.settings[6914] == 70 and Peer.saves == 14
+        await set_mode(display, "°F")
+        assert entity(name, "number") == compound
+        assert float(hass.states.get(compound).state) == 14
+        assert hass.states.get(compound).attributes["unit_of_measurement"] == "°R"
+        assert Peer.saves == 15
+
         # Stop the actual HA process with an incomplete active capture. The
         # following restart phase must restore the same committed checkpoint.
         with (
-            patch("custom_components.deltasol.load_catalog", return_value=fixture),
+            patch(
+                "custom_components.deltasol.load_catalog", return_value=config_fixture
+            ),
             patch("custom_components.deltasol.discovery.BATCH_SIZE", 1),
             patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 3),
         ):
@@ -937,7 +1190,7 @@ async def qualify(directory, phase):
         )["data"]
         assert checkpoint["resume"] is True
         assert checkpoint["capture"]["started_at"] == marker["started_at"]
-        assert 1 <= checkpoint["capture"]["offset"] < 3
+        assert 1 <= checkpoint["capture"]["offset"] < expected_config_count
     finally:
         if not stopped:
             await hass.async_stop(force=True)
@@ -947,6 +1200,7 @@ def main():
     directory = Path(sys.argv[1])
     phase = sys.argv[2]
     additional_relays()
+    additional_configuration()
     Peer.persistent_file = directory / "qualification-peer-settings.json"
     if Peer.persistent_file.exists():
         Peer.settings = {

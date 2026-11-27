@@ -16,11 +16,30 @@ class ConfigurationNumber(ConfigurationEntity, NumberEntity):
 
     def __init__(self, coordinator, capability):
         super().__init__(coordinator, capability)
-        minimum, maximum, step, _ = self.setting.limits
-        self._attr_native_min_value = float(minimum)
-        self._attr_native_max_value = float(maximum)
-        self._attr_native_step = float(step)
-        self._attr_native_unit_of_measurement = self.setting.unit
+        # Compound controls keep one entity ID when the native display unit
+        # changes. Use the currently verified capability's bounds and unit.
+        # While unavailable, retain the last registered metadata only.
+
+    @property
+    def _native_setting(self):
+        capability = self.capability
+        return capability.setting if capability else self.setting
+
+    @property
+    def native_min_value(self):
+        return float(self._native_setting.limits[0])
+
+    @property
+    def native_max_value(self):
+        return float(self._native_setting.limits[1])
+
+    @property
+    def native_step(self):
+        return float(self._native_setting.limits[2])
+
+    @property
+    def native_unit_of_measurement(self):
+        return self._native_setting.unit
 
     @property
     def native_value(self):

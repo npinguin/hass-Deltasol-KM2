@@ -11,6 +11,7 @@ import unittest
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -226,6 +227,447 @@ class DiscoveryTests(unittest.TestCase):
             definition = catalog.Definition("Setting", 1, storage, None, metadata)
             self.assertEqual(catalog.parameterization_evidence(definition), expected)
 
+    def test_compound_parent_reads_extend_legacy_checkpoint(self):
+        name = "Setpoint"
+        child = "Setpoint_K"
+        selector = "TemperatureHysteresisSelector"
+        xml = f"""
+        <root>
+          <type id="HysteresisProxy" selectorValueRef="{selector}"/>
+          <value id="{selector}" index="60" idHash="{vbus.parameter_hash(selector)}"/>
+          <value id="{name}" index="100" storage="abstract"
+                 idHash="{vbus.parameter_hash(name)}">
+            <type id="Proxy" base="HysteresisProxy"/>
+          </value>
+          <value id="{child}" index="101" compoundValueRef="{name}"
+                 idHash="{vbus.parameter_hash(child)}"/>
+          <value id="Unverified" index="200" storage="abstract" idHash="0">
+            <type id="UnverifiedProxy" base="HysteresisProxy"/>
+          </value>
+          <value id="Unverified_K" index="201" compoundValueRef="Unverified"
+                 idHash="{vbus.parameter_hash("Unverified_K")}"/>
+        </root>""".encode()
+        parsed = catalog.parse_menu(xml, "test")
+        controller = SimpleNamespace(
+            address=0x7112, channel=0, source="BX", serial="test"
+        )
+        capture = discovery.ConfigurationCapture(parsed, controller)
+        self.assertEqual(capture.candidates[-1].name, name)
+        self.assertNotIn("Unverified", [d.name for d in capture.candidates])
+        legacy = capture.base_candidates
+        capture.apply(
+            legacy,
+            {d.name: vbus.ParameterObservation(d.index, 1, "read") for d in legacy},
+        )
+        stored = capture.checkpoint()
+        stored["status"] = "complete"
+        stored["finished_at"] = stored["started_at"]
+        restored = discovery.ConfigurationCapture.restore(
+            stored, parsed, controller, capture.changeset
+        )
+        self.assertEqual(restored.status, "paused")
+        self.assertEqual(restored.offset, len(legacy))
+        self.assertEqual(restored.results, capture.results)
+        self.assertEqual([d.name for d in restored.next_batch()], [name])
+        restored.apply(
+            restored.next_batch(), {name: vbus.ParameterObservation(100, 65, "read")}
+        )
+        self.assertEqual(restored.status, "complete")
+        compatible = restored.storage_checkpoint()
+        self.assertEqual(compatible["status"], "complete")
+        self.assertEqual(compatible["offset"], len(legacy))
+        self.assertEqual(len(compatible["observations"]), len(legacy))
+        self.assertEqual(
+            compatible["extension"]["observations"], [[name, 100, 65, "read"]]
+        )
+        roundtrip = discovery.ConfigurationCapture.restore(
+            compatible, parsed, controller, capture.changeset
+        )
+        self.assertEqual(roundtrip.status, "complete")
+        self.assertEqual(roundtrip.results, restored.results)
+        # The legacy prefix is independently valid and resumable after rollback.
+        legacy_only = {k: v for k, v in compatible.items() if k != "extension"}
+        resumed = discovery.ConfigurationCapture.restore(
+            legacy_only, parsed, controller, capture.changeset
+        )
+        self.assertEqual(resumed.status, "paused")
+        self.assertEqual(resumed.offset, len(legacy))
+        row = restored.export(True)["parameters"][name]
+        self.assertEqual(row["status"], "read")
+        self.assertEqual(row["raw_value"], 65)
+        self.assertEqual(row["write_access"], "not_verified")
+        self.assertEqual(row["write_access_reason"], "compound_parent_write_unverified")
+
+    def test_configuration_evidence_preserves_compound_and_selector_boundary(self):
+        selector = catalog.Definition("Unit", 60, "unspecified", "Enum", {})
+        parent = catalog.Definition(
+            "Setpoint",
+            100,
+            "abstract",
+            "Temperature",
+            {"selector_ref": "Unit"},
+            "non_value_definition",
+        )
+        child = catalog.Definition(
+            "Setpoint_C",
+            101,
+            "unspecified",
+            "Number",
+            {"compound_ref": "Setpoint", "type_chain": ["Number"]},
+        )
+        definitions = {d.name: d for d in (selector, parent, child)}
+        evidence = catalog.configuration_evidence(child, definitions)
+        self.assertEqual(evidence["write_access"], "not_verified")
+        self.assertEqual(evidence["write_access_reason"], "compound_target_unverified")
+        self.assertEqual(evidence["compound_target"], "Setpoint")
+        self.assertEqual(evidence["selector_dependencies"], ("Unit",))
+        self.assertEqual(evidence["storage_action"], "not_verified")
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", tuple(definitions.values())),
+            SimpleNamespace(address=0x7112),
+        )
+        row = capture.export(True)["parameters"]["Setpoint_C"]
+        self.assertEqual(row["write_access_reason"], "compound_target_unverified")
+        self.assertEqual(row["status"], "not_scanned")
+
+    def test_rpt_decimal_comma_quant_and_numeric_sentinels(self):
+        definition = catalog.Definition(
+            "Differential_K",
+            123,
+            "unspecified",
+            "Temperature",
+            {
+                "type_chain": ["Temperature", "Number"],
+                "minimum": "1,0",
+                "maximum": "20,0",
+                "quant": "0,5",
+                "storeFactor": "0.1",
+                "displayFactor": "0.1",
+                "value_text": [{"value": "999.9", "label": "-"}],
+            },
+        )
+        self.assertEqual(catalog.encode_numeric_value(definition, 6.5), 65)
+        for value in (6.1, 999.9, 0.5, 20.5, True):
+            with self.subTest(value=value), self.assertRaises(catalog.CatalogError):
+                catalog.encode_numeric_value(definition, value)
+        definition.metadata["quant_step"] = "alternate"
+        with self.assertRaises(catalog.CatalogError):
+            catalog.encode_numeric_value(definition, 6.5)
+
+    def test_native_function_inventory_and_known_wire_decoding(self):
+        def definition(name, index, base, labels=()):
+            return catalog.Definition(
+                name,
+                index,
+                "unspecified",
+                base,
+                {
+                    "type_chain": [base],
+                    "value_text": [
+                        {"value": None, "id": label, "label": label} for label in labels
+                    ],
+                },
+            )
+
+        rows = (
+            definition("Anlage_Wf1_Type", 10, "Anlage_WfX_Type", ("Frei", "Mixer")),
+            definition("Anlage_Wf1_Aktiviert_Modus", 11, "ActivityMode"),
+            definition("Anlage_Wf1_Relais1_Nr", 12, "AktorNr"),
+            definition("Anlage_Wf2_Type", 13, "Anlage_WfX_Type", ("Frei", "Mixer")),
+            definition("Anlage_Wf2_Relais1_Nr", 14, "AktorNr"),
+            definition("Anlage_Wf3_Type", 15, "Anlage_WfX_Type", ("Frei", "Mixer")),
+            definition(
+                "Relais_R1_AktorFunktion", 16, "AktorFunktion", ("Free", "Pump")
+            ),
+        )
+        rows[2].metadata["menu_refs"] = [{"menu": "Anlage_Wf1_Mixer"}]
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", rows), SimpleNamespace(address=0x7112)
+        )
+        capture.results = {
+            d.name: vbus.ParameterObservation(d.index, raw, "read")
+            for d, raw in zip(rows, (1, 2, 4, 0, 5, 99, 1), strict=True)
+        }
+        inventory = capture.native_functions()["functions"]
+        self.assertEqual(inventory["Anlage_Wf1"]["type"], "Mixer")
+        self.assertEqual(inventory["Anlage_Wf1"]["activity_mode"], "switch_controlled")
+        self.assertEqual(
+            inventory["Anlage_Wf1"]["assignments"]["Anlage_Wf1_Relais1_Nr"],
+            {
+                "reference": 4,
+                "reference_type": "AktorNr",
+                "applicability": "selected_function_reference",
+            },
+        )
+        self.assertEqual(inventory["Anlage_Wf2"]["status"], "unused")
+        self.assertEqual(inventory["Anlage_Wf2"]["assignments"], {})
+        self.assertEqual(inventory["Anlage_Wf3"]["status"], "unknown")
+        export = capture.export(True)["parameters"]
+        self.assertEqual(
+            export["Anlage_Wf1_Relais1_Nr"]["applicability"],
+            "selected_function_reference",
+        )
+        self.assertEqual(
+            export["Anlage_Wf2_Relais1_Nr"]["applicability"], "function_unused"
+        )
+        self.assertEqual(
+            capture.export(False)["parameters"]["Anlage_Wf1_Relais1_Nr"][
+                "applicability"
+            ],
+            "stale",
+        )
+        self.assertIsNone(catalog.decoded_value(rows[-1], 1))
+        self.assertEqual(catalog.decoded_value(rows[0], 1), "Mixer")
+        temp = catalog.Definition(
+            "Target_C",
+            20,
+            "unspecified",
+            "TemperatureCelsius",
+            {
+                "type_chain": ["TemperatureCelsius", "Temperature", "Number"],
+                "storeFactor": "0.1",
+                "displayFactor": "1.0",
+                "unit": "°C",
+            },
+        )
+        self.assertEqual(catalog.decoded_value(temp, 600), 60)
+        # Read semantics do not enable writing an unverified parent/child.
+        with self.assertRaises(catalog.CatalogError):
+            catalog.encode_numeric_value(temp, 60)
+
+    def test_weekly_program_evidence_never_invents_schedule_payload(self):
+        blob = catalog.Definition(
+            "Wsu23_Schaltuhr_Woche_TagMo_Daten",
+            10,
+            "unspecified",
+            "Blob",
+            {"type_chain": ["Blob"]},
+        )
+        reference = catalog.Definition(
+            "Anlage_Wf1_SchaltuhrNr",
+            11,
+            "unspecified",
+            "WochenschaltuhrNr",
+            {"type_chain": ["WochenschaltuhrNr"]},
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", (blob, reference)),
+            SimpleNamespace(address=0x7112),
+        )
+        capture.results = {
+            blob.name: vbus.ParameterObservation(10, 0, "read"),
+            reference.name: vbus.ParameterObservation(11, 23, "read"),
+        }
+        result = capture.export(True)["weekly_programs"]
+        week = result["programs"]["Wsu23"]
+        self.assertEqual(week["schedule_status"], "unknown")
+        day = week["days"]["Mo"]
+        self.assertTrue(day["scalar_observed"])
+        self.assertFalse(day["payload_verified"])
+        self.assertEqual(result["references"][reference.name]["reference"], 23)
+        self.assertEqual(result["write_access"], "not_verified")
+        self.assertEqual(capture.export(False)["weekly_programs"]["status"], "stale")
+
+    def test_weekly_program_allocation_is_not_payload_evidence(self):
+        rows = tuple(
+            catalog.Definition(name, index, "unspecified", None, metadata)
+            for name, index, metadata in (
+                ("Wsu2_Belegt", 10, {"type_chain": ["Boolean"]}),
+                (
+                    "Wsu2_Schaltuhr_Woche_Initialisiert",
+                    11,
+                    {"type_chain": ["Boolean"]},
+                ),
+                ("Wsu2_Schaltuhr_Woche_TagMo_Daten", 12, {"type_chain": ["Blob"]}),
+            )
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", rows), SimpleNamespace(address=0x7112)
+        )
+        for allocated, initialized, status in (
+            (0, 0, "unallocated"),
+            (1, 0, "uninitialized"),
+            (1, 1, "payload_unverified"),
+            (2, 1, "unknown"),
+        ):
+            capture.results = {
+                d.name: vbus.ParameterObservation(d.index, value, "read")
+                for d, value in zip(rows, (allocated, initialized, 0), strict=True)
+            }
+            week = capture.weekly_program_evidence()["programs"]["Wsu2"]
+            self.assertEqual(week["schedule_status"], status)
+            self.assertFalse(week["days"]["Mo"]["payload_verified"])
+
+    def test_packed_day_checkpoint_preserves_scalar_compatibility(self):
+        rows = tuple(
+            catalog.Definition(name, index, "unspecified", None, {"type_chain": [kind]})
+            for name, index, kind in (
+                ("Wsu2_Belegt", 10, "Boolean"),
+                ("Wsu2_Schaltuhr_Woche_Initialisiert", 11, "Boolean"),
+                ("Wsu2_Schaltuhr_Woche_TagMo_Daten", 12, "Blob"),
+            )
+        )
+        controller = SimpleNamespace(
+            channel=0, address=0x7112, source="test", serial="test"
+        )
+        parsed = catalog.Catalog("test", rows)
+        capture = discovery.ConfigurationCapture(parsed, controller)
+        self.assertEqual(len(capture.next_batch()), 2)
+        self.assertEqual(len(capture.packed_days), 1)
+        capture.apply(
+            rows[:2],
+            {d.name: vbus.ParameterObservation(d.index, 1, "read") for d in rows[:2]},
+        )
+        day = rows[2]
+        capture.apply(
+            (day,),
+            {day.name: vbus.ParameterObservation(12, 1, "read", (1, -1, 2))},
+        )
+        stored = capture.storage_checkpoint()
+        self.assertEqual(stored["observations"][-1], [day.name, 12, 1, "read"])
+        restored = discovery.ConfigurationCapture.restore(
+            stored, parsed, controller, capture.changeset
+        )
+        self.assertEqual(restored.results[day.name].packed_words, (1, -1, 2))
+        item = restored.weekly_program_evidence()["programs"]["Wsu2"]["days"]["Mo"]
+        self.assertEqual(item["observed_words"], [1, -1, 2])
+        self.assertFalse(item["payload_verified"])
+        restored.results[day.name] = vbus.ParameterObservation(
+            12, 1, "read", (1, -1, 3)
+        )
+        changes = discovery.compare_captures(capture, restored)["changes"]
+        self.assertEqual(
+            changes[day.name]["packed_word_evidence"]["status"],
+            "observed_words_changed",
+        )
+        self.assertEqual(changes[day.name]["before_raw"], 1)
+        self.assertEqual(changes[day.name]["after_raw"], 1)
+        restored.results[day.name] = vbus.ParameterObservation(12, 1, "read")
+        changes = discovery.compare_captures(capture, restored)["changes"]
+        self.assertEqual(
+            changes[day.name]["packed_word_evidence"]["status"], "coverage_changed"
+        )
+        restored.results[day.name] = vbus.ParameterObservation(12, 2, "read")
+        changes = discovery.compare_captures(capture, restored)["changes"]
+        self.assertEqual(
+            changes[day.name]["packed_word_evidence"]["status"],
+            "observed_words_changed",
+        )
+        stored["packed_words"][day.name] = [1, None, 0]
+        restored = discovery.ConfigurationCapture.restore(
+            stored, parsed, controller, capture.changeset
+        )
+        self.assertEqual(restored.results[day.name].packed_words, (1, None, 0))
+        stored["packed_words"][day.name][0] = 2
+        with self.assertRaises(ValueError):
+            discovery.ConfigurationCapture.restore(
+                stored, parsed, controller, capture.changeset
+            )
+
+    def test_function_context_is_catalogue_driven_not_fixed_slot_count(self):
+        rows = (
+            catalog.Definition(
+                "Anlage_Wf23_Type",
+                10,
+                "unspecified",
+                "Anlage_WfX_Type",
+                {
+                    "type_chain": ["Anlage_WfX_Type"],
+                    "value_text": [
+                        {"id": name, "value": None}
+                        for name in ("Frei", "Alpha", "Beta")
+                    ],
+                },
+            ),
+            catalog.Definition(
+                "Anlage_Wf23_Beta_Target",
+                11,
+                "unspecified",
+                "Number",
+                {"menu_refs": [{"menu": "Anlage_Wf23_Beta"}]},
+            ),
+            catalog.Definition(
+                "Anlage_Wf23_Alpha_Target",
+                12,
+                "unspecified",
+                "Number",
+                {"menu_refs": [{"menu": "Anlage_Wf23_Alpha", "mask": "Enabled"}]},
+            ),
+            catalog.Definition(
+                "Anlage_Wf230_Alpha_Target", 13, "unspecified", "Number", {}
+            ),
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", rows), SimpleNamespace(address=0x7112)
+        )
+        capture.results[rows[0].name] = vbus.ParameterObservation(10, 1, "read")
+        functions, contexts = capture.function_context()
+        self.assertEqual(functions["Anlage_Wf23"]["slot"], 23)
+        self.assertEqual(contexts[rows[1].name]["applicability"], "other_function_type")
+        self.assertEqual(
+            contexts[rows[2].name]["applicability"], "conditional_unverified"
+        )
+        self.assertNotIn(rows[3].name, contexts)
+
+    def test_compound_projection_requires_exact_selector_and_parent_evidence(self):
+        parent = catalog.Definition(
+            "Target",
+            100,
+            "abstract",
+            "TemperatureProxy",
+            {"compound_parent_read_candidate": True},
+            "non_value_definition",
+        )
+        selector = catalog.Definition(
+            "TemperatureHysteresisSelector", 60, "unspecified", None, {}
+        )
+        children = tuple(
+            catalog.Definition(
+                f"Target_{suffix}",
+                index,
+                "unspecified",
+                base,
+                {
+                    "compound_ref": parent.name,
+                    "type_chain": [base, "Number"],
+                    "storeFactor": "0.1",
+                    "displayFactor": "1",
+                },
+            )
+            for suffix, index, base in (
+                ("C", 101, "TemperatureCelsius"),
+                ("F", 102, "TemperatureFahrenheit"),
+            )
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", (selector, parent, *children)),
+            SimpleNamespace(address=0x7112),
+        )
+        capture.results = {
+            selector.name: vbus.ParameterObservation(60, 0, "read"),
+            children[0].name: vbus.ParameterObservation(101, 600, "read"),
+            children[1].name: vbus.ParameterObservation(102, 1400, "read"),
+        }
+        row = capture.compound_parameters()["Target"]
+        self.assertEqual(row["value"], 60)
+        self.assertEqual(row["unit"], "°C")
+        self.assertEqual(row["evidence"], "parent_not_observed")
+        capture.results[parent.name] = vbus.ParameterObservation(100, 600, "read")
+        self.assertEqual(
+            capture.compound_parameters()["Target"]["evidence"],
+            "parent_matches_selected_child",
+        )
+        capture.results[selector.name] = vbus.ParameterObservation(60, 1, "read")
+        row = capture.compound_parameters()["Target"]
+        self.assertEqual(row["value"], 140)
+        self.assertEqual(row["unit"], "°F")
+        self.assertEqual(row["evidence"], "parent_encoding_unverified")
+        self.assertEqual(row["write_access"], "not_verified")
+        capture.results[selector.name] = vbus.ParameterObservation(60, 2, "read")
+        row = capture.compound_parameters()["Target"]
+        self.assertIsNone(row["value"])
+        self.assertEqual(row["evidence"], "selector_unknown")
+
     def test_numeric_sentinel_and_unverified_display_units(self):
         metadata = {
             "type_chain": ["Number"],
@@ -391,6 +833,218 @@ class DiscoveryTests(unittest.TestCase):
                 labels = [item["label"] for item in definition.metadata["value_text"]]
                 self.assertEqual(len(labels), len(setting.options))
                 self.assertEqual([raw for _, raw in setting.options], [0, 1])
+        # Every generated mixer slot must match the exact firmware layout,
+        # documented setting and ordinal semantics. The live Type and
+        # ActivityMode checks still gate every native action.
+        self.assertEqual(len(configuration.BX_PLUS_DIFFERENTIAL_SETTINGS), 256)
+        for setting in configuration.BX_PLUS_DIFFERENTIAL_SETTINGS:
+            parent = definitions[setting.name]
+            self.assertEqual(parent.index, setting.index)
+            self.assertEqual(parent.storage, "abstract")
+            self.assertTrue(parent.metadata["compound_parent_read_candidate"])
+            self.assertEqual(
+                parent.metadata["selector_ref"], "TemperatureHysteresisSelector"
+            )
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(selector.index, setting.installed_by.index)
+            self.assertEqual(
+                selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
+                setting.name.split("_")[2],
+            )
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            for name, _, alias, _ in setting.compound_mirrors:
+                child = definitions[alias]
+                self.assertEqual(child.metadata["compound_ref"], name)
+                if name == setting.name:
+                    self.assertEqual(
+                        catalog.numeric_encoding(child),
+                        tuple(Decimal(v) for v in setting.limits),
+                    )
+        self.assertEqual(len(configuration.BX_PLUS_HEATING_COMFORT_SETTINGS), 168)
+        for setting in configuration.BX_PLUS_HEATING_COMFORT_SETTINGS:
+            parent = definitions[setting.name]
+            self.assertEqual(parent.index, setting.index)
+            self.assertTrue(parent.metadata["compound_parent_read_candidate"])
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            for name, _, alias, _ in setting.compound_mirrors:
+                child = definitions[alias]
+                self.assertEqual(child.metadata["compound_ref"], name)
+                self.assertEqual(
+                    catalog.numeric_encoding(child),
+                    tuple(Decimal(v) for v in setting.limits),
+                )
+        self.assertEqual(len(configuration.BX_PLUS_LOADING_SETTINGS), 128)
+        for setting in configuration.BX_PLUS_LOADING_SETTINGS:
+            parent = definitions[setting.name]
+            self.assertEqual(parent.index, setting.index)
+            self.assertTrue(parent.metadata["compound_parent_read_candidate"])
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(
+                selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
+                setting.name.split("_")[2],
+            )
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            for name, _, alias, _ in setting.compound_mirrors:
+                child = definitions[alias]
+                self.assertEqual(child.metadata["compound_ref"], name)
+                limits = (
+                    setting.limits
+                    if name == setting.name
+                    else dict(setting.peer_limits)[name]
+                )
+                self.assertEqual(
+                    catalog.numeric_encoding(child),
+                    tuple(Decimal(v) for v in limits),
+                )
+        self.assertEqual(len(configuration.BX_PLUS_THERMOSTAT_SETTINGS), 128)
+        for setting in configuration.BX_PLUS_THERMOSTAT_SETTINGS:
+            parent = definitions[setting.name]
+            self.assertEqual(parent.index, setting.index)
+            self.assertTrue(parent.metadata["compound_parent_read_candidate"])
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            for name, _, alias, _ in setting.compound_mirrors:
+                self.assertEqual(definitions[alias].metadata["compound_ref"], name)
+                if name == setting.name:
+                    self.assertEqual(
+                        catalog.numeric_encoding(definitions[alias]),
+                        tuple(Decimal(v) for v in setting.limits),
+                    )
+        self.assertEqual(len(configuration.BX_PLUS_TIMING_SETTINGS), 112)
+        for setting in configuration.BX_PLUS_TIMING_SETTINGS:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertIsNone(target.excluded)
+            self.assertEqual(target.storage, "unspecified")
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            self.assertTrue(target.metadata["menu_refs"])
+            if "Time" in target.metadata["type_chain"]:
+                self.assertEqual(target.metadata["minimum"], "1:00")
+                self.assertEqual(target.metadata["maximum"], "15:00")
+                self.assertEqual(target.metadata["quant"], "00:15")
+            else:
+                self.assertEqual(
+                    Decimal(target.metadata["minimum"]), Decimal(setting.limits[0])
+                )
+                self.assertEqual(
+                    Decimal(target.metadata["maximum"]), Decimal(setting.limits[1])
+                )
+                self.assertEqual(target.metadata["unit"].strip(), setting.unit)
+        self.assertEqual(len(configuration.BX_PLUS_MIXER_SETTINGS), 16)
+        for setting in configuration.BX_PLUS_MIXER_SETTINGS:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertIsNone(target.excluded)
+            self.assertEqual(target.storage, "unspecified")
+            self.assertIn("Number", target.metadata["type_chain"])
+            self.assertEqual(target.metadata["minimum"], "1")
+            self.assertEqual(target.metadata["maximum"], "20")
+            self.assertEqual(target.metadata["unit"].strip(), "s")
+            self.assertFalse(target.metadata.get("compound_ref"))
+            self.assertFalse(target.metadata.get("selector_ref"))
+            self.assertTrue(
+                any(
+                    ref["menu"] == setting.name.removesuffix("_dtIntervall")
+                    and not ref.get("mask")
+                    for ref in target.metadata["menu_refs"]
+                )
+            )
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(selector.index, setting.installed_by.index)
+            self.assertEqual(selector.metadata["value_text"][2]["id"], "Mischer")
+            activity = definitions[setting.dependencies[0].name]
+            self.assertEqual(activity.index, setting.dependencies[0].index)
+            self.assertEqual(activity.metadata["value_text"][1]["label"], "Aktiviert")
+        self.assertEqual(len(configuration.BX_PLUS_HQM_SETTINGS), 21)
+        for setting in configuration.BX_PLUS_HQM_SETTINGS:
+            self.assertEqual(
+                setting.owner_address, 0x7130 + int(setting.name.split("_")[0][3:])
+            )
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertIsNone(target.excluded)
+            self.assertEqual(target.storage, "unspecified")
+            self.assertTrue(target.metadata["menu_refs"])
+            self.assertFalse(target.metadata.get("compound_ref"))
+            self.assertFalse(target.metadata.get("selector_ref"))
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(selector.index, setting.installed_by.index)
+            self.assertEqual(selector.metadata["value_text"][1]["id"], "Wmz")
+            for dependency in setting.dependencies:
+                self.assertEqual(definitions[dependency.name].index, dependency.index)
+            if setting.kind == "switch":
+                self.assertIn("Boolean", target.metadata["type_chain"])
+            elif setting.kind == "select":
+                self.assertEqual(
+                    [item["id"] for item in target.metadata["value_text"]],
+                    ["CO2", "Oel", "Gas", "Kohle"],
+                )
+            else:
+                self.assertEqual(target.metadata["minimum"], "0.0000001")
+                self.assertEqual(target.metadata["maximum"], "100")
+                self.assertEqual(target.metadata["storeFactor"], "0.0000001")
+                self.assertEqual(target.metadata["displayFactor"], "0.0000001")
+                self.assertEqual(target.metadata["quant"], "1")
+                self.assertEqual(setting.encode(0.5000001), 5000001)
+        self.assertEqual(len(configuration.BX_PLUS_HEATING_SETTINGS), 7)
+        for setting in configuration.BX_PLUS_HEATING_SETTINGS:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertIsNone(target.excluded)
+            self.assertEqual(target.storage, "unspecified")
+            self.assertIn("Number", target.metadata["type_chain"])
+            self.assertEqual(target.metadata["minimum"], "0.3")
+            self.assertEqual(target.metadata["maximum"], "3")
+            self.assertEqual(target.metadata["quant"], "0.1")
+            self.assertEqual(target.metadata["storeFactor"], "0.1")
+            self.assertEqual(target.metadata["displayFactor"], "0.1")
+            self.assertEqual(
+                {ref["mask"] for ref in target.metadata["menu_refs"]},
+                {
+                    setting.name.replace("Heizkurve", "Heizsystem_Kennlinie"),
+                    setting.name.replace("Heizkurve", "Heizsystem_Raumeinfluss"),
+                },
+            )
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(selector.index, setting.installed_by.index)
+            self.assertEqual(selector.metadata["value_text"][1]["id"], "Intern")
+            for dependency in setting.dependencies:
+                self.assertEqual(definitions[dependency.name].index, dependency.index)
+            modes = definitions[setting.dependencies[1].name].metadata["value_text"]
+            self.assertEqual(
+                [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
+            )
+        self.assertEqual(len(configuration.BX_PLUS_PUMP_ASSIGNMENT_SETTINGS), 480)
+        for setting in configuration.BX_PLUS_PUMP_ASSIGNMENT_SETTINGS:
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            assignment, _, relay, _ = setting.output_assignment
+            self.assertIn("AktorNr", definitions[assignment].metadata["type_chain"])
+            self.assertEqual(definitions[relay].storage, "abstract")
+            self.assertIn("RelaisNr", definitions[relay].metadata["type_chain"])
+        self.assertEqual(len(configuration.BX_PLUS_PUMP_SETTINGS), 30)
+        for setting in configuration.BX_PLUS_PUMP_SETTINGS:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertIsNone(target.excluded)
+            self.assertEqual(target.storage, "unspecified")
+            self.assertIn("Number", target.metadata["type_chain"])
+            self.assertEqual(target.metadata["minimum"], "20")
+            self.assertEqual(target.metadata["maximum"], "100")
+            self.assertEqual(target.metadata["unit"], "%")
+            self.assertFalse(target.metadata.get("compound_ref"))
+            self.assertFalse(target.metadata.get("selector_ref"))
+            role = definitions[setting.installed_by.name]
+            self.assertEqual(role.index, setting.installed_by.index)
+            for raw, semantic_id in configuration.PUMP_ROLES:
+                self.assertEqual(role.metadata["value_text"][raw]["id"], semantic_id)
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+                self.assertIsNone(definitions[name].excluded)
         self.assertEqual(definitions["Bedienercode"].excluded, "sensitive")
         self.assertEqual(
             definitions["MesseModus_BedienercodeReset"].excluded, "sensitive"
@@ -400,6 +1054,23 @@ class DiscoveryTests(unittest.TestCase):
         )
         self.assertEqual(capture.next_batch()[0].name, "Schema")
         self.assertNotIn("Bedienercode", capture.export(True)["parameters"])
+        self.assertEqual(len(capture.base_candidates), 11325)
+        self.assertEqual(len(capture.packed_days), 357)
+        self.assertEqual(len({name.split("_")[0] for name in capture.packed_days}), 51)
+        self.assertTrue(
+            all(
+                definitions[name].index is not None
+                and all(
+                    definitions[flag].index == index for flag, index in flags.items()
+                )
+                for name, flags in capture.packed_days.items()
+            )
+        )
+        parents = capture.candidates[len(capture.base_candidates) :]
+        self.assertIn("Solar_Sp1_dTein", {d.name for d in parents})
+        self.assertIn("Anlage_Wf1_Feststoffkessel_dTEin", {d.name for d in parents})
+        self.assertTrue(all(not catalog.is_sensitive(d) for d in parents))
+        print("RPT read-only compound parent extension:", len(parents))
         self.assertEqual(definitions["Relais_Regler_R4_Handbetrieb"].index, 2019)
         self.assertEqual(definitions["Modul1_Vorhanden"].storage, "volatile")
         self.assertEqual(
@@ -412,10 +1083,96 @@ class DiscoveryTests(unittest.TestCase):
             status = definition.excluded or "candidate"
             counts[status] = counts.get(status, 0) + 1
         print("Exact vendor archive: definitions", len(definitions), counts)
+        self.assertEqual(
+            catalog.encode_numeric_value(definitions["Solar_Sp1_dTein_K"], 6.5),
+            65,
+        )
+        self.assertEqual(
+            catalog.encode_numeric_value(
+                definitions["Anlage_Wf1_Feststoffkessel_dTEin_K"], 6
+            ),
+            60,
+        )
+        # Targeted firmware evidence, not live values or redistributed XML.
+        for name in (
+            "Relais_Regler_R1_MinDrehzahl",
+            "Relais_Regler_R1_MaxDrehzahl",
+            "Relais_Regler_R1_ODrehzahl",
+            "Relais_Regler_R1_OAdapter",
+            "Relais_Modul1_R1_MinDrehzahl",
+            "Solar_SystemId",
+            "Solar_Sp1_dTein",
+            "Solar_Sp1_dTein_K",
+            "Solar_Sp1_dTein_R",
+            "Anlage_Wf1_Type",
+            "Anlage_Wf1_Aktiviert_Modus",
+            "Anlage_Wf1_Feststoffkessel_dTEin",
+            "Anlage_Wf1_Feststoffkessel_dTEin_K",
+            "Anlage_Wf1_Feststoffkessel_dTEin_R",
+            "Heizung_Heizkreis1_Betriebsstatus",
+            "Wmz1_Type",
+            "Wmz1_FrostschutzGehalt",
+            "Wmz1_OAlternativAnzeige",
+            "Wmz1_AlternativAnzeigeEinheit",
+            "Anlage_Wf1_Mischer_dtIntervall",
+            "Heizung_Heizkreis1_Type",
+            "Heizung_Heizkreis1_Aktiviert_Modus",
+            "Heizung_Heizkreis1_Heizkurve",
+            "Heizung_Heizkreis1_System",
+            "Heizung_Heizkreis1_Heizsystem",
+            "Wmz1_AlternativAnzeigeFaktor",
+            "Heizung_Heizkreis1_dTTageskorrektur_K",
+            "Heizung_Heizkreis1_dTNachtkorrektur_K",
+        ):
+            d = definitions.get(name)
+            if d is None:
+                print("RPT exact contract absent:", name)
+                continue
+            relevant = {
+                k: d.metadata[k]
+                for k in (
+                    "type_chain",
+                    "selector_ref",
+                    "selector_refs",
+                    "compound_ref",
+                    "minimum",
+                    "maximum",
+                    "quant",
+                    "quant_step",
+                    "storeFactor",
+                    "displayFactor",
+                    "unit",
+                    "value_text",
+                    "menu_refs",
+                    "allow_parameterization",
+                    "force_use",
+                )
+                if k in d.metadata
+            }
+            print("RPT exact contract:", name, d.index, d.storage, relevant)
 
         # Aggregate schema evidence only: no vendor data or site values bundled.
         with zipfile.ZipFile(os.environ["RPT_ARCHIVE"]) as archive:
             root = ET.fromstring(archive.read(catalog.BX_PLUS_MENU))
+        # Targeted structural evidence for the remaining protocol blockers.
+        # Output tag/attribute names and counts only, never proprietary XML.
+        for type_id in ("Blob", "Solar_SystemId", "WochenschaltuhrTag"):
+            nodes = [n for n in root.iter("type") if n.get("id") == type_id]
+            print(
+                "RPT type structure:",
+                type_id,
+                [(sorted(n.attrib), sorted({child.tag for child in n})) for n in nodes],
+            )
+        print(
+            "RPT solar presence definition tags:",
+            sorted(
+                {
+                    n.tag
+                    for n in root.iter()
+                    if n.get("id") in ("Solar_Sp1_Vorhanden", "Solar_Mehrspeicher")
+                }
+            ),
+        )
         value_attributes = Counter()
         value_children = Counter()
         tags = Counter(node.tag for node in root.iter())

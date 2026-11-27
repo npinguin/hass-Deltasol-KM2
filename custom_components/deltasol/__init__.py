@@ -55,7 +55,12 @@ from .const import (
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
 from .discovery import ConfigurationCapture, capture_batches, capture_identity
-from .parameters import refresh_relay_modes, run_parameter_job
+from .parameters import (
+    device_inventory,
+    find_profile,
+    refresh_relay_modes,
+    run_parameter_job,
+)
 from .vbus import VBusError, VBusTransientError
 
 _LOGGER = logging.getLogger(__name__)
@@ -168,7 +173,7 @@ async def async_setup_entry(
     # This calls the async_setup method in each of your entity type files.
     runtime = config_entry.runtime_data
     if coordinator.api.supports_parameter_access:
-        runtime.relay_coordinator = DeltasolRelayCoordinator(hass, coordinator)
+        runtime.relay_coordinator = DeltasolRelayCoordinator(hass, coordinator, runtime)
         config_entry.async_on_unload(
             coordinator.async_add_listener(
                 runtime.relay_coordinator.async_update_listeners
@@ -243,8 +248,8 @@ async def _async_save_capture(runtime):
     try:
         await runtime.capture_store.async_save(
             {
-                "capture": runtime.capture.checkpoint(),
-                "previous": runtime.previous_capture.checkpoint()
+                "capture": runtime.capture.storage_checkpoint(),
+                "previous": runtime.previous_capture.storage_checkpoint()
                 if runtime.previous_capture
                 else None,
                 "resume": runtime.capture.status not in ("complete", "incomplete")
@@ -449,8 +454,9 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
     outage must not delay or invalidate HTTP sensor updates.
     """
 
-    def __init__(self, hass, telemetry):
+    def __init__(self, hass, telemetry, runtime):
         self.telemetry = telemetry
+        self.runtime = runtime
         self.api = telemetry.api
         self._lock = asyncio.Lock()
         self.closing = False
@@ -473,6 +479,31 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         async with self._lock:
             await asyncio.sleep(self.api.parameter_cooldown_remaining())
 
+    def _configuration_hints(self):
+        profile, controller = find_profile(device_inventory(self.telemetry.data))
+        if not profile:
+            return {}
+        selectors = {
+            setting.installed_by.name
+            for setting in profile.settings_for(profile.configuration_changeset)
+            if setting.installed_by
+        }
+        hints = {}
+        # The previous completed capture avoids temporarily losing controls
+        # during a new scan. The newer observations replace previous hints.
+        for capture in (self.runtime.previous_capture, self.runtime.capture):
+            if (
+                capture
+                and capture.controller == controller
+                and capture.changeset == profile.configuration_changeset
+            ):
+                hints.update(
+                    (name, capture.results[name])
+                    for name in selectors
+                    if name in capture.results
+                )
+        return hints
+
     async def _async_update_data(self):
         try:
             result = await refresh_relay_modes(
@@ -480,6 +511,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 self._lock,
                 guard=self._check_open,
                 initial=self.initial_refresh,
+                configuration_hints=self._configuration_hints(),
             )
         except VBusError as error:
             # Retry ordinary polling sooner while unavailable, not by issuing
@@ -519,6 +551,11 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 capture.controller,
                 names,
                 capture.changeset,
+                {
+                    name: capture.packed_days[name]
+                    for name in names
+                    if name in capture.packed_days
+                },
             )
 
     async def _async_action_failed(self, error):
@@ -528,16 +565,20 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             "VBus write acknowledgement differs",
             "VBus write readback differs",
             "Configuration reconnect readback differs",
+            "Configuration parameter is no longer supported",
+            "Configuration conditional constraint rejected",
         ):
             await self.async_refresh()
 
     async def async_set_configuration(self, unique_id, value):
         """Native entities use one live validated configuration action."""
         try:
-            await self._async_set_configuration(unique_id, value)
+            refresh_dependents = await self._async_set_configuration(unique_id, value)
         except VBusError as error:
             await self._async_action_failed(error)
             raise HomeAssistantError(str(error)) from error
+        if refresh_dependents:
+            await self.async_refresh()
 
     async def _async_set_configuration(self, unique_id, value):
         async with self._lock:
@@ -568,20 +609,42 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             except VBusError as error:
                 self.async_set_update_error(error)
                 raise
+            # A changed selector invalidates dependent controls before the
+            # read-only refresh. Never retain a capability derived from an old
+            # condition, even if the next refresh fails.
+            changed = verified.raw != capability.raw
+            dependents = (
+                {
+                    setting.name
+                    for setting in self.data.profile.settings_for(verified.changeset)
+                    if setting.name != verified.setting.name
+                    and verified.setting.name in setting.expected
+                }
+                if changed and self.data.profile
+                else set()
+            )
+            remaining = {
+                uid: cap
+                for uid, cap in self.data.configuration.items()
+                if cap.setting.name not in dependents
+            }
             self.async_set_updated_data(
                 replace(
                     self.data,
-                    configuration={**self.data.configuration, unique_id: verified},
+                    configuration={**remaining, unique_id: verified},
                 )
             )
+            return bool(dependents)
 
     async def async_set_mode(self, unique_id, option):
         """Do not accept calls that bypass entity availability."""
         try:
-            await self._async_set_mode(unique_id, option)
+            refresh_dependents = await self._async_set_mode(unique_id, option)
         except VBusError as error:
             await self._async_action_failed(error)
             raise HomeAssistantError(str(error)) from error
+        if refresh_dependents:
+            await self.async_refresh()
 
     async def _async_set_mode(self, unique_id, option):
         async with self._lock:
@@ -611,9 +674,38 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             except VBusError as error:
                 self.async_set_update_error(error)
                 raise
+            # Manual mode is a prerequisite of pump settings. Invalidate
+            # dependent controls immediately rather than leave writable stale
+            # projections until the next scheduled parameter refresh.
+            dependents = {
+                uid: cap
+                for uid, cap in self.data.configuration.items()
+                if capability.name in cap.setting.expected
+            }
+            remaining = {
+                uid: cap
+                for uid, cap in self.data.configuration.items()
+                if uid not in dependents
+            }
             self.async_set_updated_data(
                 replace(
                     self.data,
                     capabilities={**self.data.capabilities, unique_id: capability},
+                    configuration=remaining,
+                )
+            )
+            # Returning to Auto can restore settings invalidated by a previous
+            # manual operation, but do not add extra polls to unrelated relays.
+            if dependents:
+                return True
+            hints = self._configuration_hints()
+            return bool(
+                self.data.profile
+                and option == "Auto"
+                and any(
+                    setting.installed_by
+                    and setting.installed_by.name in hints
+                    and capability.name in setting.expected
+                    for setting in self.data.profile.settings_for(capability.changeset)
                 )
             )

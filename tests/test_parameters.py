@@ -1,6 +1,7 @@
 """Regression tests for profile, device, mode and parameter write gates."""
 
 import asyncio
+import dataclasses
 import importlib
 import sys
 import types
@@ -90,6 +91,474 @@ class ParameterTests(unittest.TestCase):
 
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
+
+    def test_compound_differential_requires_live_parent_child_and_unit(self):
+        self.session.read.return_value = 0x2734DABC
+        variants = [
+            s
+            for s in parameters_configuration.BX_PLUS_DIFFERENTIAL_SETTINGS
+            if s.name == "Anlage_Wf1_Feststoffkessel_dTEin"
+        ]
+        celsius, fahrenheit = variants
+        self.values.update(
+            {
+                "TemperatureHysteresisSelector": (60, 0),
+                "Anlage_Wf1_Type": (6559, 6),
+                "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
+            }
+        )
+        for parent, index, child, child_index in celsius.compound_mirrors:
+            raw = {"dTEin": 50, "dTAus": 30, "dTSoll": 100}[parent.rsplit("_", 1)[1]]
+            self.values[parent] = (index, raw)
+            self.values[child] = (child_index, raw)
+            self.values[child[:-2] + "_R"] = (child_index + 1, raw * 2)
+        hints = {"Anlage_Wf1_Type": parameters.ParameterObservation(6559, 6, "read")}
+
+        def discover():
+            return {
+                uid: cap
+                for uid, cap in self.api.discover(
+                    telemetry(), hints
+                ).configuration.items()
+                if cap.setting.compound_mirrors
+            }
+
+        def capability():
+            return next(
+                c for c in discover().values() if c.setting.name == celsius.name
+            )
+
+        initial = capability()
+        self.assertEqual(initial.value, 5)
+        self.assertEqual(initial.setting.unit, "K")
+        self.assertEqual(len(discover()), 3)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual(
+                (address, index, changeset, save), (0x7112, 6663, 0x2734DABC, True)
+            )
+            self.values[celsius.name] = (index, value)
+            self.values[celsius.name + "_K"] = (index + 1, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), initial, 6).value, 6)
+        self.session.write_verified.assert_called_once()
+        self.assertEqual(
+            self.api.set_configuration(telemetry(), capability(), 6).value, 6
+        )
+        self.session.write_verified.assert_called_once()
+        for invalid in (3, 10, 6.5):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), capability(), invalid)
+        # Mismatched parent/child and changed unit must not generate writes.
+        self.values[celsius.name + "_K"] = (6664, 50)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), initial, 7)
+        self.assertFalse(discover())
+        self.values["TemperatureHysteresisSelector"] = (60, 1)
+        for parent, index, child, child_index in fahrenheit.compound_mirrors:
+            self.values[parent] = (index, self.values[child][1])
+        replacement = capability()
+        self.assertEqual(replacement.unique_id, initial.unique_id)
+        self.assertEqual(replacement.setting.unit, "°R")
+        self.assertEqual(replacement.value, 10)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), initial, 7)
+        self.session.write_verified.assert_called_once()
+
+    def test_mixer_family_requires_live_installed_type_and_activity(self):
+        self.session.read.return_value = 0x2734DABC
+        setting = parameters_configuration.BX_PLUS_MIXER_SETTINGS[0]
+        self.values.update(
+            {
+                setting.name: (setting.index, 4),
+                setting.installed_by.name: (setting.installed_by.index, 2),
+                setting.dependencies[0].name: (setting.dependencies[0].index, 1),
+            }
+        )
+        self.assertFalse(self.api.discover(telemetry()).configuration)
+        hints = {
+            setting.installed_by.name: parameters.ParameterObservation(
+                setting.installed_by.index, 2, "read"
+            )
+        }
+        observed = self.api.discover(telemetry(), hints).configuration
+        cap = next(iter(observed.values()))
+        self.assertEqual(cap.value, 4)
+        self.assertEqual(cap.setting.kind, "number")
+        self.assertEqual(cap.setting.unit, "s")
+        self.values[setting.installed_by.name] = (setting.installed_by.index, 0)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 5)
+        self.session.write_verified.assert_not_called()
+        self.assertFalse(self.api.discover(telemetry(), hints).configuration)
+        self.values[setting.installed_by.name] = (setting.installed_by.index, 2)
+        self.values[setting.dependencies[0].name] = (setting.dependencies[0].index, 0)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 5)
+        self.session.write_verified.assert_not_called()
+        self.values[setting.dependencies[0].name] = (setting.dependencies[0].index, 1)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual(
+                (address, index, value, changeset, save),
+                (0x7112, setting.index, 5, 0x2734DABC, True),
+            )
+            self.values[setting.name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 5).value, 5)
+        self.session.write_verified.assert_called_once()
+        for invalid in (0, 21, 4.5):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), cap, invalid)
+        self.session.write_verified.assert_called_once()
+
+    def test_hqm_display_family_checks_activation_and_typed_factor(self):
+        self.session.read.return_value = 0x2734DABC
+        switch, unit, factor = parameters_configuration.BX_PLUS_HQM_SETTINGS[:3]
+        installed = switch.installed_by
+        active = switch.dependencies[0]
+        self.values.update(
+            {
+                installed.name: (installed.index, 1),
+                active.name: (active.index, 1),
+                switch.name: (switch.index, 0),
+                unit.name: (unit.index, 0),
+                factor.name: (factor.index, 5000000),
+            }
+        )
+        hints = {
+            installed.name: parameters.ParameterObservation(installed.index, 1, "read")
+        }
+
+        data = {
+            **telemetry(),
+            **telemetry(address="7131", source="DeltaSol BX Plus [HQM #1]"),
+        }
+
+        def controls(inventory=data):
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(inventory, hints).configuration.values()
+            }
+
+        self.assertEqual(set(controls()), {switch.name})
+        self.assertEqual(controls()[switch.name].device.address, 0x7131)
+        self.assertEqual(controls()[switch.name].controller.address, 0x7112)
+        self.assertFalse(controls(telemetry()))
+        self.assertFalse(controls({**telemetry(), **telemetry(address="7132")}))
+        ambiguous = dict(data)
+        ambiguous["00_0010_7131_0100__002_2_0"] = Mock(
+            bus_src="Other meter", product_details={"serial": "gateway"}
+        )
+        self.assertFalse(controls(ambiguous))
+
+        def write(address, index, value, changeset, *, save):
+            self.assertTrue(save)
+            self.assertEqual(address, 0x7112)
+            name = next(name for name, pair in self.values.items() if pair[0] == index)
+            self.values[name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.api.set_configuration(data, controls()[switch.name], True)
+        caps = controls()
+        self.assertEqual(set(caps), {switch.name, unit.name, factor.name})
+        self.api.set_configuration(data, caps[unit.name], "Gas")
+        self.api.set_configuration(data, caps[factor.name], 0.5000001)
+        self.assertEqual(self.values[factor.name][1], 5000001)
+        self.assertEqual(self.session.write_verified.call_count, 3)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), caps[unit.name], "Coal")
+        self.assertEqual(self.session.write_verified.call_count, 3)
+        self.values[switch.name] = (switch.index, 0)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(data, caps[unit.name], "Coal")
+        self.assertEqual(self.session.write_verified.call_count, 3)
+        self.assertEqual(set(controls()), {switch.name})
+
+    def test_heating_curve_checks_live_mode_and_quantization(self):
+        self.session.read.return_value = 0x2734DABC
+        setting = parameters_configuration.BX_PLUS_HEATING_SETTINGS[0]
+        installed = setting.installed_by
+        active, mode = setting.dependencies
+        self.values.update(
+            {
+                installed.name: (installed.index, 1),
+                active.name: (active.index, 1),
+                mode.name: (mode.index, 1),
+                setting.name: (setting.index, 12),
+            }
+        )
+        hints = {
+            installed.name: parameters.ParameterObservation(installed.index, 1, "read")
+        }
+        cap = next(iter(self.api.discover(telemetry(), hints).configuration.values()))
+        self.assertEqual(cap.value, 1.2)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((index, value, save), (setting.index, 15, True))
+            self.values[setting.name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 1.5).value, 1.5)
+        self.values[mode.name] = (mode.index, 2)
+        self.assertFalse(self.api.discover(telemetry(), hints).configuration)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 1.6)
+        self.session.write_verified.assert_called_once()
+
+    def test_pump_speed_requires_registered_speed_controlled_pump_and_pair(self):
+        self.session.read.return_value = 0x2734DABC
+        self.activate_modules()
+        minimum, maximum = parameters_configuration.BX_PLUS_PUMP_SETTINGS[10:12]
+        role = minimum.installed_by
+        self.values.update(
+            {
+                role.name: (role.index, 2),
+                minimum.name: (minimum.index, 30),
+                maximum.name: (maximum.index, 80),
+            }
+        )
+        hints = {role.name: parameters.ParameterObservation(role.index, 2, "read")}
+        data = {**telemetry(), **module(1)}
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(data, hints).configuration.values()
+            }
+
+        caps = controls()
+        self.assertEqual(set(caps), {minimum.name, maximum.name})
+        self.assertEqual(caps[minimum.name].device.address, 0x6651)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertTrue(save)
+            self.values[minimum.name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(
+            self.api.set_configuration(data, caps[minimum.name], 40).value, 40
+        )
+        for value in (19, 81, 40.5):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(data, caps[minimum.name], value)
+        for name, index, invalid, valid in (
+            (role.name, role.index, 3, 2),
+            (M1_SPEED, 2169, 0, 1),
+            (M1_NAME, 2173, 1, 2),
+            ("Modul1_Aktiviert", 191, 0, 1),
+        ):
+            self.values[name] = (index, invalid)
+            self.assertFalse(controls())
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(data, caps[minimum.name], 50)
+            self.values[name] = (index, valid)
+        self.session.write_verified.assert_called_once()
+
+    def test_pump_assignment_requires_own_reference_and_unresolved_role(self):
+        self.session.read.return_value = 0x2734DABC
+        self.values.update(
+            {
+                "Relais_Regler_R1_Handbetrieb": (1977, 2),
+                "Relais_Regler_R1_ODrehzahl": (1973, 1),
+                "Relais_Regler_R1_MinDrehzahl": (1974, 30),
+                "Relais_Regler_R1_MaxDrehzahl": (1975, 80),
+                "Relais_Regler_R1_Nr": (1969, 1),
+                "Anlage_Wf1_Type": (6559, 6),
+                "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
+                "Anlage_Wf1_Relais1_Nr": (6592, 1),
+            }
+        )
+        hints = {"Anlage_Wf1_Type": parameters.ParameterObservation(6559, 6, "read")}
+
+        def pumps():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+                if cap.setting.owner_relay is not None
+            }
+
+        name = "Relais_Regler_R1_MinDrehzahl"
+        # The bounded TEST must not authorize this uncorroborated namespace.
+        self.assertFalse(pumps())
+        self.session.write_verified.assert_not_called()
+        # Exercise the retained candidate contract in isolation only, so its
+        # existing negative and ambiguity checks are not lost.
+        profile = parameters.PROFILES[0]
+        candidate = dataclasses.replace(
+            profile,
+            settings=(
+                *profile.settings,
+                *parameters_configuration.BX_PLUS_PUMP_ASSIGNMENT_SETTINGS,
+            ),
+        )
+        patcher = patch.object(parameters, "PROFILES", (candidate,))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        caps = pumps()
+        self.assertEqual(len(caps), 2)
+        cap = caps[name]
+        self.assertIsNotNone(cap.setting.output_assignment)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((index, value, save), (1974, 40, True))
+            self.values[name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 40).value, 40)
+        # A second installed native function may conflict with a previously
+        # registered control; the direct action must not use stale ownership.
+        self.values.update(
+            {
+                "Anlage_Wf2_Type": (6810, 6),
+                "Anlage_Wf2_Aktiviert_Modus": (6817, 1),
+                "Anlage_Wf2_Relais1_Nr": (6843, 1),
+            }
+        )
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 50)
+        self.values["Anlage_Wf2_Type"] = (6810, 0)
+        self.values["Anlage_Wf1_Relais1_Nr"] = (6592, 2)
+        self.assertFalse(pumps())
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 50)
+        self.values["Anlage_Wf1_Relais1_Nr"] = (6592, 1)
+        self.values["Relais_Regler_R1_AktorFunktion"] = (1971, 3)
+        self.assertFalse(pumps())
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 50)
+        del self.values["Relais_Regler_R1_AktorFunktion"]
+        del self.values["Relais_Regler_R1_Nr"]
+        self.assertFalse(pumps())
+        self.session.write_verified.assert_called_once()
+
+    def test_heating_comfort_requires_applicable_native_configuration(self):
+        settings = parameters_configuration.BX_PLUS_HEATING_COMFORT_SETTINGS
+        night = next(
+            s
+            for s in settings
+            if s.name == "Heizung_Heizkreis1_dTNachtkorrektur" and s.unit == "K"
+        )
+        values = {
+            "Heizung_Heizkreis1_Type": 1,
+            "Heizung_Heizkreis1_Aktiviert_Modus": 1,
+            "Heizung_Heizkreis1_System": 0,
+            "Heizung_Heizkreis1_Heizsystem": 1,
+            "Heizung_Heizkreis1_OSchaltuhr": 1,
+            "Heizung_Heizkreis1_ModusSchaltuhr": 0,
+            "TemperatureHysteresisSelector": 0,
+            night.name: -50,
+            night.name + "_K": -50,
+        }
+        self.assertTrue(night.accepts(values, night.encode(-6)))
+        self.assertFalse(night.accepts(values, -201))
+        values["Heizung_Heizkreis1_ModusSchaltuhr"] = 1
+        self.assertFalse(night.accepts(values))
+        room = next(
+            s
+            for s in settings
+            if s.name == "Heizung_Heizkreis1_Raumthermostat1_TRaum" and s.unit == "°C"
+        )
+        values.update(
+            {
+                "Heizung_Heizkreis1_Raumthermostat1_Option": 1,
+                "Heizung_Heizkreis1_Raumthermostat1_Aktiviert": 1,
+                "Heizung_Heizkreis1_Raumthermostat1_Typ": 0,
+                room.name: 200,
+                room.name + "_C": 200,
+            }
+        )
+        self.assertTrue(room.accepts(values, room.encode(21)))
+        values["Heizung_Heizkreis1_Raumthermostat1_Typ"] = 1
+        self.assertFalse(room.accepts(values))
+        values["Heizung_Heizkreis1_Raumthermostat1_Typ"] = 0
+        values["Heizung_Heizkreis1_System"] = 1
+        self.assertFalse(room.accepts(values))
+
+    def test_loading_pair_rejects_bad_sibling_and_keeps_topology_unchanged(self):
+        setting = next(
+            candidate
+            for candidate in parameters_configuration.BX_PLUS_LOADING_SETTINGS
+            if candidate.name == "Heizung_Wf1_ThBwErwaermung_TEin"
+            and candidate.unit == "°C"
+        )
+        values = {
+            "Heizung_Wf1_Type": 2,
+            "Heizung_Wf1_Aktiviert_Modus": 2,
+            "Heizung_Wf1_ThBwErwaermung_Modus": 0,
+            "TemperatureHysteresisSelector": 0,
+            "Heizung_Wf1_ThBwErwaermung_TEin": 450,
+            "Heizung_Wf1_ThBwErwaermung_TEin_C": 450,
+            "Heizung_Wf1_ThBwErwaermung_TAus": 550,
+            "Heizung_Wf1_ThBwErwaermung_TAus_C": 550,
+        }
+        self.assertEqual(setting.native_slot, ("Heizung_Wf1", "Heizung_Wf", 1))
+        self.assertTrue(setting.accepts(values, setting.encode(50)))
+        self.assertFalse(setting.accepts(values, setting.encode(55)))
+        values["Heizung_Wf1_ThBwErwaermung_Modus"] = 1
+        self.assertTrue(setting.accepts(values, setting.encode(50)))
+        values["Heizung_Wf1_ThBwErwaermung_TAus"] = 9999
+        values["Heizung_Wf1_ThBwErwaermung_TAus_C"] = 9999
+        self.assertFalse(setting.accepts(values, setting.encode(50)))
+
+    def test_thermostat_preserves_orientation_and_switch_controlled_mode(self):
+        setting = next(
+            setting
+            for setting in parameters_configuration.BX_PLUS_THERMOSTAT_SETTINGS
+            if setting.name == "Anlage_Wf1_Funktionsblock_TTh1Ein"
+            and setting.unit == "°C"
+        )
+        values = {
+            "Anlage_Wf1_Type": 9,
+            "Anlage_Wf1_Aktiviert_Modus": 2,
+            "TemperatureHysteresisSelector": 0,
+            "Anlage_Wf1_Funktionsblock_OThermostat1": 1,
+            "Anlage_Wf1_Funktionsblock_TTh1Ein": 500,
+            "Anlage_Wf1_Funktionsblock_TTh1Ein_C": 500,
+            "Anlage_Wf1_Funktionsblock_TTh1Aus": 600,
+            "Anlage_Wf1_Funktionsblock_TTh1Aus_C": 600,
+        }
+        self.assertTrue(setting.accepts(values))
+        self.assertTrue(setting.accepts(values, setting.encode(55)))
+        self.assertFalse(setting.accepts(values, setting.encode(60)))
+        self.assertFalse(setting.accepts(values, setting.encode(65)))
+        values["Anlage_Wf1_Funktionsblock_OThermostat1"] = 0
+        self.assertFalse(setting.accepts(values))
+
+    def test_circulation_runtime_requires_demand_mode_and_exact_seconds(self):
+        self.session.read.return_value = 0x2734DABC
+        setting = next(
+            s
+            for s in parameters_configuration.BX_PLUS_TIMING_SETTINGS
+            if s.name == "Heizung_Wf1_Zirkulation_dtLaufzeit"
+        )
+        self.values.update(
+            {
+                "Heizung_Wf1_Type": (11266, 4),
+                "Heizung_Wf1_Aktiviert_Modus": (11273, 2),
+                "Heizung_Wf1_Zirkulation_Variante": (11405, 3),
+                setting.name: (setting.index, 180),
+            }
+        )
+        hints = {"Heizung_Wf1_Type": parameters.ParameterObservation(11266, 4, "read")}
+        cap = next(iter(self.api.discover(telemetry(), hints).configuration.values()))
+        self.assertEqual(cap.value, 180)
+        self.assertEqual(cap.setting.unit, "s")
+        self.assertEqual(cap.setting.encode(195), 195)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 191)
+        self.values["Heizung_Wf1_Zirkulation_Variante"] = (11405, 1)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 195)
+        self.session.write_verified.assert_not_called()
 
     def test_verified_configuration_save_and_reconnect(self):
         self.session.read.return_value = 0x2734DABC

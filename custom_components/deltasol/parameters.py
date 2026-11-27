@@ -15,7 +15,16 @@ from threading import RLock
 from time import monotonic, sleep
 
 from .configuration import (
+    BX_PLUS_DIFFERENTIAL_SETTINGS,
+    BX_PLUS_HEATING_COMFORT_SETTINGS,
+    BX_PLUS_HEATING_SETTINGS,
+    BX_PLUS_HQM_SETTINGS,
+    BX_PLUS_LOADING_SETTINGS,
+    BX_PLUS_MIXER_SETTINGS,
+    BX_PLUS_PUMP_SETTINGS,
     BX_PLUS_SETTINGS,
+    BX_PLUS_THERMOSTAT_SETTINGS,
+    BX_PLUS_TIMING_SETTINGS,
     ConfigurationCapability,
     Setting,
     encode_action,
@@ -96,7 +105,20 @@ PROFILES = (
         # physical module identity + exact activation and relay mappings.
         module_presence_lookup_optional_changeset=0x2734DABC,
         configuration_changeset=0x2734DABC,
-        settings=BX_PLUS_SETTINGS,
+        settings=(
+            *BX_PLUS_SETTINGS,
+            *BX_PLUS_MIXER_SETTINGS,
+            *BX_PLUS_HQM_SETTINGS,
+            *BX_PLUS_HEATING_SETTINGS,
+            *BX_PLUS_HEATING_COMFORT_SETTINGS,
+            *BX_PLUS_PUMP_SETTINGS,
+            # Alternative assignment namespaces are not corroborated yet.
+            # Keep direct, positively identified pump roles above.
+            *BX_PLUS_DIFFERENTIAL_SETTINGS,
+            *BX_PLUS_THERMOSTAT_SETTINGS,
+            *BX_PLUS_TIMING_SETTINGS,
+            *BX_PLUS_LOADING_SETTINGS,
+        ),
     ),
 )
 
@@ -226,9 +248,52 @@ def _checked_parameters(session, profile, changeset, expected):
 
 
 def _read_settings(
-    session, profile, changeset, settings, controller, inventory, requested=None
+    session,
+    profile,
+    changeset,
+    settings,
+    controller,
+    inventory,
+    requested=None,
+    relay_capabilities=None,
 ):
     """Re-read exact hashes and conditional dependencies, never probe writes."""
+    # Reuse relay registration evidence during ordinary polling. Before a
+    # direct configuration action, independently re-read the specific relay
+    # (including the existing EM registration exception) in the same session.
+    eligible = []
+    for setting in settings:
+        if setting.owner_relay is not None:
+            group = next(
+                (g for g in profile.groups if g.address == setting.owner_address),
+                None,
+            )
+            device = find_device(inventory, setting.owner_address)
+            if group is None or device is None or device.serial != controller.serial:
+                continue
+            if relay_capabilities is None:
+                _, relays = _read_group(
+                    session,
+                    profile,
+                    changeset,
+                    group,
+                    controller,
+                    device,
+                    (setting.owner_relay,),
+                )
+            else:
+                relays = relay_capabilities
+            if not any(
+                cap.group == group
+                and cap.number == setting.owner_relay
+                and cap.device == device
+                and cap.speed_control
+                and cap.current_option == "Auto"
+                for cap in relays.values()
+            ):
+                continue
+        eligible.append(setting)
+    settings = eligible
     expected = {}
     for setting in settings:
         for name, index in setting.expected.items():
@@ -250,7 +315,13 @@ def _read_settings(
         if result.status == "read" and result.index == expected[name]
     }
     result = {}
+    ambiguous = set()
+    rejected = set()
     for setting in settings:
+        if setting.unresolved_role:
+            role = observed.get(setting.unresolved_role.name)
+            if role is None or role.status != "not_resolved" or role.index is not None:
+                continue
         device = find_device(inventory, setting.owner_address or profile.address)
         if (
             device is None
@@ -258,13 +329,18 @@ def _read_settings(
             or not setting.accepts(values)
         ):
             continue
-        if requested is not None and not setting.accepts(values, requested):
-            raise VBusError("Configuration conditional constraint rejected")
         capability = ConfigurationCapability(
             setting, controller, device, changeset, values[setting.name]
         )
-        result[capability.unique_id] = capability
-    return result
+        uid = capability.unique_id
+        if uid in result:
+            ambiguous.add(uid)
+        result[uid] = capability
+        if requested is not None and not setting.accepts(values, requested):
+            rejected.add(uid)
+    if rejected.difference(ambiguous):
+        raise VBusError("Configuration conditional constraint rejected")
+    return {uid: cap for uid, cap in result.items() if uid not in ambiguous}
 
 
 def _read_group(
@@ -355,14 +431,19 @@ async def run_parameter_job(hass, function, *args):
         raise
 
 
-async def refresh_relay_modes(telemetry, lock=None, *, guard=None, initial=False):
+async def refresh_relay_modes(
+    telemetry, lock=None, *, guard=None, initial=False, configuration_hints=None
+):
     """Retry reads, releasing async ownership between attempts."""
 
     async def read():
         if guard is not None:
             guard()
+        arguments = (telemetry.data,)
+        if configuration_hints is not None:
+            arguments += (configuration_hints,)
         return await run_parameter_job(
-            telemetry.hass, telemetry.api.fetch_relay_modes, telemetry.data
+            telemetry.hass, telemetry.api.fetch_relay_modes, *arguments
         )
 
     for delay in (None,) if initial else (*RELAY_RETRY_DELAYS, None):
@@ -497,7 +578,7 @@ class RelayParameters:
                     elapsed if connect_seconds is None else connect_seconds,
                 )
 
-    def discover(self, telemetry):
+    def discover(self, telemetry, configuration_hints=None):
         inventory = device_inventory(telemetry)
         profile, controller = find_profile(inventory)
         if profile is None:
@@ -529,13 +610,36 @@ class RelayParameters:
                     module_flags,
                 )
                 capabilities.update(relays)
+            # Historical inventory is only a scheduling hint for installed
+            # families. _read_settings independently verifies live selectors,
+            # layout, current values and identity before exposing controls.
+            settings = tuple(
+                setting
+                for setting in profile.settings_for(changeset)
+                if setting.installed_by is None
+                or (
+                    configuration_hints is not None
+                    and (
+                        observation := configuration_hints.get(
+                            setting.installed_by.name
+                        )
+                    )
+                    is not None
+                    and observation.status == "read"
+                    and observation.index == setting.installed_by.index
+                    and setting.installed_by.matches(
+                        {setting.installed_by.name: observation.value}
+                    )
+                )
+            )
             configuration = _read_settings(
                 session,
                 profile,
                 changeset,
-                profile.settings_for(changeset),
+                settings,
                 controller,
                 inventory,
+                relay_capabilities=capabilities,
             )
         return RelayDiscovery(
             profile,
@@ -548,19 +652,29 @@ class RelayParameters:
             configuration,
         )
 
-    def read_configuration_batch(self, telemetry, controller, names, changeset):
+    def read_configuration_batch(
+        self, telemetry, controller, names, changeset, packed=None
+    ):
         """One bounded read batch using the existing session and identity gates."""
         profile, actual = find_profile(device_inventory(telemetry))
         if profile is None or actual != controller:
             raise VBusError("Controller identity changed during discovery")
+        expected = dict(names)
+        for flags in (packed or {}).values():
+            for name, index in flags.items():
+                if name in expected and expected[name] != index:
+                    raise VBusError("Conflicting configuration parameter layout")
+                expected[name] = index
         with self._session(profile.address) as session:
-            return session.read_parameter_observations(
+            observations = session.read_parameter_observations(
                 profile.address,
-                names,
+                expected,
                 changeset,
-                expected=names,
+                expected=expected,
                 schema=profile.schema_index,
+                packed=packed,
             )
+        return {name: observations[name] for name in names}
 
     def set_configuration(self, telemetry, capability, value):
         """Same serialized owner; save once and confirm via a new VBus session."""
@@ -575,20 +689,63 @@ class RelayParameters:
             raise VBusError("Configuration capability or controller identity changed")
         setting = capability.setting
         wanted = encode_action(setting, value)
+        # A logical setting can have several firmware contracts (unit variant,
+        # assignment evidence). Recheck competing live contracts, not just the
+        # one in an older entity snapshot. First read selectors to bound work.
+        alternatives = tuple(
+            candidate
+            for candidate in profile.settings_for(capability.changeset)
+            if candidate.name == setting.name
+        )
+
+        def current_contract(session, requested=None):
+            selectors = {
+                candidate.installed_by.name: candidate.installed_by.index
+                for candidate in alternatives
+                if candidate.installed_by
+            }
+            observed = (
+                session.read_parameter_observations(
+                    profile.address,
+                    selectors,
+                    capability.changeset,
+                    expected=selectors,
+                    schema=profile.schema_index,
+                )
+                if selectors
+                else {}
+            )
+            values = {
+                name: row.value
+                for name, row in observed.items()
+                if row.status == "read" and row.index == selectors[name]
+            }
+            candidates = tuple(
+                candidate
+                for candidate in alternatives
+                if candidate.installed_by is None
+                or candidate.installed_by.matches(values)
+            )
+            return _read_settings(
+                session,
+                profile,
+                capability.changeset,
+                candidates,
+                controller,
+                inventory,
+                requested=requested,
+            ).get(capability.unique_id)
+
         # Hold the existing owner lock across both sessions. Never retry a save
         # when acknowledgement, release or verification is uncertain.
         with self._lock:
             with self._session(profile.address) as session:
-                current = _read_settings(
-                    session,
-                    profile,
-                    capability.changeset,
-                    (setting,),
-                    controller,
-                    inventory,
-                    requested=wanted,
-                ).get(capability.unique_id)
-                if current is None or current.device != capability.device:
+                current = current_contract(session, wanted)
+                if (
+                    current is None
+                    or current.device != capability.device
+                    or current.setting != setting
+                ):
                     raise VBusError("Configuration parameter is no longer supported")
                 if current.raw == wanted:
                     return current
@@ -600,17 +757,11 @@ class RelayParameters:
                     save=setting.save,
                 )
             with self._session(profile.address) as session:
-                verified = _read_settings(
-                    session,
-                    profile,
-                    capability.changeset,
-                    (setting,),
-                    controller,
-                    inventory,
-                ).get(capability.unique_id)
+                verified = current_contract(session)
                 if (
                     verified is None
                     or verified.device != capability.device
+                    or verified.setting != setting
                     or verified.raw != wanted
                 ):
                     raise VBusError("Configuration reconnect readback differs")
