@@ -424,6 +424,8 @@ def configuration_evidence(definition, definitions):
     }
     if definition.excluded:
         result["write_access_reason"] = definition.excluded
+    elif "Blob" in metadata.get("type_chain", ()):
+        result["write_access_reason"] = "packed_storage_contract_unverified"
     elif compound:
         result["write_access_reason"] = "compound_target_unverified"
         if parent and not is_sensitive(parent):

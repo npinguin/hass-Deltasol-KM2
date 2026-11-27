@@ -357,9 +357,7 @@ class ParameterTests(unittest.TestCase):
                 "Anlage_Wf1_Relais1_Nr": (6592, 1),
             }
         )
-        hints = {
-            "Anlage_Wf1_Type": parameters.ParameterObservation(6559, 6, "read")
-        }
+        hints = {"Anlage_Wf1_Type": parameters.ParameterObservation(6559, 6, "read")}
 
         def pumps():
             return {

@@ -742,7 +742,7 @@ class DiscoveryTests(unittest.TestCase):
             assignment, _, relay, _ = setting.output_assignment
             self.assertIn("AktorNr", definitions[assignment].metadata["type_chain"])
             self.assertEqual(definitions[relay].storage, "abstract")
-            self.assertIn("AktorNr", definitions[relay].metadata["type_chain"])
+            self.assertIn("RelaisNr", definitions[relay].metadata["type_chain"])
         self.assertEqual(len(configuration.BX_PLUS_PUMP_SETTINGS), 30)
         for setting in configuration.BX_PLUS_PUMP_SETTINGS:
             target = definitions[setting.name]

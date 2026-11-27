@@ -177,7 +177,15 @@ async def async_get_config_entry_diagnostics(hass, entry):
     # Do not present historical inventory values as live control readback.
     # The capture is a snapshot; the existing coordinator owns current controls.
     relay_contracts = {item["parameter"]: item for item in relays.values()}
+    reference_contracts = {}
+    if profile and capture and capture.changeset == profile.configuration_changeset:
+        for setting in profile.settings_for(capture.changeset):
+            reference_contracts[setting.name] = {
+                "kind": setting.kind,
+                "storage_action": "save" if setting.save else "volatile",
+            }
     coverage = Counter()
+    contract_coverage = Counter()
     for name, item in configuration.get("parameters", {}).items():
         control = settings.get(name)
         relay_control = relay_contracts.get(name)
@@ -193,10 +201,19 @@ async def async_get_config_entry_diagnostics(hass, entry):
             item["configuration_device_address"] = relay_control["device_address"]
             item["storage_action"] = "volatile"
             item.pop("write_access_reason", None)
-        elif control or relay_control:
+        elif control or relay_control or name in reference_contracts:
             item["write_access_reason"] = "live_capability_not_confirmed"
+        if name in reference_contracts:
+            item["reference_contract"] = reference_contracts[name]
+            item["contract_status"] = (
+                "live_verified"
+                if item["write_access"] == "profile_verified"
+                else "live_requirements_not_confirmed"
+            )
+            contract_coverage[item["contract_status"]] += 1
         coverage[item["write_access"]] += 1
     configuration["write_access_counts"] = dict(coverage)
+    configuration["reference_contract_counts"] = dict(contract_coverage)
     return {
         "configuration_discovery": configuration,
         "configuration_controls": settings,
