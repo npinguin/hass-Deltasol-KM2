@@ -248,7 +248,9 @@ def _hqm_display_settings(number):
     installed = Dependency(f"{prefix}_Type", 17260 + offset, (1,))
     active = Dependency(f"{prefix}_Aktiviert_Modus", 17263 + offset, (1,))
     enabled = Dependency(f"{prefix}_OAlternativAnzeige", 17273 + offset, (1,))
-    unit = Dependency(f"{prefix}_AlternativAnzeigeEinheit", 17274 + offset, (0, 1, 2, 3))
+    unit = Dependency(
+        f"{prefix}_AlternativAnzeigeEinheit", 17274 + offset, (0, 1, 2, 3)
+    )
     factor = RangeDependency(
         f"{prefix}_AlternativAnzeigeFaktor", 17275 + offset, 1, 1000000000
     )
@@ -286,9 +288,7 @@ def _hqm_display_settings(number):
 
 
 BX_PLUS_HQM_SETTINGS = tuple(
-    setting
-    for number in range(1, 8)
-    for setting in _hqm_display_settings(number)
+    setting for number in range(1, 8) for setting in _hqm_display_settings(number)
 )
 
 
