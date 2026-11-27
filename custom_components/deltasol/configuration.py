@@ -98,7 +98,7 @@ class Setting:
     relative_constraints: tuple[RelativeConstraint, ...] = ()
     # Installed program selector: may be used as a Discovery hint, never as
     # authorization. The same dependency is always re-read live for an action.
-    installed_by: Dependency | None = None
+    installed_by: Dependency | RangeDependency | None = None
     owner_relay: int | None = None
     # Each tuple describes a parent and its selected child. Read both live
     # before accepting any adjustment; never issue a write to a child alias.
@@ -1079,6 +1079,287 @@ def _loading_temperature_settings():
 
 
 BX_PLUS_LOADING_SETTINGS = tuple(_loading_temperature_settings())
+
+
+def _operating_pair(
+    on, on_index, off, off_index, label, installed, dependencies, variants, *, rising
+):
+    """Reuse a single selected-unit, ordered operating-pair contract."""
+    for selector, alias, unit, on_limits, off_limits in variants:
+        mirrors = (
+            (on, on_index, on + alias, on_index + selector + 1),
+            (off, off_index, off + alias, off_index + selector + 1),
+        )
+        for name, index, other, other_index, limits, peer, direction in (
+            (on, on_index, off, off_index, on_limits, off_limits, rising),
+            (off, off_index, on, on_index, off_limits, on_limits, not rising),
+        ):
+            yield Setting(
+                name,
+                index,
+                f"{label} {'on' if name == on else 'off'}",
+                "number",
+                True,
+                limits=limits,
+                unit=unit,
+                installed_by=installed,
+                dependencies=(
+                    *dependencies,
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                relative_constraints=(
+                    RelativeConstraint(other, other_index, "gt" if direction else "lt"),
+                ),
+                compound_mirrors=mirrors,
+                peer_limits=((other, peer),),
+            )
+
+
+def _additional_operating_settings():
+    """Adjust documented, installed functions; preserve output and safety options."""
+    for slot in range(1, 17):
+        ao = (slot - 1) * 251
+        ho = (slot - 1) * 151
+        arrangement = f"Anlage_Wf{slot}"
+        heating = f"Heizung_Wf{slot}"
+        active = Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (1, 2))
+        irradiation = Dependency(f"{arrangement}_Type", 6559 + ao, (10,))
+        for suffix, index, bounds, unit, label in (
+            ("Einstrahlung", 6756, ("50", "1000", "10", "1"), "W/m²", "threshold"),
+            ("dtDauer", 6757, ("0", "30", "1", "1"), "min", "duration"),
+        ):
+            yield Setting(
+                f"{arrangement}_Strahlungsschalter_{suffix}",
+                index + ao,
+                f"Arrangement function {slot} irradiation {label}",
+                "number",
+                True,
+                limits=bounds,
+                unit=unit,
+                dependencies=(active,),
+                installed_by=irradiation,
+            )
+        prefix = f"{arrangement}_Ruecklaufanhebung"
+        name = f"{prefix}_TSommerAus"
+        index = 6701 + ao
+        for selector, alias, unit, limits in (
+            (0, "_C", "°C", ("10", "60", "1", "0.1")),
+            (1, "_F", "°F", ("50", "140", "2", "0.1")),
+        ):
+            yield Setting(
+                name,
+                index,
+                f"Arrangement function {slot} summer switch-off temperature",
+                "number",
+                True,
+                limits=limits,
+                unit=unit,
+                dependencies=(
+                    active,
+                    Dependency(f"{prefix}_OSommerAus", 6694 + ao, (1,)),
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                installed_by=Dependency(f"{arrangement}_Type", 6559 + ao, (8,)),
+                compound_mirrors=((name, index, name + alias, index + selector + 1),),
+            )
+        active = Dependency(f"{heating}_Aktiviert_Modus", 11273 + ho, (1, 2))
+        prefix = f"{heating}_Zirkulation"
+        yield from _operating_pair(
+            f"{prefix}_TEin",
+            11408 + ho,
+            f"{prefix}_TAus",
+            11411 + ho,
+            f"Heating function {slot} circulation temperature",
+            Dependency(f"{heating}_Type", 11266 + ho, (4,)),
+            (
+                active,
+                Dependency(f"{prefix}_Variante", 11405 + ho, (0, 2)),
+            ),
+            (
+                (0, "_C", "°C", ("10", "59", "1", "0.1"), ("11", "60", "1", "0.1")),
+                (1, "_F", "°F", ("50", "138", "2", "0.1"), ("52", "140", "2", "0.1")),
+            ),
+            rising=False,
+        )
+        prefix = f"{heating}_BwVorerwaermung"
+        installed = Dependency(f"{heating}_Type", 11266 + ho, (3,))
+        yield from _operating_pair(
+            f"{prefix}_dTEin",
+            11399 + ho,
+            f"{prefix}_dTAus",
+            11402 + ho,
+            f"Heating function {slot} DHW preheat differential",
+            installed,
+            (active, Dependency(f"{prefix}_ODifferenz", 11398 + ho, (1,))),
+            (
+                (
+                    0, "_K", "K", ("1", "50", "0.5", "0.1"),
+                    ("0.5", "49.5", "0.5", "0.1"),
+                ),
+                (1, "_R", "°R", ("2", "100", "1", "0.1"), ("1", "99", "1", "0.1")),
+            ),
+            rising=True,
+        )
+        for suffix, index, bounds, unit, label in (
+            ("Startdrehzahl", 11392, ("20", "100", "1", "1"), "%", "start speed"),
+            ("Schrittweite", 11393, ("1", "100", "1", "1"), "%", "speed step"),
+            ("dtVerzoegerung", 11397, ("1", "10", "1", "1"), "s", "delay"),
+        ):
+            yield Setting(
+                f"{prefix}_{suffix}",
+                index + ho,
+                f"Heating function {slot} DHW preheat {label}",
+                "number",
+                True,
+                limits=bounds,
+                unit=unit,
+                dependencies=(active,),
+                installed_by=installed,
+            )
+
+
+BX_PLUS_ADDITIONAL_OPERATING_SETTINGS = tuple(_additional_operating_settings())
+
+
+def _solar_store_settings():
+    """Native store adjustments, not a guessed SystemId-to-topology mapping.
+
+    The exact firmware has a volatile assigned store sensor, first collector
+    sensor and solar output reference. Require all three live, plus the
+    native store's active mode. Defaults for uninstalled stores are readable
+    but never establish applicability. Emergency limits remain read-only.
+    """
+    for slot in range(1, 6):
+        offset = (slot - 1) * 36
+        root = f"Solar_Sp{slot}"
+        installed = RangeDependency(f"{root}_Sensor1_Nr", 3576 + offset, 1, 65)
+        deps = (
+            RangeDependency("Solar_Kol1_Sensor1_Nr", 3536, 1, 65),
+            RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
+            Dependency(f"{root}_Aktiviert_Modus", 3604 + offset, (1, 2)),
+        )
+        for selector, alias, unit, multiplier in (
+            (0, "_K", "K", 1),
+            (1, "_R", "°R", 2),
+        ):
+            entries = (
+                ("dTein", 3579, ("1", "20", "0.5"), "on differential"),
+                ("dTaus", 3582, ("0.5", "19.5", "0.5"), "off differential"),
+                ("dTsoll", 3585, ("1.5", "30", "0.5"), "target differential"),
+            )
+            rows = tuple(
+                (
+                    f"{root}_{name}",
+                    index + offset,
+                    tuple(str(Decimal(value) * multiplier) for value in bounds)
+                    + ("0.1",),
+                    label,
+                )
+                for name, index, bounds, label in entries
+            )
+            mirrors = tuple(
+                (name, index, name + alias, index + selector + 1)
+                for name, index, _, _ in rows
+            )
+            rank = (1, 0, 2)
+            for position, (name, index, limits, label) in enumerate(rows):
+                others = tuple(
+                    (other_position, other, other_index, bounds)
+                    for other_position, (other, other_index, bounds, _) in enumerate(rows)
+                    if other_position != position
+                )
+                yield Setting(
+                    name,
+                    index,
+                    f"Solar store {slot} {label}",
+                    "number",
+                    True,
+                    limits=limits,
+                    unit=unit,
+                    dependencies=(
+                        *deps,
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    installed_by=installed,
+                    relative_constraints=tuple(
+                        RelativeConstraint(
+                            other, other_index, "gt" if rank[position] > rank[i] else "lt"
+                        )
+                        for i, other, other_index, _ in others
+                    ),
+                    compound_mirrors=mirrors,
+                    peer_limits=tuple((other, bounds) for _, other, _, bounds in others),
+                )
+            name = f"{root}_Anstieg"
+            index = 3597 + offset
+            yield Setting(
+                name,
+                index,
+                f"Solar store {slot} rise",
+                "number",
+                True,
+                limits=(
+                    ("1", "20", "0.5", "0.1")
+                    if selector == 0 else ("2", "40", "1", "0.1")
+                ),
+                unit=unit,
+                dependencies=(
+                    *deps,
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                installed_by=installed,
+                compound_mirrors=((name, index, name + alias, index + selector + 1),),
+            )
+        for selector, alias, unit, limits in (
+            (0, "_C", "°C", ("4", "95", "1", "0.1")),
+            (1, "_F", "°F", ("40", "204", "2", "0.1")),
+        ):
+            target = f"{root}_Tsoll"
+            maximum = f"{root}_Tmax"
+            ti, mi = 3588 + offset, 3591 + offset
+            mirrors = (
+                (target, ti, target + alias, ti + selector + 1),
+                (maximum, mi, maximum + alias, mi + selector + 1),
+            )
+            for name, index, other, other_index, direction, label in (
+                (target, ti, maximum, mi, "le", "target temperature"),
+                (maximum, mi, target, ti, "ge", "maximum temperature"),
+            ):
+                yield Setting(
+                    name,
+                    index,
+                    f"Solar store {slot} {label}",
+                    "number",
+                    True,
+                    limits=limits,
+                    unit=unit,
+                    dependencies=(
+                        *deps,
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    installed_by=installed,
+                    relative_constraints=(RelativeConstraint(other, other_index, direction),),
+                    compound_mirrors=mirrors,
+                    peer_limits=((other, limits),),
+                )
+        for suffix, index, bounds, unit, label in (
+            ("tMin", 3601, ("0", "300", "1", "1"), "s", "minimum runtime"),
+            ("MinDrehzahl", 3602, ("20", "100", "1", "1"), "%", "minimum speed"),
+        ):
+            yield Setting(
+                f"{root}_{suffix}",
+                index + offset,
+                f"Solar store {slot} {label}",
+                "number",
+                True,
+                limits=bounds,
+                unit=unit,
+                dependencies=deps,
+                installed_by=installed,
+            )
+
+
+BX_PLUS_SOLAR_STORE_SETTINGS = tuple(_solar_store_settings())
 
 
 def _heating_comfort_settings():

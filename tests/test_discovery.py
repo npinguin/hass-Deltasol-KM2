@@ -1078,6 +1078,25 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
+        self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 240)
+        self.assertEqual(len(configuration.BX_PLUS_SOLAR_STORE_SETTINGS), 70)
+        for setting in configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS:
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(
+                selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
+                setting.name.split("_")[2],
+            )
+        for setting in configuration.BX_PLUS_SOLAR_STORE_SETTINGS:
+            # Topology evidence must be volatile native references, not
+            # persistent configuration defaults or a guessed SystemId.
+            for ref in (setting.installed_by, *setting.dependencies[:2]):
+                definition = definitions[ref.name]
+                self.assertEqual(definition.index, ref.index)
+                self.assertEqual(definition.storage, "volatile")
+                self.assertTrue(
+                    {"SensorNr", "AktorNr", "RelaisNr", "AusgangNr"}
+                    .intersection(definition.metadata["type_chain"])
+                )
         self.assertEqual(len(configuration.BX_PLUS_TRANSFER_SETTINGS), 224)
         self.assertEqual(len(configuration.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS), 80)
         for setting in (

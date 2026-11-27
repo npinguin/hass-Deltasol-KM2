@@ -732,6 +732,85 @@ class ParameterTests(unittest.TestCase):
                 self.api.set_configuration(telemetry(), capability, 6, vendor)
         self.session.write_verified.assert_not_called()
 
+    def test_solar_defaults_are_not_installed_store_evidence(self):
+        self.session.read.return_value = 0x2734DABC
+        name = "Solar_Sp1_dTein"
+        setting = next(
+            s for s in parameters_configuration.BX_PLUS_SOLAR_STORE_SETTINGS
+            if s.name == name and s.unit == "K"
+        )
+        self.values.update(
+            {
+                "TemperatureHysteresisSelector": (60, 0),
+                "Solar_Sp1_Aktiviert_Modus": (3604, 1),
+            }
+        )
+        for parent, index, child, child_index in setting.compound_mirrors:
+            raw = {"dTein": 60, "dTaus": 40, "dTsoll": 100}[parent.rsplit("_", 1)[1]]
+            self.values[parent] = (index, raw)
+            self.values[child] = (child_index, raw)
+        hints = {
+            "Solar_Sp1_Sensor1_Nr": parameters.ParameterObservation(3576, 2, "read")
+        }
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        self.assertNotIn(name, controls())
+        self.values.update(
+            {
+                "Solar_Sp1_Sensor1_Nr": (3576, 2),
+                "Solar_Kol1_Sensor1_Nr": (3536, 1),
+                "Solar_Relais1_Nr": (3452, 1),
+            }
+        )
+        cap = controls()[name]
+        self.assertEqual(cap.value, 6)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, value, save), (0x7112, 3579, 70, True))
+            self.values[name] = (index, value)
+            self.values[name + "_K"] = (index + 1, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 7).value, 7)
+        for invalid in (4, 10, 7.25):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), cap, invalid)
+        del self.values["Solar_Relais1_Nr"]
+        self.assertNotIn(name, controls())
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 8)
+        self.session.write_verified.assert_called_once()
+
+    def test_circulation_temperature_requires_thermal_variant_and_order(self):
+        setting = next(
+            s for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            if s.name == "Heizung_Wf1_Zirkulation_TEin" and s.unit == "°C"
+        )
+        values = {
+            "Heizung_Wf1_Type": 4,
+            "Heizung_Wf1_Aktiviert_Modus": 1,
+            "Heizung_Wf1_Zirkulation_Variante": 0,
+            "TemperatureHysteresisSelector": 0,
+            setting.name: 400,
+            setting.name + "_C": 400,
+            "Heizung_Wf1_Zirkulation_TAus": 450,
+            "Heizung_Wf1_Zirkulation_TAus_C": 450,
+        }
+        self.assertTrue(setting.accepts(values, setting.encode(42)))
+        self.assertFalse(setting.accepts(values, setting.encode(45)))
+        values["Heizung_Wf1_Zirkulation_Variante"] = 1
+        self.assertFalse(setting.accepts(values))
+        values["Heizung_Wf1_Zirkulation_Variante"] = 2
+        self.assertTrue(setting.accepts(values))
+        values[setting.name + "_C"] = 410
+        self.assertFalse(setting.accepts(values))
+
     def test_configuration_numeric_and_dependency_contract(self):
         setting = parameters.Setting(
             "Setting",

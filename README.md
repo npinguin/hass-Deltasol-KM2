@@ -199,6 +199,19 @@ Owner authorized this independently usable corrective TEST following repeated fi
 
 The existing profile authorizes semantic writes, conditional relationships and storage actions; the exact pinned catalogue supplies numeric encoding and verifies identities, aliases and enum/boolean types at runtime once acquired. A mismatched definition is rejected, not silently converted to a writable entity. Previously source-verified exact-profile settings remain usable before initial catalogue acquisition. Explicitly corroborated integer-step, duration and HQM-factor encoding exceptions are centralized in the existing typed model. No new writer, state store, or vendor-data redistribution. The normal foreground poll also rotates at most four authorized native function selectors per refresh; newer observations supersede capture hints, while all action conditions are re-read independently. Newly enabled native functions do not require another full Discovery. A complete historical capture remains unchanged. Returning a speed-controlled relay to Auto re-evaluates its controls even when its volatile role was unresolved. All authorized contracts must bind to the exact vendor archive in the source test.
 
+### Additional operating controls (development)
+
+Native irradiation thresholds/duration, return-preheat summer switch-off,
+thermal circulation temperatures, DHW preheat differential and speed/delay
+parameters reuse the existing typed writer and selected-unit checks. Basic
+solar store differential, rise, target/maximum temperatures, minimum runtime
+and speed are conditional on positively resolved live native store/collector
+sensor and solar output references and active mode. The firmware's readable
+defaults do not establish an installed store. No inferred SystemId mapping,
+topology edit, emergency-limit change or automatic write. Exact archive
+binding and developer tests cover layout and conditional rejection; no
+physical solar installation has yet been qualified.
+
 ### Native operating thresholds and speed control (development)
 
 The BX Plus 2.03 manual (pp. 17, 57–58) establishes minimum/maximum speed as native output adjustments when speed control is enabled, and heat exchange/solid fuel source minimum and sink maximum as independent operational thresholds. Exact 2.08 metadata and completed field capture corroborate the wire layout. The existing unique controller/EM registration, live speed-enabled/Auto state, exact parameter identity and ordered 20–100% pair remain mandatory. An unresolved volatile role does not block the native output; explicit contrary role or other lookup failure does. No cross-namespace ordinal inference. Operational source/sink thresholds and rise, plus already-enabled solid-fuel target/mixer and function-block differential, use exact bounds, active function, live option dependencies, selected-unit parent/child equality where applicable and the same save/readback writer. The output scope is native speed adjustment, not inferred hydraulic ownership. No automatic adjustment, topology changes or certified protection overrides. Installer settings can affect heat transfer; use only validated installation-specific values. Physical writes remain unverified. Development, not published.
