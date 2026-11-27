@@ -1,7 +1,6 @@
 """Regression tests for profile, device, mode and parameter write gates."""
 
 import asyncio
-import dataclasses
 import importlib
 import sys
 import types
@@ -316,7 +315,7 @@ class ParameterTests(unittest.TestCase):
         self.session.read.return_value = 0x2734DABC
         self.activate_modules()
         minimum, maximum = parameters_configuration.BX_PLUS_PUMP_SETTINGS[10:12]
-        role = minimum.installed_by
+        role = minimum.optional_role
         self.values.update(
             {
                 role.name: (role.index, 2),
@@ -362,7 +361,7 @@ class ParameterTests(unittest.TestCase):
             self.values[name] = (index, valid)
         self.session.write_verified.assert_called_once()
 
-    def test_pump_assignment_requires_own_reference_and_unresolved_role(self):
+    def test_pump_native_speed_control_without_volatile_role(self):
         self.session.read.return_value = 0x2734DABC
         self.values.update(
             {
@@ -370,74 +369,87 @@ class ParameterTests(unittest.TestCase):
                 "Relais_Regler_R1_ODrehzahl": (1973, 1),
                 "Relais_Regler_R1_MinDrehzahl": (1974, 30),
                 "Relais_Regler_R1_MaxDrehzahl": (1975, 80),
-                "Relais_Regler_R1_Nr": (1969, 1),
-                "Anlage_Wf1_Type": (6559, 6),
-                "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
-                "Anlage_Wf1_Relais1_Nr": (6592, 1),
             }
         )
-        hints = {"Anlage_Wf1_Type": parameters.ParameterObservation(6559, 6, "read")}
 
         def pumps():
             return {
                 cap.setting.name: cap
-                for cap in self.api.discover(telemetry(), hints).configuration.values()
+                for cap in self.api.discover(telemetry()).configuration.values()
                 if cap.setting.owner_relay is not None
             }
 
         name = "Relais_Regler_R1_MinDrehzahl"
-        # The bounded TEST must not authorize this uncorroborated namespace.
-        self.assertFalse(pumps())
-        self.session.write_verified.assert_not_called()
-        # Exercise the retained candidate contract in isolation only, so its
-        # existing negative and ambiguity checks are not lost.
-        profile = parameters.PROFILES[0]
-        candidate = dataclasses.replace(
-            profile,
-            settings=(
-                *profile.settings,
-                *parameters_configuration.BX_PLUS_PUMP_ASSIGNMENT_SETTINGS,
-            ),
-        )
-        patcher = patch.object(parameters, "PROFILES", (candidate,))
-        patcher.start()
-        self.addCleanup(patcher.stop)
         caps = pumps()
         self.assertEqual(len(caps), 2)
         cap = caps[name]
-        self.assertIsNotNone(cap.setting.output_assignment)
 
         def write(address, index, value, changeset, *, save):
-            self.assertEqual((index, value, save), (1974, 40, True))
+            self.assertEqual((address, index, value, save), (0x7112, 1974, 40, True))
             self.values[name] = (index, value)
             return value
 
         self.session.write_verified.side_effect = write
         self.assertEqual(self.api.set_configuration(telemetry(), cap, 40).value, 40)
-        # A second installed native function may conflict with a previously
-        # registered control; the direct action must not use stale ownership.
+        # Explicit non-pump role and wrong resolved index remain disqualifying.
+        role = "Relais_Regler_R1_AktorFunktion"
+        for row in ((1971, 3), (1972, 2)):
+            self.values[role] = row
+            self.assertFalse(pumps())
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), cap, 50)
+        del self.values[role]
+        self.values["Relais_Regler_R1_ODrehzahl"] = (1973, 0)
+        self.assertFalse(pumps())
+        self.session.write_verified.assert_called_once()
+
+    def test_transfer_thresholds_use_independent_sensors_and_selected_alias(self):
+        self.session.read.return_value = 0x2734DABC
+        name = "Anlage_Wf1_Feststoffkessel_TMin"
+        target = next(
+            setting
+            for setting in parameters_configuration.BX_PLUS_TRANSFER_SETTINGS
+            if setting.name == name and setting.unit == "°C"
+        )
         self.values.update(
             {
-                "Anlage_Wf2_Type": (6810, 6),
-                "Anlage_Wf2_Aktiviert_Modus": (6817, 1),
-                "Anlage_Wf2_Relais1_Nr": (6843, 1),
+                "Anlage_Wf1_Type": (6559, 6),
+                "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
+                "TemperatureHysteresisSelector": (60, 0),
+                name: (6675, 600),
+                name + "_C": (6676, 600),
+                "Anlage_Wf1_Feststoffkessel_TMax": (6672, 600),
+                "Anlage_Wf1_Feststoffkessel_TMax_C": (6673, 600),
             }
         )
+        hints = {"Anlage_Wf1_Type": parameters.ParameterObservation(6559, 6, "read")}
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        cap = controls()[name]
+        self.assertEqual(cap.setting, target)
+        self.assertEqual(cap.value, 60)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, value, save), (0x7112, 6675, 650, True))
+            self.values[name] = (index, value)
+            self.values[name + "_C"] = (index + 1, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        # Different sensors: a source minimum above the sink maximum is valid.
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 65).value, 65)
+        for invalid in (96, 3, 65.5):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), cap, invalid)
+        self.values[name + "_C"] = (6676, 600)
+        self.assertNotIn(name, controls())
         with self.assertRaises(parameters.VBusError):
-            self.api.set_configuration(telemetry(), cap, 50)
-        self.values["Anlage_Wf2_Type"] = (6810, 0)
-        self.values["Anlage_Wf1_Relais1_Nr"] = (6592, 2)
-        self.assertFalse(pumps())
-        with self.assertRaises(parameters.VBusError):
-            self.api.set_configuration(telemetry(), cap, 50)
-        self.values["Anlage_Wf1_Relais1_Nr"] = (6592, 1)
-        self.values["Relais_Regler_R1_AktorFunktion"] = (1971, 3)
-        self.assertFalse(pumps())
-        with self.assertRaises(parameters.VBusError):
-            self.api.set_configuration(telemetry(), cap, 50)
-        del self.values["Relais_Regler_R1_AktorFunktion"]
-        del self.values["Relais_Regler_R1_Nr"]
-        self.assertFalse(pumps())
+            self.api.set_configuration(telemetry(), cap, 70)
         self.session.write_verified.assert_called_once()
 
     def test_heating_comfort_requires_applicable_native_configuration(self):

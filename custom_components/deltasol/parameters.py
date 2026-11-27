@@ -25,6 +25,7 @@ from .configuration import (
     BX_PLUS_SETTINGS,
     BX_PLUS_THERMOSTAT_SETTINGS,
     BX_PLUS_TIMING_SETTINGS,
+    BX_PLUS_TRANSFER_SETTINGS,
     ConfigurationCapability,
     Setting,
     encode_action,
@@ -112,9 +113,8 @@ PROFILES = (
             *BX_PLUS_HEATING_SETTINGS,
             *BX_PLUS_HEATING_COMFORT_SETTINGS,
             *BX_PLUS_PUMP_SETTINGS,
-            # Alternative assignment namespaces are not corroborated yet.
-            # Keep direct, positively identified pump roles above.
             *BX_PLUS_DIFFERENTIAL_SETTINGS,
+            *BX_PLUS_TRANSFER_SETTINGS,
             *BX_PLUS_THERMOSTAT_SETTINGS,
             *BX_PLUS_TIMING_SETTINGS,
             *BX_PLUS_LOADING_SETTINGS,
@@ -318,9 +318,17 @@ def _read_settings(
     ambiguous = set()
     rejected = set()
     for setting in settings:
-        if setting.unresolved_role:
-            role = observed.get(setting.unresolved_role.name)
-            if role is None or role.status != "not_resolved" or role.index is not None:
+        if setting.optional_role:
+            dependency = setting.optional_role
+            role = observed.get(dependency.name)
+            if role is None or not (
+                (role.status == "not_resolved" and role.index is None)
+                or (
+                    role.status == "read"
+                    and role.index == dependency.index
+                    and dependency.matches({dependency.name: role.value})
+                )
+            ):
                 continue
         device = find_device(inventory, setting.owner_address or profile.address)
         if (

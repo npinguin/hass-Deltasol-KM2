@@ -1028,14 +1028,29 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
-        self.assertEqual(len(configuration.BX_PLUS_PUMP_ASSIGNMENT_SETTINGS), 480)
-        for setting in configuration.BX_PLUS_PUMP_ASSIGNMENT_SETTINGS:
+        self.assertEqual(len(configuration.BX_PLUS_TRANSFER_SETTINGS), 224)
+        for setting in configuration.BX_PLUS_TRANSFER_SETTINGS:
+            parent = definitions[setting.name]
+            self.assertEqual(parent.index, setting.index)
+            self.assertEqual(parent.storage, "abstract")
+            self.assertTrue(parent.metadata["compound_parent_read_candidate"])
+            self.assertEqual(
+                parent.metadata["selector_ref"], "TemperatureHysteresisSelector"
+            )
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(
+                selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
+                setting.name.split("_")[2],
+            )
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
-            assignment, _, relay, _ = setting.output_assignment
-            self.assertIn("AktorNr", definitions[assignment].metadata["type_chain"])
-            self.assertEqual(definitions[relay].storage, "abstract")
-            self.assertIn("RelaisNr", definitions[relay].metadata["type_chain"])
+            for name, _, alias, _ in setting.compound_mirrors:
+                child = definitions[alias]
+                self.assertEqual(child.metadata["compound_ref"], name)
+                self.assertEqual(
+                    catalog.numeric_encoding(child),
+                    tuple(Decimal(v) for v in setting.limits),
+                )
         self.assertEqual(len(configuration.BX_PLUS_PUMP_SETTINGS), 30)
         for setting in configuration.BX_PLUS_PUMP_SETTINGS:
             target = definitions[setting.name]
@@ -1048,8 +1063,8 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(target.metadata["unit"], "%")
             self.assertFalse(target.metadata.get("compound_ref"))
             self.assertFalse(target.metadata.get("selector_ref"))
-            role = definitions[setting.installed_by.name]
-            self.assertEqual(role.index, setting.installed_by.index)
+            role = definitions[setting.optional_role.name]
+            self.assertEqual(role.index, setting.optional_role.index)
             for raw, semantic_id in configuration.PUMP_ROLES:
                 self.assertEqual(role.metadata["value_text"][raw]["id"], semantic_id)
             for name, index in setting.expected.items():

@@ -95,10 +95,10 @@ class Setting:
     # Each tuple describes a parent and its selected child. Read both live
     # before accepting any adjustment; never issue a write to a child alias.
     compound_mirrors: tuple[tuple[str, int, str, int], ...] = ()
-    # Alternative pump ownership: positively read native output assignment
-    # and the relay's own reference. Never infer an address from its ordinal.
-    output_assignment: tuple[str, int, str, int] | None = None
-    unresolved_role: Dependency | None = None
+    # Native speed control is an output property (BX Plus manual, p. 17).
+    # A missing volatile role is permitted only with positive speed evidence;
+    # explicit contrary role or lookup errors remain disqualifying.
+    optional_role: Dependency | None = None
     # Exact encoding bounds for sibling settings that participate in a
     # compound transaction. Their current values must also be valid.
     peer_limits: tuple[tuple[str, tuple[str, str, str, str]], ...] = ()
@@ -175,25 +175,12 @@ class Setting:
         for parent, index, child, child_index in self.compound_mirrors:
             result[parent] = index
             result[child] = child_index
-        if self.output_assignment:
-            assignment, index, relay, relay_index = self.output_assignment
-            result[assignment] = index
-            result[relay] = relay_index
-        if self.unresolved_role:
-            result[self.unresolved_role.name] = self.unresolved_role.index
+        if self.optional_role:
+            result[self.optional_role.name] = self.optional_role.index
         return result
 
     def accepts(self, values, requested=None):
         raw = values.get(self.name) if requested is None else requested
-        if self.output_assignment:
-            assignment, _, relay, _ = self.output_assignment
-            reference = values.get(relay)
-            if (
-                type(reference) is not int
-                or reference <= 0
-                or values.get(assignment) != reference
-            ):
-                return False
         return (
             self.decode(raw) is not None
             and all(
@@ -461,7 +448,7 @@ def _pump_settings(prefix, address, first_mode_index):
                 relative_constraints=(
                     RelativeConstraint(other, other_index, operation),
                 ),
-                installed_by=installed,
+                optional_role=installed,
                 owner_relay=number,
             )
 
@@ -483,7 +470,8 @@ BX_PLUS_PUMP_SETTINGS = tuple(
 # The MIT BaseConfigurationOptimizer identifies the compound parent as
 # adjustable. Require independently resolved parent AND selected child,
 # matching live values, exact installed type, active function and ordering.
-# Keep safety min/max temperature limits and topology read-only.
+# Operational source/sink thresholds are separate from protection limits.
+# Keep certified protection, topology and output reassignment read-only.
 # Two selector variants use the same logical entity ID and parent index.
 DIFFERENTIAL_FAMILIES = (
     (
@@ -589,39 +577,81 @@ def _differential_settings():
 BX_PLUS_DIFFERENTIAL_SETTINGS = tuple(_differential_settings())
 
 
-def _pump_assignment_settings():
-    """Use native free-relay assignment as alternate positive pump evidence.
+def _transfer_temperature_settings():
+    """Native operational thresholds, rise and enabled target temperature.
 
-    The vendor manual specifies exclusive allocation of a free relay and
-    identifies heat exchange and solid fuel functions as pump-controlled.
-    Only their primary output, with its own independently resolved relay
-    reference, is eligible. A positive role or any explicit contrary role
-    result takes precedence; the fallback is only for unresolved lookups.
+    BX Plus manual 2.03, pp. 17 and 57–58: source minimum and sink maximum
+    refer to different sensors; they are not a same-sensor ordered pair.
+    Exact 2.08 menu and selected aliases establish encoding. No topology
+    changes, boiler-protection overrides or option activation are exposed.
     """
-    for setting in BX_PLUS_PUMP_SETTINGS:
-        role = setting.installed_by
-        relay_name = role.name.removesuffix("_AktorFunktion") + "_Nr"
-        for slot in range(1, 17):
-            offset = (slot - 1) * 251
-            root = f"Anlage_Wf{slot}"
-            yield replace(
-                setting,
-                installed_by=Dependency(f"{root}_Type", 6559 + offset, (5, 6)),
-                dependencies=(
-                    *setting.dependencies,
-                    Dependency(f"{root}_Aktiviert_Modus", 6566 + offset, (1,)),
-                ),
-                output_assignment=(
-                    f"{root}_Relais1_Nr",
-                    6592 + offset,
-                    relay_name,
-                    role.index - 2,
-                ),
-                unresolved_role=role,
-            )
+    for slot in range(1, 17):
+        offset = (slot - 1) * 251
+        root = f"Anlage_Wf{slot}"
+        for family, ordinal, maximum, minimum, rise, c_low, f_low in (
+            ("Waermeaustausch", 5, 6651, 6654, 6660, "10", "50"),
+            ("Feststoffkessel", 6, 6672, 6675, 6678, "4", "40"),
+        ):
+            prefix = f"{root}_{family}"
+            installed = Dependency(f"{root}_Type", 6559 + offset, (ordinal,))
+            activity = Dependency(f"{root}_Aktiviert_Modus", 6566 + offset, (1, 2))
+            entries = [
+                ("TMin", minimum, "source minimum temperature", c_low, f_low),
+                ("TMax", maximum, "sink maximum temperature", c_low, f_low),
+            ]
+            if ordinal == 6:
+                entries.append(
+                    ("Zieltemperatur_TZiel", 6682, "target temperature", "30", "86")
+                )
+            for selector, suffix, unit, low, step in (
+                (0, "_C", "°C", 0, "1"),
+                (1, "_F", "°F", 1, "2"),
+            ):
+                selected = Dependency("TemperatureHysteresisSelector", 60, (selector,))
+                for name, index, label, c_min, f_min in entries:
+                    name = f"{prefix}_{name}"
+                    index += offset
+                    target = name.endswith("_TZiel")
+                    extra = (
+                        (Dependency(f"{prefix}_OZieltemperatur", 6681 + offset, (1,)),)
+                        if target
+                        else ()
+                    )
+                    upper = ("85", "186") if target else ("95", "204")
+                    yield Setting(
+                        name,
+                        index,
+                        f"Arrangement function {slot} {family} {label}",
+                        "number",
+                        True,
+                        limits=((c_min, f_min)[low], upper[low], step, "0.1"),
+                        unit=unit,
+                        dependencies=(activity, selected, *extra),
+                        installed_by=installed,
+                        compound_mirrors=((name, index, name + suffix, index + selector + 1),),
+                    )
+                name = f"{prefix}_Anstieg"
+                index = rise + offset
+                bounds = ("1", "20", "0.5", "0.1") if selector == 0 else (
+                    "2", "40", "1", "0.1"
+                )
+                yield Setting(
+                    name,
+                    index,
+                    f"Arrangement function {slot} {family} modulation rise",
+                    "number",
+                    True,
+                    limits=bounds,
+                    unit="K" if selector == 0 else "°R",
+                    dependencies=(activity, selected),
+                    installed_by=installed,
+                    compound_mirrors=(
+                        (name, index, name + ("_K" if selector == 0 else "_R"), index + selector + 1),
+                    ),
+                )
 
 
-BX_PLUS_PUMP_ASSIGNMENT_SETTINGS = tuple(_pump_assignment_settings())
+BX_PLUS_TRANSFER_SETTINGS = tuple(_transfer_temperature_settings())
 
 
 def _thermostat_settings():
