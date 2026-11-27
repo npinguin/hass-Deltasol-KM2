@@ -1012,9 +1012,7 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 definitions[prefix + "_Type"].index, 4409 + (slot - 1) * 120
             )
-            self.assertEqual(
-                definitions[prefix + "_Nr"].index, 4410 + (slot - 1) * 120
-            )
+            self.assertEqual(definitions[prefix + "_Nr"].index, 4410 + (slot - 1) * 120)
         # Corroborate the production write contracts against the exact RPT,
         # not the earlier optimizer indices.
         configuration = importlib.import_module(f"{PACKAGE}.configuration")
