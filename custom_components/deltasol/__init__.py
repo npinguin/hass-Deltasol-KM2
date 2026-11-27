@@ -560,6 +560,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             "VBus write acknowledgement differs",
             "VBus write readback differs",
             "Configuration reconnect readback differs",
+            "Configuration parameter is no longer supported",
+            "Configuration conditional constraint rejected",
         ):
             await self.async_refresh()
 
@@ -632,10 +634,12 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
     async def async_set_mode(self, unique_id, option):
         """Do not accept calls that bypass entity availability."""
         try:
-            await self._async_set_mode(unique_id, option)
+            refresh_dependents = await self._async_set_mode(unique_id, option)
         except VBusError as error:
             await self._async_action_failed(error)
             raise HomeAssistantError(str(error)) from error
+        if refresh_dependents:
+            await self.async_refresh()
 
     async def _async_set_mode(self, unique_id, option):
         async with self._lock:
@@ -665,9 +669,38 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             except VBusError as error:
                 self.async_set_update_error(error)
                 raise
+            # Manual mode is a prerequisite of pump settings. Invalidate
+            # dependent controls immediately rather than leave writable stale
+            # projections until the next scheduled parameter refresh.
+            dependents = {
+                uid: cap
+                for uid, cap in self.data.configuration.items()
+                if capability.name in cap.setting.expected
+            }
+            remaining = {
+                uid: cap
+                for uid, cap in self.data.configuration.items()
+                if uid not in dependents
+            }
             self.async_set_updated_data(
                 replace(
                     self.data,
                     capabilities={**self.data.capabilities, unique_id: capability},
+                    configuration=remaining,
+                )
+            )
+            # Returning to Auto can restore settings invalidated by a previous
+            # manual operation, but do not add extra polls to unrelated relays.
+            if dependents:
+                return True
+            hints = self._configuration_hints()
+            return bool(
+                self.data.profile
+                and option == "Auto"
+                and any(
+                    setting.installed_by
+                    and setting.installed_by.name in hints
+                    and capability.name in setting.expected
+                    for setting in self.data.profile.settings_for(capability.changeset)
                 )
             )
