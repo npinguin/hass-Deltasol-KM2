@@ -295,7 +295,7 @@ async def _async_catalog(hass, source, *, acquire=False):
         return await hass.async_add_executor_job(download_catalog, path, source)
 
 
-async def _async_restore_capture(hass, runtime):
+async def _async_restore_capture(hass, runtime, *, catalog=None):
     """Restore only against the current verified controller and exact local archive."""
     if not runtime.coordinator.api.supports_parameter_access:
         return False
@@ -305,7 +305,8 @@ async def _async_restore_capture(hass, runtime):
             runtime.checkpoint_error = None
             return False
         controller, source = _catalog_identity(runtime)
-        catalog = await _async_catalog(hass, source)
+        if catalog is None:
+            catalog = await _async_catalog(hass, source)
         capture = ConfigurationCapture.restore(
             stored["capture"], catalog, controller, source.changeset
         )
@@ -323,6 +324,9 @@ async def _async_restore_capture(hass, runtime):
         )
         runtime.checkpoint_error = None
         return True
+    except CatalogMissing:
+        runtime.checkpoint_error = "checkpoint_catalogue_missing"
+        return False
     except (
         CatalogError,
         VBusError,
@@ -346,7 +350,10 @@ async def _async_restore_and_resume(hass, entry, runtime):
             if runtime.resume_on_load and runtime.capture.status == "paused":
                 await _start_capture(hass, entry, runtime)
             runtime.notify_capture()
-        elif runtime.checkpoint_error is None and runtime.auto_start_task is None:
+        elif (
+            runtime.checkpoint_error in (None, "checkpoint_catalogue_missing")
+            and runtime.auto_start_task is None
+        ):
             runtime.auto_start_task = entry.async_create_background_task(
                 hass,
                 _async_start_initial_capture(hass, entry, runtime),
@@ -357,10 +364,11 @@ async def _async_restore_and_resume(hass, entry, runtime):
 
 
 async def _async_start_initial_capture(hass, entry, runtime):
-    """Acquire the pinned catalogue once outside setup; never overwrite a checkpoint."""
+    """Acquire the pinned catalogue once outside setup; never replace a checkpoint."""
     async with runtime.capture_lock:
         if runtime.closing or runtime.capture is not None:
             return
+        restore_required = runtime.checkpoint_error == "checkpoint_catalogue_missing"
         try:
             controller, source = _catalog_identity(runtime)
         except (CatalogError, VBusError):
@@ -385,6 +393,12 @@ async def _async_start_initial_capture(hass, entry, runtime):
             return
         if (current_controller, current_source) != (controller, source):
             runtime.checkpoint_error = "discovery_controller_unverified"
+            runtime.notify_capture()
+            return
+        if restore_required:
+            if await _async_restore_capture(hass, runtime, catalog=catalog):
+                if runtime.resume_on_load and runtime.capture.status == "paused":
+                    await _start_capture(hass, entry, runtime)
             runtime.notify_capture()
             return
         runtime.capture = ConfigurationCapture(catalog, controller, source.changeset)

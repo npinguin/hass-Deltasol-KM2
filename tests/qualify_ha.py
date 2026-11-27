@@ -11,6 +11,7 @@ import socketserver
 import struct
 import sys
 import threading
+from contextlib import nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import MappingProxyType
@@ -427,11 +428,81 @@ async def qualify(directory, phase):
         },
         "deltasol": {},
     }
+    # Load the installed candidate's own catalogue types from the actual
+    # isolated HA config directory, before entry setup can start Discovery.
+    sys.path.insert(0, str(directory))
+    from custom_components.deltasol.catalog import Catalog, CatalogError, Definition
+
+    display = registry.async_get_entity_id(
+        "select",
+        "deltasol",
+        "isolated-gateway_7112_TemperatureHysteresisSelector_configuration",
+    )
+    daylight = registry.async_get_entity_id(
+        "switch",
+        "deltasol",
+        "isolated-gateway_7112_AutoSommerWinterzeit_configuration",
+    )
+    assert display and daylight
+    assert (
+        registry.async_get(display).device_id
+        == registry.async_get(sensor).device_id
+    )
+    assert registry.async_get(display).entity_category == "config"
+    assert hass.states.get(display).state == ("°F" if phase == "restart" else "°C")
+    assert hass.states.get(daylight).state == (
+        "off" if phase == "restart" else "on"
+    )
+    assert (
+        diagnostic["configuration_controls"]["TemperatureHysteresisSelector"][
+            "write_access"
+        ]
+        == "profile_verified"
+    )
+    assert Peer.saves == 0
+
+    fixture = Catalog(
+        "isolated-test-catalogue",
+        (
+            Definition(
+                "Schema", 86, "unspecified", "Number", {"type_chain": ["Number"]}
+            ),
+            Definition(
+                "Relais_Regler_R4_Handbetrieb", RELAY, "volatile", "Handbetrieb", {}
+            ),
+            Definition("Missing", 123, "unspecified", None, {}),
+            Definition("Password", 124, "persistent", "Number", {}, "sensitive"),
+            Definition("Bedienercode", 55, "unspecified", "Number", {}),
+        ),
+    )
+    if phase == "upgrade":
+        initial_catalog = patch(
+            "custom_components.deltasol.load_catalog", return_value=fixture
+        )
+    elif phase == "restart":
+        # A temporarily unusable catalogue must not overwrite the checkpoint.
+        # The existing reload test below then restores the verified fixture.
+        initial_catalog = patch(
+            "custom_components.deltasol.load_catalog",
+            side_effect=CatalogError("Qualification catalogue unavailable"),
+        )
+    else:
+        initial_catalog = nullcontext()
     stopped = False
     try:
-        assert await bootstrap.async_from_config_dict(config, hass) is hass
-        await hass.async_start()
-        await hass.async_block_till_done()
+        with initial_catalog:
+            assert await bootstrap.async_from_config_dict(config, hass) is hass
+            await hass.async_start()
+            await hass.async_block_till_done()
+            if phase == "upgrade":
+                (initial_entry,) = hass.config_entries.async_entries("deltasol")
+                initial = initial_entry.runtime_data
+                assert initial.auto_start_task is not None
+                await initial.auto_start_task
+                assert initial.capture_task is not None
+                await initial.capture_task
+                assert initial.capture.status == "complete"
+                assert initial.capture.offset == 3 and Peer.writes == 0
         if phase == "baseline":
             flow = hass.config_entries.flow
             result = await flow.async_init(
@@ -574,50 +645,6 @@ async def qualify(directory, phase):
         assert flags["Modul1_Aktiviert"]["raw_value"] == 1
         assert flags["Modul1_Vorhanden"]["status"] == "read"
         assert Peer.writes == 0
-        from custom_components.deltasol.catalog import Catalog, Definition
-
-        display = registry.async_get_entity_id(
-            "select",
-            "deltasol",
-            "isolated-gateway_7112_TemperatureHysteresisSelector_configuration",
-        )
-        daylight = registry.async_get_entity_id(
-            "switch",
-            "deltasol",
-            "isolated-gateway_7112_AutoSommerWinterzeit_configuration",
-        )
-        assert display and daylight
-        assert (
-            registry.async_get(display).device_id
-            == registry.async_get(sensor).device_id
-        )
-        assert registry.async_get(display).entity_category == "config"
-        assert hass.states.get(display).state == ("°F" if phase == "restart" else "°C")
-        assert hass.states.get(daylight).state == (
-            "off" if phase == "restart" else "on"
-        )
-        assert (
-            diagnostic["configuration_controls"]["TemperatureHysteresisSelector"][
-                "write_access"
-            ]
-            == "profile_verified"
-        )
-        assert Peer.saves == 0
-
-        fixture = Catalog(
-            "isolated-test-catalogue",
-            (
-                Definition(
-                    "Schema", 86, "unspecified", "Number", {"type_chain": ["Number"]}
-                ),
-                Definition(
-                    "Relais_Regler_R4_Handbetrieb", RELAY, "volatile", "Handbetrieb", {}
-                ),
-                Definition("Missing", 123, "unspecified", None, {}),
-                Definition("Password", 124, "persistent", "Number", {}, "sensitive"),
-                Definition("Bedienercode", 55, "unspecified", "Number", {}),
-            ),
-        )
         config_fixture = Catalog(
             "isolated-full-configuration",
             (
@@ -646,11 +673,14 @@ async def qualify(directory, phase):
         progress = registry.async_get_entity_id(
             "sensor", "deltasol", f"{entry.entry_id}_configuration_discovery_status"
         )
-        assert progress and hass.states.get(progress).state == "not_started"
+        expected_status = "complete" if phase == "upgrade" else "not_started"
+        assert progress and hass.states.get(progress).state == expected_status
         percent = registry.async_get_entity_id(
             "sensor", "deltasol", f"{entry.entry_id}_configuration_discovery_progress"
         )
-        assert percent and float(hass.states.get(percent).state) == 0
+        assert percent and float(hass.states.get(percent).state) == (
+            100 if phase == "upgrade" else 0
+        )
         assert hass.states.get(percent).attributes["unit_of_measurement"] == "%"
         assert (
             registry.async_get(percent).device_id
@@ -658,7 +688,12 @@ async def qualify(directory, phase):
         )
         for entity_id in (button, progress, percent):
             assert registry.async_get(entity_id).entity_category == "diagnostic"
-        assert diagnostic["configuration_discovery"]["status"] == "not_started"
+        assert diagnostic["configuration_discovery"]["status"] == expected_status
+        if phase == "restart":
+            assert (
+                diagnostic["configuration_discovery"]["checkpoint_error"]
+                == "checkpoint_incompatible"
+            )
         with patch(
             "custom_components.deltasol.load_catalog",
             return_value=config_fixture if phase == "restart" else fixture,
@@ -1020,6 +1055,29 @@ async def qualify(directory, phase):
             assert hass.states.get(select).state == "Off"
             assert hass.states.get(display).state == "°C"
             assert Peer.mode == 0 and Peer.settings[60] == 0
+
+            # An intentional pause must survive a reload without auto-start.
+            active = await start_held_capture()
+            started_at = active.started_at
+            try:
+                await hass.services.async_call(
+                    "button", "press", {"entity_id": button}, blocking=True
+                )
+            finally:
+                Peer.offer_release.set()
+            await entry.runtime_data.capture_task
+            assert active.status == "paused" and 0 < active.offset < 3
+            assert await hass.config_entries.async_reload(entry.entry_id)
+            paused = entry.runtime_data.capture
+            assert paused.started_at == started_at and paused.offset == active.offset
+            assert paused.status == "paused"
+            assert entry.runtime_data.capture_task is None
+            assert entry.runtime_data.auto_start_task is None
+            await hass.services.async_call(
+                "button", "press", {"entity_id": button}, blocking=True
+            )
+            await entry.runtime_data.capture_task
+            assert paused.status == "complete" and paused.offset == 3
 
             # Reload while an actual read is in progress. The committed batch
             # must survive and the same capture must resume, not restart.
