@@ -432,9 +432,7 @@ class ParameterTests(unittest.TestCase):
                 setting.name: (setting.index, 180),
             }
         )
-        hints = {
-            "Heizung_Wf1_Type": parameters.ParameterObservation(11266, 4, "read")
-        }
+        hints = {"Heizung_Wf1_Type": parameters.ParameterObservation(11266, 4, "read")}
         cap = next(iter(self.api.discover(telemetry(), hints).configuration.values()))
         self.assertEqual(cap.value, 180)
         self.assertEqual(cap.setting.unit, "s")

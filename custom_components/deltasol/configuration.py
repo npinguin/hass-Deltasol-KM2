@@ -57,7 +57,10 @@ class RelativeConstraint:
                 type(raw) is int
                 and type(current) is int
                 and type(other) is int
-                and ((current < other and raw < other) or (current > other and raw > other))
+                and (
+                    (current < other and raw < other)
+                    or (current > other and raw > other)
+                )
             )
         compare = {"lt": lt, "le": le, "gt": gt, "ge": ge, "ne": ne}.get(self.operation)
         return (
@@ -621,7 +624,9 @@ def _thermostat_settings():
                         dependencies=(
                             active,
                             enabled,
-                            Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                            Dependency(
+                                "TemperatureHysteresisSelector", 60, (selector,)
+                            ),
                         ),
                         relative_constraints=(
                             RelativeConstraint(other, other_index, "preserve_order"),
@@ -661,7 +666,9 @@ def _timing_settings():
                 unit="min",
                 dependencies=(
                     Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (1, 2)),
-                    Dependency(f"{arrangement}_Parallelrelais_{flag}", flag_index + ao, (1,)),
+                    Dependency(
+                        f"{arrangement}_Parallelrelais_{flag}", flag_index + ao, (1,)
+                    ),
                 ),
                 installed_by=Dependency(f"{arrangement}_Type", 6559 + ao, (1,)),
             )
@@ -707,9 +714,7 @@ def _timing_settings():
             True,
             limits=("1", "48", "1", "1"),
             unit="h",
-            dependencies=(
-                Dependency(f"{solar}_Aktiviert_Modus", 4415 + so, (1, 2)),
-            ),
+            dependencies=(Dependency(f"{solar}_Aktiviert_Modus", 4415 + so, (1, 2)),),
             installed_by=Dependency(f"{solar}_Type", 4409 + so, (11,)),
         )
 
