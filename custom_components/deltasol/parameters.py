@@ -325,7 +325,7 @@ def _read_settings(
         ):
             continue
         if requested is not None and not setting.accepts(values, requested):
-            raise VBusError("Configuration conditional constraint rejected")
+            continue
         capability = ConfigurationCapability(
             setting, controller, device, changeset, values[setting.name]
         )
@@ -672,22 +672,79 @@ class RelayParameters:
             raise VBusError("Configuration capability or controller identity changed")
         setting = capability.setting
         wanted = encode_action(setting, value)
+        # A logical setting can have several firmware contracts (unit variant,
+        # assignment evidence). Recheck competing live contracts, not just the
+        # one in an older entity snapshot. First read selectors to bound work.
+        alternatives = tuple(
+            candidate
+            for candidate in profile.settings_for(capability.changeset)
+            if candidate.name == setting.name
+        )
+
+        def current_contract(session):
+            selectors = {
+                candidate.installed_by.name: candidate.installed_by.index
+                for candidate in alternatives
+                if candidate.installed_by
+            }
+            observed = (
+                session.read_parameter_observations(
+                    profile.address,
+                    selectors,
+                    capability.changeset,
+                    expected=selectors,
+                    schema=profile.schema_index,
+                )
+                if selectors
+                else {}
+            )
+            values = {
+                name: row.value
+                for name, row in observed.items()
+                if row.status == "read" and row.index == selectors[name]
+            }
+            candidates = tuple(
+                candidate
+                for candidate in alternatives
+                if candidate.installed_by is None
+                or candidate.installed_by.matches(values)
+            )
+            return _read_settings(
+                session,
+                profile,
+                capability.changeset,
+                candidates,
+                controller,
+                inventory,
+            ).get(capability.unique_id), candidates
+
         # Hold the existing owner lock across both sessions. Never retry a save
         # when acknowledgement, release or verification is uncertain.
         with self._lock:
             with self._session(profile.address) as session:
-                current = _read_settings(
+                current, candidates = current_contract(session)
+                if (
+                    current is None
+                    or current.device != capability.device
+                    or current.setting != setting
+                ):
+                    raise VBusError("Configuration parameter is no longer supported")
+                if current.raw == wanted:
+                    return current
+                # Repeat exact validation including the requested value; require
+                # the same contract rather than permitting a unit/owner change.
+                accepted = _read_settings(
                     session,
                     profile,
                     capability.changeset,
-                    (setting,),
+                    candidates,
                     controller,
                     inventory,
                     requested=wanted,
                 ).get(capability.unique_id)
-                if current is None or current.device != capability.device:
-                    raise VBusError("Configuration parameter is no longer supported")
-                if current.raw == wanted:
+                if accepted is None or accepted.setting != setting:
+                    raise VBusError("Configuration conditional constraint rejected")
+                if accepted.raw == wanted:
                     return current
                 session.write_verified(
                     profile.address,
@@ -697,17 +754,11 @@ class RelayParameters:
                     save=setting.save,
                 )
             with self._session(profile.address) as session:
-                verified = _read_settings(
-                    session,
-                    profile,
-                    capability.changeset,
-                    (setting,),
-                    controller,
-                    inventory,
-                ).get(capability.unique_id)
+                verified, _ = current_contract(session)
                 if (
                     verified is None
                     or verified.device != capability.device
+                    or verified.setting != setting
                     or verified.raw != wanted
                 ):
                     raise VBusError("Configuration reconnect readback differs")

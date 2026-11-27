@@ -554,7 +554,9 @@ class ConfigurationCapture:
                 elif selected:
                     applicability = (
                         "conditional_unverified"
-                        if any(ref.get("mask") or ref.get("extraRef") for ref in selected)
+                        if any(
+                            ref.get("mask") or ref.get("extraRef") for ref in selected
+                        )
                         else "selected_function_reference"
                     )
                 elif other and not common:
@@ -582,7 +584,8 @@ class ConfigurationCapture:
                 }
                 if (
                     status != "configured"
-                    or applicability not in (
+                    or applicability
+                    not in (
                         "selected_function_reference",
                         "conditional_unverified",
                         "slot_menu_unverified",

@@ -474,9 +474,7 @@ class DiscoveryTests(unittest.TestCase):
         capture.results[rows[0].name] = vbus.ParameterObservation(10, 1, "read")
         functions, contexts = capture.function_context()
         self.assertEqual(functions["Anlage_Wf23"]["slot"], 23)
-        self.assertEqual(
-            contexts[rows[1].name]["applicability"], "other_function_type"
-        )
+        self.assertEqual(contexts[rows[1].name]["applicability"], "other_function_type")
         self.assertEqual(
             contexts[rows[2].name]["applicability"], "conditional_unverified"
         )

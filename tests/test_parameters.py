@@ -379,6 +379,18 @@ class ParameterTests(unittest.TestCase):
 
         self.session.write_verified.side_effect = write
         self.assertEqual(self.api.set_configuration(telemetry(), cap, 40).value, 40)
+        # A second installed native function may conflict with a previously
+        # registered control; the direct action must not use stale ownership.
+        self.values.update(
+            {
+                "Anlage_Wf2_Type": (6810, 6),
+                "Anlage_Wf2_Aktiviert_Modus": (6817, 1),
+                "Anlage_Wf2_Relais1_Nr": (6843, 1),
+            }
+        )
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 50)
+        self.values["Anlage_Wf2_Type"] = (6810, 0)
         self.values["Anlage_Wf1_Relais1_Nr"] = (6592, 2)
         self.assertFalse(pumps())
         with self.assertRaises(parameters.VBusError):
