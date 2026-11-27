@@ -712,11 +712,7 @@ class RelayParameters:
                 for setting in contracts
                 if setting.installed_by is None
                 or (
-                    (
-                        observation := configuration_hints.get(
-                            setting.installed_by.name
-                        )
-                    )
+                    (observation := configuration_hints.get(setting.installed_by.name))
                     is not None
                     and observation.status == "read"
                     and observation.index == setting.installed_by.index
