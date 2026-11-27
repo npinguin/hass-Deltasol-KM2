@@ -92,8 +92,8 @@ jobs:
           unzip -Z1 "$PACKAGE" | grep -Fx switch.py
           unzip -Z1 "$PACKAGE" | grep -Fx button.py
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
-          gh release download 1.2.14 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
-          echo "5773aa62b9181ba98d433f5371a4bab298eea3f8f96cab321268d6a87849124b  $Q/rollback/deltasol.zip" | sha256sum -c -
+          gh release download 1.2.15 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
+          echo "4a17e54c112a45a3c767f616d642023b2edbe0cda65a6f50fc881078b36b23cd  $Q/rollback/deltasol.zip" | sha256sum -c -
           sha256sum "$PACKAGE" "$Q/rollback/deltasol.zip"
           docker pull "$HA_IMAGE"
           install_zip() {
