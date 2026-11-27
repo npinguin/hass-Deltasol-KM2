@@ -628,12 +628,16 @@ def _transfer_temperature_settings():
                         unit=unit,
                         dependencies=(activity, selected, *extra),
                         installed_by=installed,
-                        compound_mirrors=((name, index, name + suffix, index + selector + 1),),
+                        compound_mirrors=(
+                            (name, index, name + suffix, index + selector + 1),
+                        ),
                     )
                 name = f"{prefix}_Anstieg"
                 index = rise + offset
-                bounds = ("1", "20", "0.5", "0.1") if selector == 0 else (
-                    "2", "40", "1", "0.1"
+                bounds = (
+                    ("1", "20", "0.5", "0.1")
+                    if selector == 0
+                    else ("2", "40", "1", "0.1")
                 )
                 yield Setting(
                     name,
@@ -646,7 +650,12 @@ def _transfer_temperature_settings():
                     dependencies=(activity, selected),
                     installed_by=installed,
                     compound_mirrors=(
-                        (name, index, name + ("_K" if selector == 0 else "_R"), index + selector + 1),
+                        (
+                            name,
+                            index,
+                            name + ("_K" if selector == 0 else "_R"),
+                            index + selector + 1,
+                        ),
                     ),
                 )
 
