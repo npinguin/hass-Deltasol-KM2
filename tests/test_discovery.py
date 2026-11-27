@@ -1026,6 +1026,15 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(compiled.name, setting.name)
                 self.assertEqual(compiled.expected, setting.expected)
         self.assertEqual(len(bound), len(profile.settings))
+        self.assertEqual(
+            catalog.ordinal_options(definitions["Solar_Beladungstyp"]),
+            {0: "Pendelladung", 1: "SukzessiveLadung"},
+        )
+        for setting in configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS:
+            target = definitions[setting.name]
+            self.assertTrue(target.metadata["menu_refs"])
+            self.assertEqual(target.metadata["unit"].strip(), setting.unit)
+            self.assertEqual(target.storage, "unspecified")
         for setting in configuration.BX_PLUS_SETTINGS:
             definition = definitions[setting.name]
             self.assertEqual(definition.index, setting.index)

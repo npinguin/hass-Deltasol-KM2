@@ -1547,6 +1547,76 @@ def _solar_collector_settings():
 BX_PLUS_SOLAR_COLLECTOR_SETTINGS = tuple(_solar_collector_settings())
 
 
+def _solar_loading_logic_settings():
+    """Operational loading timing only; do not change the hydraulic scheme.
+
+    The BX Plus manual describes sequence control for multi-store systems.
+    Require native store/collector/output assignments and the selected loading
+    mode, not the numeric digits of SystemId. Adjust optional values only
+    while the corresponding native option is enabled.
+    """
+    installed = RangeDependency("Solar_Kol1_Sensor1_Nr", 3536, 1, 65)
+    base = (
+        RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
+        RangeDependency("Solar_Sp1_Sensor1_Nr", 3576, 1, 65),
+        Dependency("Solar_Sp1_Aktiviert_Modus", 3604, (1, 2)),
+    )
+    sequence = (
+        *base,
+        RangeDependency("Solar_Sp2_Sensor1_Nr", 3612, 1, 65),
+        Dependency("Solar_Sp2_Aktiviert_Modus", 3640, (1, 2)),
+        Dependency("Solar_Beladungstyp", 3417, (0,)),
+    )
+    for name, index, label, limits, unit, deps in (
+        (
+            "Pendelpause",
+            3418,
+            "loading break",
+            ("1", "5", "1", "1"),
+            "min",
+            sequence,
+        ),
+        (
+            "Umwaelzzeit",
+            3419,
+            "circulation time",
+            ("1", "60", "1", "1"),
+            "min",
+            sequence,
+        ),
+        (
+            "Pausendrehzahl",
+            3421,
+            "loading break speed",
+            ("20", "100", "1", "1"),
+            "%",
+            (*sequence, Dependency("Solar_OPausendrehzahl", 3420, (1,))),
+        ),
+        (
+            "Pumpenverzoegerung",
+            3423,
+            "pump delay",
+            ("5", "600", "5", "1"),
+            "s",
+            (*base, Dependency("Solar_OPumpenverzoegerung", 3422, (1,))),
+        ),
+    ):
+        yield Setting(
+            f"Solar_{name}",
+            index,
+            f"Solar {label}",
+            "number",
+            True,
+            limits=limits,
+            unit=unit,
+            installed_by=installed,
+            dependencies=deps,
+        )
+
+
+BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS = tuple(_solar_loading_logic_settings())
+
+
 def _heating_comfort_settings():
     """Native heating comfort corrections and sensor-based room thermostats.
 

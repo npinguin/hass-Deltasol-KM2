@@ -52,6 +52,11 @@ CONFIG_SELECTORS = {
     "Solar_Kol1_Sensor1_Nr": (3536, 1),
     "Solar_Sp1_Sensor1_Nr": (3576, 2),
     "Solar_Sp1_Aktiviert_Modus": (3604, 1),
+    "Solar_Sp2_Sensor1_Nr": (3612, 3),
+    "Solar_Sp2_Aktiviert_Modus": (3640, 1),
+    "Solar_Beladungstyp": (3417, 0),
+    "Solar_OPausendrehzahl": (3420, 1),
+    "Solar_OPumpenverzoegerung": (3422, 1),
     "Heizung_Wf1_Type": (11266, 4),
     "Heizung_Wf1_Aktiviert_Modus": (11273, 1),
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
@@ -74,6 +79,10 @@ CONFIG_SETTINGS = {
     "Solar_Sp1_dTein": (3579, 60, 10, 200),
     "Solar_Sp1_dTaus": (3582, 40, 5, 195),
     "Solar_Sp1_dTsoll": (3585, 100, 15, 300),
+    "Solar_Pendelpause": (3418, 2, 1, 5),
+    "Solar_Umwaelzzeit": (3419, 15, 1, 60),
+    "Solar_Pausendrehzahl": (3421, 30, 20, 100),
+    "Solar_Pumpenverzoegerung": (3423, 15, 5, 600),
     "Heizung_Wf1_Zirkulation_TEin": (11408, 400, 100, 590),
     "Heizung_Wf1_Zirkulation_TAus": (11411, 600, 110, 600),
 }
@@ -399,6 +408,20 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     )
                 if index in (17274, 17275):
                     assert Peer.settings[17273] == 1
+                if index in (3418, 3419, 3421, 3423):
+                    assert Peer.extra_values[3452] > 0
+                    assert Peer.extra_values[3536] > 0
+                    assert Peer.extra_values[3576] > 0
+                    assert Peer.extra_values[3604] == 1
+                    if index == 3423:
+                        assert Peer.extra_values[3422] == 1
+                        assert value % 5 == 0
+                    else:
+                        assert Peer.extra_values[3612] > 0
+                        assert Peer.extra_values[3640] == 1
+                        assert Peer.extra_values[3417] == 0
+                        if index == 3421:
+                            assert Peer.extra_values[3420] == 1
                 Peer.settings[index] = stored_value
                 Peer.saves += 1
                 Peer.events.append("save")
@@ -881,6 +904,10 @@ async def qualify(directory, phase):
                     ("Anlage_Wf2_Feststoffkessel_TMax", "number", 194),
                     ("Solar_Sp1_dTein", "number", 14),
                     ("Heizung_Wf1_Zirkulation_TEin", "number", 122),
+                    ("Solar_Pendelpause", "number", 3),
+                    ("Solar_Umwaelzzeit", "number", 20),
+                    ("Solar_Pausendrehzahl", "number", 40),
+                    ("Solar_Pumpenverzoegerung", "number", 25),
                 ):
                     entity = registry.async_get_entity_id(
                         kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
@@ -1430,6 +1457,25 @@ async def qualify(directory, phase):
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert entity(name, "number") == circulation
         assert float(hass.states.get(circulation).state) == 122
+
+        # Native solar sequence settings remain tied to live topology/flags.
+        for name, value in (
+            ("Solar_Pendelpause", 3),
+            ("Solar_Umwaelzzeit", 20),
+            ("Solar_Pausendrehzahl", 40),
+            ("Solar_Pumpenverzoegerung", 25),
+        ):
+            await number(name, value)
+        assert Peer.saves == 27
+        sequence = entity("Solar_Pendelpause", "number")
+        Peer.extra_values[3612] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(sequence).state == "unavailable"
+        Peer.extra_values[3612] = 3
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert entity("Solar_Pendelpause", "number") == sequence
+        assert float(hass.states.get(sequence).state) == 3
+        assert Peer.saves == 27
 
         # Stop the actual HA process with an incomplete active capture. The
         # following restart phase must restore the same committed checkpoint.

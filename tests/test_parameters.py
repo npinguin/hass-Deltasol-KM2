@@ -862,6 +862,59 @@ class ParameterTests(unittest.TestCase):
             self.api.set_configuration(telemetry(), cap, 8)
         self.session.write_verified.assert_called_once()
 
+    def test_solar_loading_logic_requires_live_sequence_and_enabled_options(self):
+        self.session.read.return_value = 0x2734DABC
+        self.values.update(
+            {
+                "Solar_Kol1_Sensor1_Nr": (3536, 1),
+                "Solar_Relais1_Nr": (3452, 1),
+                "Solar_Sp1_Sensor1_Nr": (3576, 2),
+                "Solar_Sp1_Aktiviert_Modus": (3604, 1),
+                "Solar_Sp2_Sensor1_Nr": (3612, 3),
+                "Solar_Sp2_Aktiviert_Modus": (3640, 1),
+                "Solar_Beladungstyp": (3417, 0),
+                "Solar_OPausendrehzahl": (3420, 1),
+                "Solar_OPumpenverzoegerung": (3422, 1),
+                "Solar_Pendelpause": (3418, 2),
+                "Solar_Umwaelzzeit": (3419, 15),
+                "Solar_Pausendrehzahl": (3421, 30),
+                "Solar_Pumpenverzoegerung": (3423, 15),
+            }
+        )
+        hints = {
+            "Solar_Kol1_Sensor1_Nr": parameters.ParameterObservation(3536, 1, "read")
+        }
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        names = {
+            s.name for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
+        }
+        self.assertTrue(names <= controls().keys())
+        cap = controls()["Solar_Pendelpause"]
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, value, save), (0x7112, 3418, 3, True))
+            self.values[cap.setting.name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 3).value, 3)
+        self.values["Solar_Beladungstyp"] = (3417, 1)
+        self.assertNotIn(cap.setting.name, controls())
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 4)
+        self.values["Solar_Beladungstyp"] = (3417, 0)
+        self.values["Solar_Sp2_Sensor1_Nr"] = (3612, 0)
+        self.assertEqual(names & controls().keys(), {"Solar_Pumpenverzoegerung"})
+        self.values["Solar_OPumpenverzoegerung"] = (3422, 0)
+        self.assertFalse(names & controls().keys())
+        self.session.write_verified.assert_called_once()
+
     def test_circulation_temperature_requires_thermal_variant_and_order(self):
         setting = next(
             s
