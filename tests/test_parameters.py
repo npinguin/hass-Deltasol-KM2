@@ -91,6 +91,55 @@ class ParameterTests(unittest.TestCase):
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
 
+    def test_mixer_family_requires_live_installed_type_and_activity(self):
+        self.session.read.return_value = 0x2734DABC
+        setting = parameters_configuration.BX_PLUS_MIXER_SETTINGS[0]
+        self.values.update({
+            setting.name: (setting.index, 4),
+            setting.installed_by.name: (setting.installed_by.index, 2),
+            setting.dependencies[0].name: (setting.dependencies[0].index, 1),
+        })
+        self.assertFalse(self.api.discover(telemetry()).configuration)
+        hints = {
+            setting.installed_by.name: parameters.ParameterObservation(
+                setting.installed_by.index, 2, "read"
+            )
+        }
+        observed = self.api.discover(telemetry(), hints).configuration
+        cap = next(iter(observed.values()))
+        self.assertEqual(cap.value, 4)
+        self.assertEqual(cap.setting.kind, "number")
+        self.assertEqual(cap.setting.unit, "s")
+        self.values[setting.installed_by.name] = (setting.installed_by.index, 0)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 5)
+        self.session.write_verified.assert_not_called()
+        self.assertFalse(self.api.discover(telemetry(), hints).configuration)
+        self.values[setting.installed_by.name] = (setting.installed_by.index, 2)
+        self.values[setting.dependencies[0].name] = (
+            setting.dependencies[0].index, 0
+        )
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 5)
+        self.session.write_verified.assert_not_called()
+        self.values[setting.dependencies[0].name] = (
+            setting.dependencies[0].index, 1
+        )
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, value, changeset, save),
+                             (0x7112, setting.index, 5, 0x2734DABC, True))
+            self.values[setting.name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 5).value, 5)
+        self.session.write_verified.assert_called_once()
+        for invalid in (0, 21, 4.5):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), cap, invalid)
+        self.session.write_verified.assert_called_once()
+
     def test_verified_configuration_save_and_reconnect(self):
         self.session.read.return_value = 0x2734DABC
         self.values["AutoSommerWinterzeit"] = (56, 1)

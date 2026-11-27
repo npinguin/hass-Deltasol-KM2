@@ -24,7 +24,8 @@ class Dependency:
     allowed: tuple[int, ...]
 
     def matches(self, values):
-        return values.get(self.name) in self.allowed
+        raw = values.get(self.name)
+        return type(raw) is int and raw in self.allowed
 
 
 @dataclass(frozen=True)
@@ -62,6 +63,9 @@ class Setting:
     dependencies: tuple[Dependency, ...] = ()
     owner_address: int | None = None
     relative_constraints: tuple[RelativeConstraint, ...] = ()
+    # Installed program selector: may be used as a Discovery hint, never as
+    # authorization. The same dependency is always re-read live for an action.
+    installed_by: Dependency | None = None
 
     def numeric_definition(self):
         if self.kind != "number" or self.limits is None:
@@ -113,7 +117,10 @@ class Setting:
     @property
     def expected(self):
         result = {self.name: self.index}
-        for dependency in (*self.dependencies, *self.relative_constraints):
+        installed = (self.installed_by,) if self.installed_by else ()
+        for dependency in (
+            *installed, *self.dependencies, *self.relative_constraints
+        ):
             result[dependency.name] = dependency.index
         return result
 
@@ -121,6 +128,7 @@ class Setting:
         raw = values.get(self.name) if requested is None else requested
         return (
             self.decode(raw) is not None
+            and (self.installed_by is None or self.installed_by.matches(values))
             and all(dep.matches(values) for dep in self.dependencies)
             and all(rule.matches(raw, values) for rule in self.relative_constraints)
         )
@@ -189,6 +197,33 @@ BX_PLUS_SETTINGS = (
         True,
         (("kWh", 0), ("MBTU", 1)),
     ),
+)
+
+
+# RESOL BX Plus manual (firmware 2.03, Arrangement / Mixer, interval
+# 1..20 s), exact RPT 2.08 layout and MIT optimizer's Mischer type rule.
+# Generate the same contract for every firmware slot, not per-site settings.
+# The actual vendor archive test checks every target, selector and ordinal.
+# A historical Type observation only reduces polling; live Type and activity
+# are mandatory before registration and before each write.
+BX_PLUS_MIXER_SETTINGS = tuple(
+    Setting(
+        f"Anlage_Wf{number}_Mischer_dtIntervall",
+        6625 + offset,
+        f"Arrangement function {number} mixer interval",
+        "number",
+        True,
+        limits=("1", "20", "1", "1"),
+        unit="s",
+        dependencies=(
+            Dependency(f"Anlage_Wf{number}_Aktiviert_Modus", 6566 + offset, (1,)),
+        ),
+        installed_by=Dependency(
+            f"Anlage_Wf{number}_Type", 6559 + offset, (2,)
+        ),
+    )
+    for number in range(1, 17)
+    for offset in ((number - 1) * 251,)
 )
 
 

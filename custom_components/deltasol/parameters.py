@@ -15,6 +15,7 @@ from threading import RLock
 from time import monotonic, sleep
 
 from .configuration import (
+    BX_PLUS_MIXER_SETTINGS,
     BX_PLUS_SETTINGS,
     ConfigurationCapability,
     Setting,
@@ -96,7 +97,7 @@ PROFILES = (
         # physical module identity + exact activation and relay mappings.
         module_presence_lookup_optional_changeset=0x2734DABC,
         configuration_changeset=0x2734DABC,
-        settings=BX_PLUS_SETTINGS,
+        settings=(*BX_PLUS_SETTINGS, *BX_PLUS_MIXER_SETTINGS),
     ),
 )
 
@@ -355,14 +356,19 @@ async def run_parameter_job(hass, function, *args):
         raise
 
 
-async def refresh_relay_modes(telemetry, lock=None, *, guard=None, initial=False):
+async def refresh_relay_modes(
+    telemetry, lock=None, *, guard=None, initial=False, configuration_hints=None
+):
     """Retry reads, releasing async ownership between attempts."""
 
     async def read():
         if guard is not None:
             guard()
+        arguments = (telemetry.data,)
+        if configuration_hints is not None:
+            arguments += (configuration_hints,)
         return await run_parameter_job(
-            telemetry.hass, telemetry.api.fetch_relay_modes, telemetry.data
+            telemetry.hass, telemetry.api.fetch_relay_modes, *arguments
         )
 
     for delay in (None,) if initial else (*RELAY_RETRY_DELAYS, None):
@@ -497,7 +503,7 @@ class RelayParameters:
                     elapsed if connect_seconds is None else connect_seconds,
                 )
 
-    def discover(self, telemetry):
+    def discover(self, telemetry, configuration_hints=None):
         inventory = device_inventory(telemetry)
         profile, controller = find_profile(inventory)
         if profile is None:
@@ -529,11 +535,30 @@ class RelayParameters:
                     module_flags,
                 )
                 capabilities.update(relays)
+            # Historical inventory is only a scheduling hint for installed
+            # families. _read_settings independently verifies live selectors,
+            # layout, current values and identity before exposing controls.
+            settings = tuple(
+                setting
+                for setting in profile.settings_for(changeset)
+                if setting.installed_by is None
+                or (
+                    configuration_hints is not None
+                    and (observation := configuration_hints.get(
+                        setting.installed_by.name
+                    )) is not None
+                    and observation.status == "read"
+                    and observation.index == setting.installed_by.index
+                    and setting.installed_by.matches(
+                        {setting.installed_by.name: observation.value}
+                    )
+                )
+            )
             configuration = _read_settings(
                 session,
                 profile,
                 changeset,
-                profile.settings_for(changeset),
+                settings,
                 controller,
                 inventory,
             )

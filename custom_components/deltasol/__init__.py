@@ -55,7 +55,7 @@ from .const import (
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
 from .discovery import ConfigurationCapture, capture_batches, capture_identity
-from .parameters import refresh_relay_modes, run_parameter_job
+from .parameters import device_inventory, find_profile, refresh_relay_modes, run_parameter_job
 from .vbus import VBusError, VBusTransientError
 
 _LOGGER = logging.getLogger(__name__)
@@ -168,7 +168,7 @@ async def async_setup_entry(
     # This calls the async_setup method in each of your entity type files.
     runtime = config_entry.runtime_data
     if coordinator.api.supports_parameter_access:
-        runtime.relay_coordinator = DeltasolRelayCoordinator(hass, coordinator)
+        runtime.relay_coordinator = DeltasolRelayCoordinator(hass, coordinator, runtime)
         config_entry.async_on_unload(
             coordinator.async_add_listener(
                 runtime.relay_coordinator.async_update_listeners
@@ -449,8 +449,9 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
     outage must not delay or invalidate HTTP sensor updates.
     """
 
-    def __init__(self, hass, telemetry):
+    def __init__(self, hass, telemetry, runtime):
         self.telemetry = telemetry
+        self.runtime = runtime
         self.api = telemetry.api
         self._lock = asyncio.Lock()
         self.closing = False
@@ -473,6 +474,31 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         async with self._lock:
             await asyncio.sleep(self.api.parameter_cooldown_remaining())
 
+    def _configuration_hints(self):
+        profile, controller = find_profile(device_inventory(self.telemetry.data))
+        if not profile:
+            return {}
+        selectors = {
+            setting.installed_by.name
+            for setting in profile.settings_for(profile.configuration_changeset)
+            if setting.installed_by
+        }
+        hints = {}
+        # The previous completed capture avoids temporarily losing controls
+        # during a new scan. The newer observations replace previous hints.
+        for capture in (self.runtime.previous_capture, self.runtime.capture):
+            if (
+                capture
+                and capture.controller == controller
+                and capture.changeset == profile.configuration_changeset
+            ):
+                hints.update(
+                    (name, capture.results[name])
+                    for name in selectors
+                    if name in capture.results
+                )
+        return hints
+
     async def _async_update_data(self):
         try:
             result = await refresh_relay_modes(
@@ -480,6 +506,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 self._lock,
                 guard=self._check_open,
                 initial=self.initial_refresh,
+                configuration_hints=self._configuration_hints(),
             )
         except VBusError as error:
             # Retry ordinary polling sooner while unavailable, not by issuing

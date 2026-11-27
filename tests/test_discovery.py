@@ -447,6 +447,32 @@ class DiscoveryTests(unittest.TestCase):
                 labels = [item["label"] for item in definition.metadata["value_text"]]
                 self.assertEqual(len(labels), len(setting.options))
                 self.assertEqual([raw for _, raw in setting.options], [0, 1])
+        # Every generated mixer slot must match the exact firmware layout,
+        # documented setting and ordinal semantics. The live Type and
+        # ActivityMode checks still gate every native action.
+        self.assertEqual(len(configuration.BX_PLUS_MIXER_SETTINGS), 16)
+        for setting in configuration.BX_PLUS_MIXER_SETTINGS:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertIsNone(target.excluded)
+            self.assertEqual(target.storage, "unspecified")
+            self.assertIn("Number", target.metadata["type_chain"])
+            self.assertEqual(target.metadata["minimum"], "1")
+            self.assertEqual(target.metadata["maximum"], "20")
+            self.assertEqual(target.metadata["unit"].strip(), "s")
+            self.assertFalse(target.metadata.get("compound_ref"))
+            self.assertFalse(target.metadata.get("selector_ref"))
+            self.assertTrue(any(
+                ref["menu"] == setting.name.removesuffix("_dtIntervall")
+                and not ref.get("mask")
+                for ref in target.metadata["menu_refs"]
+            ))
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(selector.index, setting.installed_by.index)
+            self.assertEqual(selector.metadata["value_text"][2]["id"], "Mischer")
+            activity = definitions[setting.dependencies[0].name]
+            self.assertEqual(activity.index, setting.dependencies[0].index)
+            self.assertEqual(activity.metadata["value_text"][1]["label"], "Aktiviert")
         self.assertEqual(definitions["Bedienercode"].excluded, "sensitive")
         self.assertEqual(
             definitions["MesseModus_BedienercodeReset"].excluded, "sensitive"
@@ -503,6 +529,8 @@ class DiscoveryTests(unittest.TestCase):
             "Heizung_Heizkreis1_Type",
             "Heizung_Heizkreis1_Aktiviert_Modus",
             "Heizung_Heizkreis1_Heizkurve",
+            "Heizung_Heizkreis1_System",
+            "Wmz1_AlternativAnzeigeFaktor",
             "Heizung_Heizkreis1_dTTageskorrektur_K",
             "Heizung_Heizkreis1_dTNachtkorrektur_K",
         ):
