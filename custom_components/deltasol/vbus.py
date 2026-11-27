@@ -470,8 +470,9 @@ class VBusSession:
                 try:
                     words.append(self.read(address, observed.index, subindex=subindex))
                 except VBusReadRefused:
+                    # Refusal is specific to this correlated subindex, not
+                    # evidence that subsequent words are inaccessible.
                     words.append(None)
-                    break
             observations[name] = ParameterObservation(
                 observed.index, observed.value, observed.status, tuple(words)
             )

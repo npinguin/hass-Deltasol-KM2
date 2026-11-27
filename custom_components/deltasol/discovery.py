@@ -286,15 +286,11 @@ class ConfigurationCapture:
                 or not isinstance(words, list)
                 or not 2 <= len(words) <= 3
                 or words[0] != observation.value
+                or type(words[0]) is not int
                 or any(
-                    type(word) is not int or not -(2**31) <= word < 2**31
-                    for word in words[:-1]
-                )
-                or (
-                    words[-1] is not None
-                    and (
-                        type(words[-1]) is not int or not -(2**31) <= words[-1] < 2**31
-                    )
+                    word is not None
+                    and (type(word) is not int or not -(2**31) <= word < 2**31)
+                    for word in words
                 )
                 or (len(words) == 2 and words[-1] is not None)
             ):
@@ -884,8 +880,16 @@ def compare_captures(previous, current):
                 "after_index": observation.index,
             }
             if observation.packed_words or (old and old.packed_words):
-                before = old.packed_words if old else ()
-                after = observation.packed_words
+                before = (
+                    old.packed_words or (old.value,)
+                    if old and old.status == "read"
+                    else ()
+                )
+                after = (
+                    observation.packed_words or (observation.value,)
+                    if observation.status == "read"
+                    else ()
+                )
                 changes[name]["packed_word_evidence"] = {
                     "before": list(before),
                     "after": list(after),

@@ -53,7 +53,7 @@ class VBusTests(unittest.TestCase):
 
     def test_packed_words_require_live_allocation_and_keep_refusal(self):
         names = {"Day": 10, "Allocated": 11, "Initialized": 12}
-        for allocated in (0, 1):
+        for allocated, first_refused in ((0, False), (1, False), (1, True)):
             conn = Mock()
             conn.recv.return_value = b"".join(
                 (
@@ -66,7 +66,11 @@ class VBusTests(unittest.TestCase):
                     response(0x0100, 11, allocated),
                     response(0x0100, 12, 1),
                     *(
-                        (response(0x0101, 10, -1), response(0x4302, 10))
+                        (
+                            (response(0x4301, 10), response(0x0102, 10, 0))
+                            if first_refused
+                            else (response(0x0101, 10, -1), response(0x4302, 10))
+                        )
                         if allocated
                         else ()
                     ),
@@ -80,8 +84,9 @@ class VBusTests(unittest.TestCase):
                 expected=names,
                 packed={"Day": {"Allocated": 11, "Initialized": 12}},
             )
+            expected_words = (1, None, 0) if first_refused else (1, -1, None)
             self.assertEqual(
-                result["Day"].packed_words, (1, -1, None) if allocated else ()
+                result["Day"].packed_words, expected_words if allocated else ()
             )
             sent = [
                 vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list

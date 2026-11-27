@@ -547,6 +547,17 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(
             changes[day.name]["packed_word_evidence"]["status"], "coverage_changed"
         )
+        restored.results[day.name] = vbus.ParameterObservation(12, 2, "read")
+        changes = discovery.compare_captures(capture, restored)["changes"]
+        self.assertEqual(
+            changes[day.name]["packed_word_evidence"]["status"],
+            "observed_words_changed",
+        )
+        stored["packed_words"][day.name] = [1, None, 0]
+        restored = discovery.ConfigurationCapture.restore(
+            stored, parsed, controller, capture.changeset
+        )
+        self.assertEqual(restored.results[day.name].packed_words, (1, None, 0))
         stored["packed_words"][day.name][0] = 2
         with self.assertRaises(ValueError):
             discovery.ConfigurationCapture.restore(
