@@ -170,7 +170,9 @@ class VBusTests(unittest.TestCase):
                 vbus.VBusSession(conn).write_packed_verified(
                     ADDRESS, index, before, wanted, changeset
                 )
-            sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+            sent = [
+                vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list
+            ]
             self.assertEqual(
                 [p.command for p in sent[-4:]], [0x1400, 0x1500, 0x1501, 0x1404]
             )
@@ -221,7 +223,9 @@ class VBusTests(unittest.TestCase):
                     session.write_packed_verified(
                         ADDRESS, index, before, before, changeset
                     )
-            sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+            sent = [
+                vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list
+            ]
             self.assertEqual(
                 [p.command for p in sent], [0x0300, 0x0300, 0x0301, 0x0302]
             )
