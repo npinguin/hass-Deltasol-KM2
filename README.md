@@ -210,6 +210,13 @@ The existing profile authorizes semantic writes, conditional relationships and s
 
 ### Additional operating controls (development)
 
+Constant heating flow setpoint is bounded by the controller's existing
+read-only min/max protection and verified selected-unit mirrors. Energy
+saving differential, pause and runtime require the already-enabled option
+and positively assigned return sensor. Function block rise requires its
+existing differential function. Exact 2.08 metadata and the existing
+single writer apply to all slots.
+
 Native irradiation thresholds/duration, return-preheat summer switch-off,
 thermal circulation temperatures, DHW preheat differential and speed/delay
 parameters reuse the existing typed writer and selected-unit checks. Basic

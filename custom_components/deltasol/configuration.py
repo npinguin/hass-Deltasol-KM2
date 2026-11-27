@@ -1126,6 +1126,29 @@ def _additional_operating_settings():
         arrangement = f"Anlage_Wf{slot}"
         heating = f"Heizung_Wf{slot}"
         active = Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (1, 2))
+        prefix = f"{arrangement}_Funktionsblock"
+        name = f"{prefix}_Anstieg"
+        index = 6732 + ao
+        for selector, alias, unit, limits in (
+            (0, "_K", "K", ("0.5", "20", "0.5", "0.1")),
+            (1, "_R", "°R", ("1", "40", "1", "0.1")),
+        ):
+            yield Setting(
+                name,
+                index,
+                f"Arrangement function {slot} function block rise",
+                "number",
+                True,
+                limits=limits,
+                unit=unit,
+                installed_by=Dependency(f"{arrangement}_Type", 6559 + ao, (9,)),
+                dependencies=(
+                    active,
+                    Dependency(f"{prefix}_ODifferenz", 6704 + ao, (1,)),
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                compound_mirrors=((name, index, name + alias, index + selector + 1),),
+            )
         irradiation = Dependency(f"{arrangement}_Type", 6559 + ao, (10,))
         for suffix, index, bounds, unit, label in (
             ("Einstrahlung", 6756, ("50", "1000", "10", "1"), "W/m²", "threshold"),
@@ -1225,6 +1248,117 @@ def _additional_operating_settings():
 
 
 BX_PLUS_ADDITIONAL_OPERATING_SETTINGS = tuple(_additional_operating_settings())
+
+
+def _heating_operating_settings():
+    """Documented operating controls; existing flow protection is read-only.
+
+    BX Plus manual from firmware 2.07: constant flow setpoint is bounded
+    by configured flow limits; energy saving needs an assigned return
+    sensor. Exact 2.08 catalogue validates every slot and selected unit.
+    """
+    for circuit in range(1, 8):
+        offset = (circuit - 1) * 495
+        root = f"Heizung_Heizkreis{circuit}"
+        installed = Dependency(f"{root}_Type", 13684 + offset, (1,))
+        active = Dependency(f"{root}_Aktiviert_Modus", 13689 + offset, (1, 2))
+        heating = Dependency(f"{root}_System", 13697 + offset, (0, 2))
+        constant = Dependency(f"{root}_Heizsystem", 13978 + offset, (2,))
+        minimum = f"{root}_TVorlaufMin"
+        maximum = f"{root}_TVorlaufMax"
+        target = f"{root}_TVorlaufVorgabe"
+        indices = (13814 + offset, 13733 + offset, 14022 + offset)
+        for selector, alias, unit, limits, low, high in (
+            (
+                0,
+                "_C",
+                "°C",
+                ("10", "90", "1", "0.1"),
+                ("20", "89", "1", "0.1"),
+                ("21", "90", "1", "0.1"),
+            ),
+            (
+                1,
+                "_F",
+                "°F",
+                ("50", "194", "2", "0.1"),
+                ("68", "192", "2", "0.1"),
+                ("70", "194", "2", "0.1"),
+            ),
+        ):
+            yield Setting(
+                target,
+                indices[2],
+                f"Heating circuit {circuit} constant flow setpoint",
+                "number",
+                True,
+                limits=limits,
+                unit=unit,
+                installed_by=installed,
+                dependencies=(
+                    active,
+                    heating,
+                    constant,
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                relative_constraints=(
+                    RelativeConstraint(minimum, indices[0], "ge"),
+                    RelativeConstraint(maximum, indices[1], "le"),
+                ),
+                compound_mirrors=tuple(
+                    (name, index, name + alias, index + selector + 1)
+                    for name, index in zip(
+                        (minimum, maximum, target), indices, strict=True
+                    )
+                ),
+                peer_limits=((minimum, low), (maximum, high)),
+            )
+        prefix = f"{root}_Energiesparbetrieb"
+        deps = (
+            active,
+            heating,
+            Dependency(f"{root}_OEnergiesparbetrieb", 14158 + offset, (1,)),
+            RangeDependency(f"{prefix}_Sensor1_Nr", 14160 + offset, 1, 65),
+        )
+        name = f"{prefix}_dTAus"
+        index = 14163 + offset
+        for selector, alias, unit, limits in (
+            (0, "_K", "K", ("1", "49", "1", "0.1")),
+            (1, "_R", "°R", ("2", "98", "2", "0.1")),
+        ):
+            yield Setting(
+                name,
+                index,
+                f"Heating circuit {circuit} energy saving off differential",
+                "number",
+                True,
+                limits=limits,
+                unit=unit,
+                installed_by=installed,
+                dependencies=(
+                    *deps,
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                compound_mirrors=((name, index, name + alias, index + selector + 1),),
+            )
+        for suffix, index, label in (
+            ("dtPause", 14166, "pause"),
+            ("dtLaufzeit", 14167, "runtime"),
+        ):
+            yield Setting(
+                f"{prefix}_{suffix}",
+                index + offset,
+                f"Heating circuit {circuit} energy saving {label}",
+                "number",
+                True,
+                limits=("0", "60", "1", "1"),
+                unit="min",
+                installed_by=installed,
+                dependencies=deps,
+            )
+
+
+BX_PLUS_HEATING_OPERATING_SETTINGS = tuple(_heating_operating_settings())
 
 
 def _solar_store_settings():

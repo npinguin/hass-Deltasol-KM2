@@ -1092,7 +1092,25 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
-        self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 240)
+        self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 272)
+        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 42)
+        for setting in configuration.BX_PLUS_HEATING_OPERATING_SETTINGS:
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            if setting.name.endswith("TVorlaufVorgabe"):
+                self.assertTrue(
+                    definitions[setting.name].metadata["compound_parent_read_candidate"]
+                )
+                self.assertEqual(
+                    {peer.operation for peer in setting.relative_constraints},
+                    {"ge", "le"},
+                )
+                self.assertTrue(
+                    any(
+                        ref.get("mask", "").endswith("_Heizsystem_Konstant")
+                        for ref in definitions[setting.name].metadata["menu_refs"]
+                    )
+                )
         self.assertEqual(len(configuration.BX_PLUS_SOLAR_STORE_SETTINGS), 80)
         self.assertEqual(len(configuration.BX_PLUS_SOLAR_COLLECTOR_SETTINGS), 6)
         for setting in configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS:

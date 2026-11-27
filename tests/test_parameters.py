@@ -758,6 +758,53 @@ class ParameterTests(unittest.TestCase):
             self.api.set_configuration(data, before[uid], False, unverified)
         self.session.write_verified.assert_not_called()
 
+    def test_constant_flow_setpoint_respects_existing_protection(self):
+        setting = next(
+            s
+            for s in parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+            if s.name == "Heizung_Heizkreis1_TVorlaufVorgabe" and s.unit == "°C"
+        )
+        values = {
+            "Heizung_Heizkreis1_Type": 1,
+            "Heizung_Heizkreis1_Aktiviert_Modus": 1,
+            "Heizung_Heizkreis1_System": 0,
+            "Heizung_Heizkreis1_Heizsystem": 2,
+            "TemperatureHysteresisSelector": 0,
+        }
+        for parent, _, child, _ in setting.compound_mirrors:
+            raw = {
+                "TVorlaufMin": 200,
+                "TVorlaufMax": 500,
+                "TVorlaufVorgabe": 450,
+            }[parent.rsplit("_", 1)[1]]
+            values[parent] = values[child] = raw
+        self.assertTrue(setting.accepts(values, setting.encode(48)))
+        self.assertFalse(setting.accepts(values, setting.encode(51)))
+        self.assertFalse(setting.accepts(values, setting.encode(19)))
+        values["Heizung_Heizkreis1_TVorlaufMax_C"] = 600
+        self.assertFalse(setting.accepts(values, setting.encode(48)))
+
+    def test_energy_saving_requires_enabled_option_and_assigned_sensor(self):
+        setting = next(
+            s
+            for s in parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+            if s.name == "Heizung_Heizkreis1_Energiesparbetrieb_dtPause"
+        )
+        values = {
+            "Heizung_Heizkreis1_Type": 1,
+            "Heizung_Heizkreis1_Aktiviert_Modus": 1,
+            "Heizung_Heizkreis1_System": 0,
+            "Heizung_Heizkreis1_OEnergiesparbetrieb": 1,
+            "Heizung_Heizkreis1_Energiesparbetrieb_Sensor1_Nr": 2,
+            setting.name: 15,
+        }
+        self.assertTrue(setting.accepts(values, setting.encode(20)))
+        values["Heizung_Heizkreis1_Energiesparbetrieb_Sensor1_Nr"] = 0
+        self.assertFalse(setting.accepts(values))
+        values["Heizung_Heizkreis1_Energiesparbetrieb_Sensor1_Nr"] = 2
+        values["Heizung_Heizkreis1_OEnergiesparbetrieb"] = 0
+        self.assertFalse(setting.accepts(values))
+
     def test_solar_defaults_are_not_installed_store_evidence(self):
         self.session.read.return_value = 0x2734DABC
         name = "Solar_Sp1_dTein"
