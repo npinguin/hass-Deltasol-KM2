@@ -267,6 +267,7 @@ class DiscoveryTests(unittest.TestCase):
         )
         self.assertEqual(restored.status, "paused")
         self.assertEqual(restored.offset, len(legacy))
+        self.assertTrue(restored.extension_pending)
         self.assertEqual(restored.results, capture.results)
         self.assertEqual([d.name for d in restored.next_batch()], [name])
         restored.apply(
@@ -292,6 +293,15 @@ class DiscoveryTests(unittest.TestCase):
         )
         self.assertEqual(resumed.status, "paused")
         self.assertEqual(resumed.offset, len(legacy))
+        self.assertTrue(resumed.extension_pending)
+        # Explicit pause after expansion starts must not be mistaken for
+        # the legacy completed prefix, even at exactly the same offset.
+        resumed.status = "paused"
+        paused = discovery.ConfigurationCapture.restore(
+            resumed.storage_checkpoint(), parsed, controller, capture.changeset
+        )
+        self.assertFalse(paused.extension_pending)
+        self.assertEqual(paused.status, "paused")
         row = restored.export(True)["parameters"][name]
         self.assertEqual(row["status"], "read")
         self.assertEqual(row["raw_value"], 65)

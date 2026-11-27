@@ -107,6 +107,8 @@ class RuntimeData:
     capture_store: Store | None = None
     checkpoint_error: str | None = None
     resume_on_load: bool = False
+    auto_start_task: asyncio.Task | None = None
+    closing: bool = False
 
     def notify_capture(self):
         for listener in tuple(self.capture_listeners):
@@ -219,6 +221,7 @@ async def async_unload_entry(
 
     # Unload platforms and return result
     runtime = config_entry.runtime_data
+    runtime.closing = True
     async with runtime.capture_lock:
         if runtime.capture_task and not runtime.capture_task.done():
             runtime.resume_on_load = not runtime.stop_capture
@@ -230,8 +233,10 @@ async def async_unload_entry(
     if runtime.relay_coordinator:
         await runtime.relay_coordinator.async_close()
     unloaded = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
-    if not unloaded and runtime.relay_coordinator:
-        runtime.relay_coordinator.closing = False
+    if not unloaded:
+        runtime.closing = False
+        if runtime.relay_coordinator:
+            runtime.relay_coordinator.closing = False
     return unloaded
 
 
@@ -313,7 +318,9 @@ async def _async_restore_capture(hass, runtime):
             else None
         )
         runtime.capture = capture
-        runtime.resume_on_load = stored.get("resume") is True
+        runtime.resume_on_load = (
+            stored.get("resume") is True or capture.extension_pending
+        )
         runtime.checkpoint_error = None
         return True
     except (
@@ -331,18 +338,65 @@ async def _async_restore_capture(hass, runtime):
 
 
 async def _async_restore_and_resume(hass, entry, runtime):
-    """Restore once after verified parameter access returns, not on every poll."""
+    """Restore once or schedule initial Discovery after confirmed access."""
     async with runtime.capture_lock:
-        if runtime.capture is None and await _async_restore_capture(hass, runtime):
+        if runtime.closing or runtime.capture is not None:
+            return
+        if await _async_restore_capture(hass, runtime):
             if runtime.resume_on_load and runtime.capture.status == "paused":
                 await _start_capture(hass, entry, runtime)
             runtime.notify_capture()
+        elif runtime.checkpoint_error is None and runtime.auto_start_task is None:
+            runtime.auto_start_task = entry.async_create_background_task(
+                hass,
+                _async_start_initial_capture(hass, entry, runtime),
+                "deltasol_initial_discovery",
+            )
+        else:
+            runtime.notify_capture()
+
+
+async def _async_start_initial_capture(hass, entry, runtime):
+    """Acquire the pinned catalogue once outside setup; never overwrite a checkpoint."""
+    async with runtime.capture_lock:
+        if runtime.closing or runtime.capture is not None:
+            return
+        try:
+            controller, source = _catalog_identity(runtime)
+        except (CatalogError, VBusError):
+            runtime.checkpoint_error = "discovery_controller_unverified"
+            runtime.notify_capture()
+            return
+        try:
+            catalog = await _async_catalog(hass, source, acquire=True)
+        except (CatalogError, OSError, ValueError):
+            runtime.checkpoint_error = "discovery_catalogue_unavailable"
+            runtime.notify_capture()
+            return
+        if runtime.closing:
+            return
+        # Acquisition may take time; repeat identity verification before
+        # committing the capture, rather than scanning a changed controller.
+        try:
+            current_controller, current_source = _catalog_identity(runtime)
+        except (CatalogError, VBusError):
+            runtime.checkpoint_error = "discovery_controller_unverified"
+            runtime.notify_capture()
+            return
+        if (current_controller, current_source) != (controller, source):
+            runtime.checkpoint_error = "discovery_controller_unverified"
+            runtime.notify_capture()
+            return
+        runtime.capture = ConfigurationCapture(catalog, controller, source.changeset)
+        await _start_capture(hass, entry, runtime)
 
 
 async def async_toggle_configuration_capture(hass, entry):
     """Start/resume or request a stop at the next batch boundary."""
     runtime = entry.runtime_data
     async with runtime.capture_lock:
+        if runtime.closing:
+            raise HomeAssistantError("Controller entry is unloading")
         await _async_toggle_capture_locked(hass, entry, runtime)
 
 

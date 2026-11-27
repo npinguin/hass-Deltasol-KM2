@@ -43,6 +43,8 @@ class ConfigurationCapture:
     consecutive_failures: int = 0
     retry_in_seconds: int | None = None
     last_failure: dict | None = None
+    # Derived during restore only; not a second persisted lifecycle flag.
+    extension_pending: bool = False
 
     @cached_property
     def sensitive_indices(self):
@@ -382,6 +384,7 @@ class ConfigurationCapture:
         )
         if legacy_complete:
             capture.finished_at = None
+            capture.extension_pending = True
         return capture
 
     @cached_property
