@@ -47,6 +47,13 @@ CONFIG_SELECTORS = {
     "Wmz1_Type": (17260, 1),
     "Wmz1_Aktiviert_Modus": (17263, 1),
     "Relais_Modul1_R1_AktorFunktion": (2167, 2),
+    "Solar_Relais1_Nr": (3452, 1),
+    "Solar_Kol1_Sensor1_Nr": (3536, 1),
+    "Solar_Sp1_Sensor1_Nr": (3576, 2),
+    "Solar_Sp1_Aktiviert_Modus": (3604, 1),
+    "Heizung_Wf1_Type": (11266, 4),
+    "Heizung_Wf1_Aktiviert_Modus": (11273, 1),
+    "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
     "Anlage_Wf1_Mischer_dtIntervall": (6625, 4, 1, 20),
@@ -63,6 +70,11 @@ CONFIG_SETTINGS = {
     "Anlage_Wf2_Feststoffkessel_dTSoll": (6920, 100, 30, 400),
     "Anlage_Wf2_Feststoffkessel_TMax": (6923, 800, 40, 950),
     "Anlage_Wf2_Feststoffkessel_TMin": (6926, 600, 40, 950),
+    "Solar_Sp1_dTein": (3579, 60, 10, 200),
+    "Solar_Sp1_dTaus": (3582, 40, 5, 195),
+    "Solar_Sp1_dTsoll": (3585, 100, 15, 300),
+    "Heizung_Wf1_Zirkulation_TEin": (11408, 400, 100, 590),
+    "Heizung_Wf1_Zirkulation_TAus": (11411, 600, 110, 600),
 }
 # This peer deliberately models the selected-unit parent contract. It is
 # independent software evidence, not a physical observation of this encoding.
@@ -70,6 +82,9 @@ COMPOUND_NAMES = (
     "Anlage_Wf2_Feststoffkessel_dTEin",
     "Anlage_Wf2_Feststoffkessel_dTAus",
     "Anlage_Wf2_Feststoffkessel_dTSoll",
+    "Solar_Sp1_dTein",
+    "Solar_Sp1_dTaus",
+    "Solar_Sp1_dTsoll",
 )
 COMPOUND_ALIASES = {
     name + suffix: (CONFIG_SETTINGS[name][0] + delta, CONFIG_SETTINGS[name][0], factor)
@@ -80,6 +95,8 @@ COMPOUND_PARENTS = {CONFIG_SETTINGS[name][0] for name in COMPOUND_NAMES}
 TEMPERATURE_NAMES = (
     "Anlage_Wf2_Feststoffkessel_TMax",
     "Anlage_Wf2_Feststoffkessel_TMin",
+    "Heizung_Wf1_Zirkulation_TEin",
+    "Heizung_Wf1_Zirkulation_TAus",
 )
 TEMPERATURE_PARENTS = {CONFIG_SETTINGS[name][0] for name in TEMPERATURE_NAMES}
 TEMPERATURE_ALIASES = {
@@ -307,21 +324,38 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     factor = 1 + Peer.settings[60]
                     assert value % factor == 0
                     stored_value = value // factor
-                    assert stored_value % 10 == 0
+                    step = 5 if index in (3579, 3582, 3585) else 10
+                    assert stored_value % step == 0
                     proposed = {
                         parent: stored_value
                         if parent == index
                         else Peer.settings[parent]
                         for parent in COMPOUND_PARENTS
                     }
-                    assert proposed[6917] < proposed[6914] < proposed[6920]
+                    if index in (3579, 3582, 3585):
+                        assert Peer.extra_values[3452] > 0
+                        assert Peer.extra_values[3536] > 0
+                        assert Peer.extra_values[3576] > 0
+                        assert Peer.extra_values[3604] == 1
+                        assert proposed[3582] < proposed[3579] < proposed[3585]
+                    else:
+                        assert proposed[6917] < proposed[6914] < proposed[6920]
                 if index in TEMPERATURE_PARENTS:
-                    assert Peer.extra_values[6810] == 6
-                    assert Peer.extra_values[6817] == 1
+                    if index in (11408, 11411):
+                        assert Peer.extra_values[11266] == 4
+                        assert Peer.extra_values[11273] == 1
+                        assert Peer.extra_values[11405] == 0
+                    else:
+                        assert Peer.extra_values[6810] == 6
+                        assert Peer.extra_values[6817] == 1
                     if Peer.settings[60]:
                         assert (value - 320) * 5 % 9 == 0
                         stored_value = (value - 320) * 5 // 9
                     assert stored_value % 10 == 0
+                    if index == 11408:
+                        assert stored_value < Peer.settings[11411]
+                    elif index == 11411:
+                        assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
                 if index in (1974, 1975):
@@ -785,6 +819,8 @@ async def qualify(directory, phase):
                     ("Relais_Regler_R1_MaxDrehzahl", "number", 70),
                     ("Anlage_Wf2_Feststoffkessel_TMin", "number", 158),
                     ("Anlage_Wf2_Feststoffkessel_TMax", "number", 194),
+                    ("Solar_Sp1_dTein", "number", 14),
+                    ("Heizung_Wf1_Zirkulation_TEin", "number", 122),
                 ):
                     entity = registry.async_get_entity_id(
                         kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
@@ -1292,6 +1328,36 @@ async def qualify(directory, phase):
         assert float(hass.states.get(minimum_entity).state) == 158
         assert float(hass.states.get(entity(maximum, "number")).state) == 194
         assert Peer.saves == 21
+
+        # Solar settings require the observed native store, collector and output.
+        # Removing a native assignment cannot leave a writable stale control.
+        solar_name = "Solar_Sp1_dTein"
+        solar = entity(solar_name, "number")
+        assert solar and float(hass.states.get(solar).state) == 12
+        await number(solar_name, 14)
+        assert Peer.settings[3579] == 70 and Peer.saves == 22
+        Peer.extra_values[3452] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(solar).state == "unavailable"
+        Peer.extra_values[3452] = 1
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert entity(solar_name, "number") == solar
+        assert float(hass.states.get(solar).state) == 14
+
+        # Thermally controlled circulation has its own selected-unit pair.
+        # Switching to timer-only removes the temperature controls.
+        name = "Heizung_Wf1_Zirkulation_TEin"
+        circulation = entity(name, "number")
+        assert circulation and float(hass.states.get(circulation).state) == 104
+        await number(name, 122)
+        assert Peer.settings[11408] == 500 and Peer.saves == 23
+        Peer.extra_values[11405] = 1
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(circulation).state == "unavailable"
+        Peer.extra_values[11405] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert entity(name, "number") == circulation
+        assert float(hass.states.get(circulation).state) == 122
 
         # Stop the actual HA process with an incomplete active capture. The
         # following restart phase must restore the same committed checkpoint.

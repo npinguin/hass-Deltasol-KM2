@@ -47,6 +47,8 @@ def configuration_device_info(capability):
     label = {
         "Anlage_Wf": "Arrangement function",
         "Solar_Wf": "Solar optional function",
+        "Solar_Sp": "Solar store",
+        "Solar_Kol": "Solar collector",
         "Heizung_Wf": "Heating optional function",
         "Heizung_Heizkreis": "Heating circuit",
     }[family]

@@ -121,6 +121,9 @@ class Setting:
         match = re.fullmatch(
             r"(Anlage_Wf|Solar_Wf|Heizung_Wf|Heizung_Heizkreis|Wmz)([1-9][0-9]*)_Type",
             self.installed_by.name,
+        ) or re.fullmatch(
+            r"(Solar_Sp|Solar_Kol)([1-9][0-9]*)_Sensor1_Nr",
+            self.installed_by.name,
         )
         if not match:
             return None
@@ -1299,27 +1302,31 @@ def _solar_store_settings():
                         (other, bounds) for _, other, _, bounds in others
                     ),
                 )
-            name = f"{root}_Anstieg"
-            index = 3597 + offset
-            yield Setting(
-                name,
-                index,
-                f"Solar store {slot} rise",
-                "number",
-                True,
-                limits=(
-                    ("1", "20", "0.5", "0.1")
-                    if selector == 0
-                    else ("2", "40", "1", "0.1")
-                ),
-                unit=unit,
-                dependencies=(
-                    *deps,
-                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
-                ),
-                installed_by=installed,
-                compound_mirrors=((name, index, name + alias, index + selector + 1),),
-            )
+            for suffix, index, bounds, label in (
+                ("Anstieg", 3597, ("1", "20", "0.5"), "rise"),
+                ("Hmax", 3594, ("0.1", "10", "0.1"), "store hysteresis"),
+            ):
+                name = f"{root}_{suffix}"
+                index += offset
+                yield Setting(
+                    name,
+                    index,
+                    f"Solar store {slot} {label}",
+                    "number",
+                    True,
+                    limits=tuple(
+                        str(Decimal(value) * multiplier) for value in bounds
+                    ) + ("0.1",),
+                    unit=unit,
+                    dependencies=(
+                        *deps,
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    installed_by=installed,
+                    compound_mirrors=(
+                        (name, index, name + alias, index + selector + 1),
+                    ),
+                )
         for selector, alias, unit, limits in (
             (0, "_C", "°C", ("4", "95", "1", "0.1")),
             (1, "_F", "°F", ("40", "204", "2", "0.1")),
@@ -1372,6 +1379,39 @@ def _solar_store_settings():
 
 
 BX_PLUS_SOLAR_STORE_SETTINGS = tuple(_solar_store_settings())
+
+
+def _solar_collector_settings():
+    """The adjustable operational collector minimum, not emergency shutdown."""
+    for slot in range(1, 4):
+        offset = (slot - 1) * 14
+        root = f"Solar_Kol{slot}"
+        installed = RangeDependency(f"{root}_Sensor1_Nr", 3536 + offset, 1, 65)
+        name = f"{root}_Tmin"
+        index = 3539 + offset
+        for selector, alias, unit, limits in (
+            (0, "_C", "°C", ("10", "90", "1", "0.1")),
+            (1, "_F", "°F", ("50", "194", "2", "0.1")),
+        ):
+            yield Setting(
+                name,
+                index,
+                f"Solar collector {slot} minimum temperature",
+                "number",
+                True,
+                limits=limits,
+                unit=unit,
+                installed_by=installed,
+                dependencies=(
+                    RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
+                    Dependency(f"{root}_Omin", 3533 + offset, (1,)),
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                compound_mirrors=((name, index, name + alias, index + selector + 1),),
+            )
+
+
+BX_PLUS_SOLAR_COLLECTOR_SETTINGS = tuple(_solar_collector_settings())
 
 
 def _heating_comfort_settings():

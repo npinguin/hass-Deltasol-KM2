@@ -770,6 +770,7 @@ class ParameterTests(unittest.TestCase):
         )
         cap = controls()[name]
         self.assertEqual(cap.value, 6)
+        self.assertEqual(cap.setting.native_slot, ("Solar_Sp1", "Solar_Sp", 1))
 
         def write(address, index, value, changeset, *, save):
             self.assertEqual((address, index, value, save), (0x7112, 3579, 70, True))

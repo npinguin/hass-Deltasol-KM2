@@ -204,8 +204,9 @@ The existing profile authorizes semantic writes, conditional relationships and s
 Native irradiation thresholds/duration, return-preheat summer switch-off,
 thermal circulation temperatures, DHW preheat differential and speed/delay
 parameters reuse the existing typed writer and selected-unit checks. Basic
-solar store differential, rise, target/maximum temperatures, minimum runtime
-and speed are conditional on positively resolved live native store/collector
+solar store differential, rise, target/maximum temperatures, hysteresis,
+minimum runtime and speed and the collector's enabled operational minimum
+are conditional on positively resolved live native store/collector
 sensor and solar output references and active mode. The firmware's readable
 defaults do not establish an installed store. No inferred SystemId mapping,
 topology edit, emergency-limit change or automatic write. Exact archive

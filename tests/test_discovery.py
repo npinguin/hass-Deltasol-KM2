@@ -1079,7 +1079,8 @@ class DiscoveryTests(unittest.TestCase):
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
         self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 240)
-        self.assertEqual(len(configuration.BX_PLUS_SOLAR_STORE_SETTINGS), 70)
+        self.assertEqual(len(configuration.BX_PLUS_SOLAR_STORE_SETTINGS), 80)
+        self.assertEqual(len(configuration.BX_PLUS_SOLAR_COLLECTOR_SETTINGS), 6)
         for setting in configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS:
             selector = definitions[setting.installed_by.name]
             self.assertEqual(
