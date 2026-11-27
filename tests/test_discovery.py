@@ -521,6 +521,11 @@ class DiscoveryTests(unittest.TestCase):
             "candidate_windows",
             capture.weekly_program_evidence()["programs"]["Wsu1"]["days"]["Mo"],
         )
+        self.assertNotIn(
+            "candidate_program",
+            capture.weekly_program_evidence()["references"][reference.name],
+        )
+        capture.catalog = catalog.Catalog(source.digest, definitions, source)
         capture.results[flag.name] = vbus.ParameterObservation(flag.index, 0, "read")
         self.assertNotIn(
             "candidate_program",

@@ -591,6 +591,11 @@ class ConfigurationCapture:
                     "status": "observed" if value is not None else "unknown",
                 }
         definitions = self.catalog.by_name
+        native_codec = (
+            self.controller.address == 0x7112
+            and self.changeset == BX_PLUS_CHANGESET
+            and self.catalog.matches(self.controller.address, self.changeset)
+        )
         for name, week in weeks.items():
             allocated = self._observed_raw(definitions.get(f"{name}_Belegt"))
             initialized = self._observed_raw(
@@ -599,13 +604,7 @@ class ConfigurationCapture:
             week["allocated"] = bool(allocated) if allocated in (0, 1) else None
             week["initialized"] = bool(initialized) if initialized in (0, 1) else None
             week["catalogue_days"] = len(week["days"])
-            if (
-                allocated == 1
-                and initialized == 1
-                and self.catalog.matches(self.controller.address, self.changeset)
-                and self.controller.address == 0x7112
-                and self.changeset == BX_PLUS_CHANGESET
-            ):
+            if native_codec and allocated == 1 and initialized == 1:
                 for day in week["days"].values():
                     words = day["observed_words"]
                     if len(words) != 3 or any(type(word) is not int for word in words):
@@ -630,7 +629,7 @@ class ConfigurationCapture:
         # exclusive owner authorization. Zero is never treated as a live link.
         for reference in references.values():
             raw = reference["reference"]
-            if type(raw) is int and raw > 0:
+            if native_codec and type(raw) is int and raw > 0:
                 program = f"Wsu{raw}"
                 if program in weeks and weeks[program]["allocated"] is True:
                     reference["candidate_program"] = program
