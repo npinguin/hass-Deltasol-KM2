@@ -148,8 +148,7 @@ class Setting:
         return (
             self.decode(raw) is not None
             and all(
-                type(values.get(parent)) is int
-                and values[parent] == values.get(child)
+                type(values.get(parent)) is int and values[parent] == values.get(child)
                 for parent, _, child, _ in self.compound_mirrors
             )
             and (self.installed_by is None or self.installed_by.matches(values))

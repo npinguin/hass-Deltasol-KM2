@@ -641,9 +641,7 @@ class DiscoveryTests(unittest.TestCase):
             selector = definitions[setting.installed_by.name]
             self.assertEqual(selector.index, setting.installed_by.index)
             self.assertEqual(
-                selector.metadata["value_text"][setting.installed_by.allowed[0]][
-                    "id"
-                ],
+                selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
                 setting.name.split("_")[2],
             )
             for name, index in setting.expected.items():

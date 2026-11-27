@@ -107,9 +107,7 @@ class ParameterTests(unittest.TestCase):
             }
         )
         for parent, index, child, child_index in celsius.compound_mirrors:
-            raw = {"dTEin": 50, "dTAus": 30, "dTSoll": 100}[
-                parent.rsplit("_", 1)[1]
-            ]
+            raw = {"dTEin": 50, "dTAus": 30, "dTSoll": 100}[parent.rsplit("_", 1)[1]]
             self.values[parent] = (index, raw)
             self.values[child] = (child_index, raw)
             self.values[child[:-2] + "_R"] = (child_index + 1, raw * 2)
@@ -118,7 +116,9 @@ class ParameterTests(unittest.TestCase):
         def discover():
             return {
                 uid: cap
-                for uid, cap in self.api.discover(telemetry(), hints).configuration.items()
+                for uid, cap in self.api.discover(
+                    telemetry(), hints
+                ).configuration.items()
                 if cap.setting.compound_mirrors
             }
 
@@ -143,7 +143,9 @@ class ParameterTests(unittest.TestCase):
         self.session.write_verified.side_effect = write
         self.assertEqual(self.api.set_configuration(telemetry(), initial, 6).value, 6)
         self.session.write_verified.assert_called_once()
-        self.assertEqual(self.api.set_configuration(telemetry(), capability(), 6).value, 6)
+        self.assertEqual(
+            self.api.set_configuration(telemetry(), capability(), 6).value, 6
+        )
         self.session.write_verified.assert_called_once()
         for invalid in (3, 10, 6.5):
             with self.assertRaises(parameters.VBusError):
