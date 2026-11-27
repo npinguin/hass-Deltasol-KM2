@@ -11,6 +11,7 @@ import unittest
 import xml.etree.ElementTree as ET
 import zipfile
 from collections import Counter
+from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -628,6 +629,29 @@ class DiscoveryTests(unittest.TestCase):
         # Every generated mixer slot must match the exact firmware layout,
         # documented setting and ordinal semantics. The live Type and
         # ActivityMode checks still gate every native action.
+        self.assertEqual(len(configuration.BX_PLUS_DIFFERENTIAL_SETTINGS), 256)
+        for setting in configuration.BX_PLUS_DIFFERENTIAL_SETTINGS:
+            parent = definitions[setting.name]
+            self.assertEqual(parent.index, setting.index)
+            self.assertEqual(parent.storage, "abstract")
+            self.assertTrue(parent.metadata["compound_parent_read_candidate"])
+            self.assertEqual(parent.metadata["selector_ref"], "TemperatureHysteresisSelector")
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(selector.index, setting.installed_by.index)
+            self.assertEqual(
+                selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
+                setting.name.split("_")[2],
+            )
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            for name, _, alias, _ in setting.compound_mirrors:
+                child = definitions[alias]
+                self.assertEqual(child.metadata["compound_ref"], name)
+                if name == setting.name:
+                    self.assertEqual(
+                        catalog.numeric_encoding(child),
+                        tuple(Decimal(v) for v in setting.limits),
+                    )
         self.assertEqual(len(configuration.BX_PLUS_MIXER_SETTINGS), 16)
         for setting in configuration.BX_PLUS_MIXER_SETTINGS:
             target = definitions[setting.name]

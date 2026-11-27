@@ -81,6 +81,9 @@ class Setting:
     # authorization. The same dependency is always re-read live for an action.
     installed_by: Dependency | None = None
     owner_relay: int | None = None
+    # Each tuple describes a parent and its selected child. Read both live
+    # before accepting any adjustment; never issue a write to a child alias.
+    compound_mirrors: tuple[tuple[str, int, str, int], ...] = ()
 
     def numeric_definition(self):
         if self.kind != "number" or self.limits is None:
@@ -135,12 +138,20 @@ class Setting:
         installed = (self.installed_by,) if self.installed_by else ()
         for dependency in (*installed, *self.dependencies, *self.relative_constraints):
             result[dependency.name] = dependency.index
+        for parent, index, child, child_index in self.compound_mirrors:
+            result[parent] = index
+            result[child] = child_index
         return result
 
     def accepts(self, values, requested=None):
         raw = values.get(self.name) if requested is None else requested
         return (
             self.decode(raw) is not None
+            and all(
+                type(values.get(parent)) is int
+                and values[parent] == values.get(child)
+                for parent, _, child, _ in self.compound_mirrors
+            )
             and (self.installed_by is None or self.installed_by.matches(values))
             and all(dep.matches(values) for dep in self.dependencies)
             and all(rule.matches(raw, values) for rule in self.relative_constraints)
@@ -404,6 +415,84 @@ BX_PLUS_PUMP_SETTINGS = tuple(
     )
     for setting in _pump_settings(prefix, address, index)
 )
+
+
+# Documented adjustable differential parameters (RESOL BX Plus manual,
+# Arrangement: heat exchange, solid fuel boiler, return preheating;
+# exact RPT 2.08 bounds supersede earlier printed firmware ranges).
+# The MIT BaseConfigurationOptimizer identifies the compound parent as
+# adjustable. Require independently resolved parent AND selected child,
+# matching live values, exact installed type, active function and ordering.
+# Keep safety min/max temperature limits and topology read-only.
+# Two selector variants use the same logical entity ID and parent index.
+DIFFERENTIAL_FAMILIES = (
+    ("Waermeaustausch", 5, 6639, ("1", "30", "0.5"), ("0.5", "29.5", "0.5"), ("1.5", "40", "0.5")),
+    ("Feststoffkessel", 6, 6663, ("2", "30", "1"), ("1", "29", "1"), ("3", "40", "1")),
+    ("Ruecklaufanhebung", 8, 6695, ("2", "30", "0.5"), ("1", "29", "0.5"), None),
+)
+
+
+def _differential_settings():
+    for slot in range(1, 17):
+        offset = (slot - 1) * 251
+        root = f"Anlage_Wf{slot}"
+        for kind, ordinal, start, on, off, target in DIFFERENTIAL_FAMILIES:
+            prefix = f"{root}_{kind}"
+            installed = Dependency(f"{root}_Type", 6559 + offset, (ordinal,))
+            active = Dependency(f"{root}_Aktiviert_Modus", 6566 + offset, (1,))
+            entries = tuple(
+                (f"{prefix}_{suffix}", start + offset + delta, limits, label)
+                for suffix, delta, limits, label in (
+                    ("dTEin", 0, on, "switch-on differential"),
+                    ("dTAus", 3, off, "switch-off differential"),
+                    ("dTSoll", 6, target, "target differential"),
+                )
+                if limits is not None
+            )
+            for selector, suffix, unit, multiplier in (
+                (0, "_K", "K", 1),
+                (1, "_R", "°R", 2),
+            ):
+                mirrors = tuple(
+                    (name, index, name + suffix, index + selector + 1)
+                    for name, index, _, _ in entries
+                )
+                for position, (name, index, bounds, label) in enumerate(entries):
+                    constraints = []
+                    for other_position, (other, other_index, _, _) in enumerate(entries):
+                        if position == other_position:
+                            continue
+                        # on > off; target > on and off.
+                        rank = (1, 0, 2)
+                        constraints.append(
+                            RelativeConstraint(
+                                other,
+                                other_index,
+                                "gt" if rank[position] > rank[other_position] else "lt",
+                            )
+                        )
+                    limits = tuple(
+                        str(Decimal(bound) * multiplier) for bound in bounds
+                    ) + ("0.1",)
+                    yield Setting(
+                        name,
+                        index,
+                        f"Arrangement function {slot} {kind} {label}",
+                        "number",
+                        True,
+                        limits=limits,
+                        unit=unit,
+                        dependencies=(
+                            active,
+                            Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                        ),
+                        relative_constraints=tuple(constraints),
+                        installed_by=installed,
+                        compound_mirrors=mirrors,
+                    )
+
+
+BX_PLUS_DIFFERENTIAL_SETTINGS = tuple(_differential_settings())
 
 
 def encode_action(setting, value):

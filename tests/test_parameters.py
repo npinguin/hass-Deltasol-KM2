@@ -91,6 +91,71 @@ class ParameterTests(unittest.TestCase):
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
 
+    def test_compound_differential_requires_live_parent_child_and_unit(self):
+        self.session.read.return_value = 0x2734DABC
+        variants = [
+            s for s in parameters_configuration.BX_PLUS_DIFFERENTIAL_SETTINGS
+            if s.name == "Anlage_Wf1_Feststoffkessel_dTEin"
+        ]
+        celsius, fahrenheit = variants
+        self.values.update({
+            "TemperatureHysteresisSelector": (60, 0),
+            "Anlage_Wf1_Type": (6559, 6),
+            "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
+        })
+        for parent, index, child, child_index in celsius.compound_mirrors:
+            raw = {"dTEin": 50, "dTAus": 30, "dTSoll": 100}[parent.rsplit("_", 1)[1]]
+            self.values[parent] = (index, raw)
+            self.values[child] = (child_index, raw)
+            self.values[child[:-2] + "_R"] = (child_index + 1, raw * 2)
+        hints = {
+            "Anlage_Wf1_Type": parameters.ParameterObservation(6559, 6, "read")
+        }
+
+        def discover():
+            return self.api.discover(telemetry(), hints).configuration
+
+        def capability():
+            return next(
+                c for c in discover().values()
+                if c.setting.name == celsius.name
+            )
+
+        initial = capability()
+        self.assertEqual(initial.value, 5)
+        self.assertEqual(initial.setting.unit, "K")
+        self.assertEqual(len(discover()), 3)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, changeset, save), (0x7112, 6663, 0x2734DABC, True))
+            self.values[celsius.name] = (index, value)
+            self.values[celsius.name + "_K"] = (index + 1, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), initial, 6).value, 6)
+        self.session.write_verified.assert_called_once()
+        self.assertEqual(self.api.set_configuration(telemetry(), capability(), 6).value, 6)
+        self.session.write_verified.assert_called_once()
+        for invalid in (3, 10, 6.5):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), capability(), invalid)
+        # Mismatched parent/child and changed unit must not generate writes.
+        self.values[celsius.name + "_K"] = (6664, 50)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), initial, 7)
+        self.assertFalse(discover())
+        self.values["TemperatureHysteresisSelector"] = (60, 1)
+        for parent, index, child, child_index in fahrenheit.compound_mirrors:
+            self.values[parent] = (index, self.values[child][1])
+        replacement = capability()
+        self.assertEqual(replacement.unique_id, initial.unique_id)
+        self.assertEqual(replacement.setting.unit, "°R")
+        self.assertEqual(replacement.value, 10)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), initial, 7)
+        self.session.write_verified.assert_called_once()
+
     def test_mixer_family_requires_live_installed_type_and_activity(self):
         self.session.read.return_value = 0x2734DABC
         setting = parameters_configuration.BX_PLUS_MIXER_SETTINGS[0]

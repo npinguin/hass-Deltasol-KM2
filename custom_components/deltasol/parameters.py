@@ -15,6 +15,7 @@ from threading import RLock
 from time import monotonic, sleep
 
 from .configuration import (
+    BX_PLUS_DIFFERENTIAL_SETTINGS,
     BX_PLUS_HEATING_SETTINGS,
     BX_PLUS_HQM_SETTINGS,
     BX_PLUS_MIXER_SETTINGS,
@@ -106,6 +107,7 @@ PROFILES = (
             *BX_PLUS_HQM_SETTINGS,
             *BX_PLUS_HEATING_SETTINGS,
             *BX_PLUS_PUMP_SETTINGS,
+            *BX_PLUS_DIFFERENTIAL_SETTINGS,
         ),
     ),
 )
