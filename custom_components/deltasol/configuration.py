@@ -765,7 +765,17 @@ def _loading_temperature_settings():
     This changes neither the installed function nor its output assignment.
     """
     for slot in range(1, 17):
-        for family, kind, type_index, activity_index, on, on_index, off, off_index, extra in (
+        for (
+            family,
+            kind,
+            type_index,
+            activity_index,
+            on,
+            on_index,
+            off,
+            off_index,
+            extra,
+        ) in (
             (
                 f"Anlage_Wf{slot}",
                 3,
@@ -805,7 +815,15 @@ def _loading_temperature_settings():
                     (on, on_index, on + suffix, on_index + selector + 1),
                     (off, off_index, off + suffix, off_index + selector + 1),
                 )
-                for name, index, other, other_index, limits, other_limits, operation in (
+                for (
+                    name,
+                    index,
+                    other,
+                    other_index,
+                    limits,
+                    other_limits,
+                    operation,
+                ) in (
                     (on, on_index, off, off_index, low, high, "lt"),
                     (off, off_index, on, on_index, high, low, "gt"),
                 ):
@@ -820,10 +838,14 @@ def _loading_temperature_settings():
                         dependencies=(
                             activity,
                             *extra,
-                            Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                            Dependency(
+                                "TemperatureHysteresisSelector", 60, (selector,)
+                            ),
                         ),
                         installed_by=installed,
-                        relative_constraints=(RelativeConstraint(other, other_index, operation),),
+                        relative_constraints=(
+                            RelativeConstraint(other, other_index, operation),
+                        ),
                         compound_mirrors=mirrors,
                         peer_limits=((other, other_limits),),
                     )
