@@ -309,6 +309,8 @@ BX_PLUS_MIXER_SETTINGS = tuple(
 # The vendor factor uses a special type (not generic Number), with quant=1
 # raw unit and store/display factor 1e-7. Verify all slots against exact
 # 2.08 metadata in CI. Never change meter assignment, counter or fluid.
+# RESOL VSF 20240922 (blob 4b3058e2): BX Plus HQM #n = 0x7130 + n.
+# Field evidence in issues #8/#10 corroborates Wmz1 / HQM #1.
 def _hqm_display_settings(number):
     prefix = f"Wmz{number}"
     offset = (number - 1) * 133
@@ -330,6 +332,7 @@ def _hqm_display_settings(number):
             True,
             dependencies=(active, unit, factor),
             installed_by=installed,
+            owner_address=0x7130 + number,
         ),
         Setting(
             unit.name,
@@ -340,6 +343,7 @@ def _hqm_display_settings(number):
             (("CO2", 0), ("Oil", 1), ("Gas", 2), ("Coal", 3)),
             dependencies=(active, enabled, factor),
             installed_by=installed,
+            owner_address=0x7130 + number,
         ),
         Setting(
             factor.name,
@@ -350,6 +354,7 @@ def _hqm_display_settings(number):
             limits=("0.0000001", "100", "0.0000001", "0.0000001"),
             dependencies=(active, enabled, unit),
             installed_by=installed,
+            owner_address=0x7130 + number,
         ),
     )
 

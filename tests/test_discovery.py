@@ -961,6 +961,9 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(activity.metadata["value_text"][1]["label"], "Aktiviert")
         self.assertEqual(len(configuration.BX_PLUS_HQM_SETTINGS), 21)
         for setting in configuration.BX_PLUS_HQM_SETTINGS:
+            self.assertEqual(
+                setting.owner_address, 0x7130 + int(setting.name.split("_")[0][3:])
+            )
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
             self.assertIsNone(target.excluded)

@@ -35,9 +35,8 @@ def register_configuration_entities(entry, async_add_entities, kind, entity_type
 def configuration_device_info(capability):
     """Preserve existing hardware identities; group new native function controls.
 
-    HQM already has vendor telemetry devices, so do not synthesize another
-    meter or guess its source address. Keep those settings on the existing
-    controller until a vendor-native identity link is corroborated.
+    HQM uses the verified, observed vendor telemetry device, not a synthetic
+    meter. Configuration transactions still target its owning controller.
     """
     physical = (DOMAIN, f"{capability.device.serial}_{capability.device.source}")
     slot = capability.setting.native_slot

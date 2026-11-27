@@ -31,6 +31,7 @@ SELECT_UID = "isolated-gateway_7112_R4_mode"
 EM_UID = "isolated-gateway_7112_M1_R1_mode"
 EM_RELAY = 2173
 EM_SENSOR_UID = "00_7112_6651_0100__000_4_0"
+HQM_SENSOR_UID = "00_0010_7131_0100__004_4_0"
 
 # Independent wire fixtures: exact 2.08 reference positions, not imported
 # production Setting objects. Persistent state belongs to the protocol peer.
@@ -371,6 +372,18 @@ class HttpHandler(BaseHTTPRequestHandler):
                     }
                 ],
             }
+            result["headers"].append(
+                {
+                    "id": "00_0010_7131_0100",
+                    "description": "HQM #1",
+                    "destination_name": "Broadcast",
+                    "source_name": "DeltaSol BX Plus [HQM #1]",
+                    "fields": [{"id": "004_4_0", "name": "Power", "unit": "W"}],
+                }
+            )
+            result["headersets"][0]["packets"].append(
+                {"field_values": [{"raw_value": 1000.0}]}
+            )
             if Peer.em_present:
                 result["headers"].append(
                     {
@@ -460,6 +473,9 @@ async def qualify(directory, phase):
         em_sensor = registry.async_get_entity_id("sensor", "deltasol", EM_SENSOR_UID)
         assert em_sensor and float(hass.states.get(em_sensor).state) == 30
         identity["em_sensor"] = em_sensor
+        hqm_sensor = registry.async_get_entity_id("sensor", "deltasol", HQM_SENSOR_UID)
+        assert hqm_sensor and float(hass.states.get(hqm_sensor).state) == 1000
+        identity["hqm_sensor"] = hqm_sensor
         em = registry.async_get_entity_id("select", "deltasol", EM_UID)
         assert em and hass.states.get(em).state == "Auto"
         identity["em_select"] = em
@@ -1089,6 +1105,10 @@ async def qualify(directory, phase):
         await number("Heizung_Heizkreis1_Heizkurve", 1.5)
         alternative = entity("Wmz1_OAlternativAnzeige", "switch")
         assert alternative and hass.states.get(alternative).state == "off"
+        assert (
+            registry.async_get(alternative).device_id
+            == registry.async_get(hqm_sensor).device_id
+        )
         await hass.services.async_call(
             "switch", "turn_on", {"entity_id": alternative}, blocking=True
         )

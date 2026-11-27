@@ -233,31 +233,49 @@ class ParameterTests(unittest.TestCase):
             installed.name: parameters.ParameterObservation(installed.index, 1, "read")
         }
 
-        def controls():
+        data = {
+            **telemetry(),
+            **telemetry(address="7131", source="DeltaSol BX Plus [HQM #1]"),
+        }
+
+        def controls(inventory=data):
             return {
                 cap.setting.name: cap
-                for cap in self.api.discover(telemetry(), hints).configuration.values()
+                for cap in self.api.discover(inventory, hints).configuration.values()
             }
 
         self.assertEqual(set(controls()), {switch.name})
+        self.assertEqual(controls()[switch.name].device.address, 0x7131)
+        self.assertEqual(controls()[switch.name].controller.address, 0x7112)
+        self.assertFalse(controls(telemetry()))
+        self.assertFalse(controls({**telemetry(), **telemetry(address="7132")}))
+        ambiguous = dict(data)
+        ambiguous["00_0010_7131_0100__002_2_0"] = Mock(
+            bus_src="Other meter", product_details={"serial": "gateway"}
+        )
+        self.assertFalse(controls(ambiguous))
 
         def write(address, index, value, changeset, *, save):
             self.assertTrue(save)
+            self.assertEqual(address, 0x7112)
             name = next(name for name, pair in self.values.items() if pair[0] == index)
             self.values[name] = (index, value)
             return value
 
         self.session.write_verified.side_effect = write
-        self.api.set_configuration(telemetry(), controls()[switch.name], True)
+        self.api.set_configuration(data, controls()[switch.name], True)
         caps = controls()
         self.assertEqual(set(caps), {switch.name, unit.name, factor.name})
-        self.api.set_configuration(telemetry(), caps[unit.name], "Gas")
-        self.api.set_configuration(telemetry(), caps[factor.name], 0.5000001)
+        self.api.set_configuration(data, caps[unit.name], "Gas")
+        self.api.set_configuration(data, caps[factor.name], 0.5000001)
         self.assertEqual(self.values[factor.name][1], 5000001)
+        self.assertEqual(self.session.write_verified.call_count, 3)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), caps[unit.name], "Coal")
         self.assertEqual(self.session.write_verified.call_count, 3)
         self.values[switch.name] = (switch.index, 0)
         with self.assertRaises(parameters.VBusError):
-            self.api.set_configuration(telemetry(), caps[unit.name], "Coal")
+            self.api.set_configuration(data, caps[unit.name], "Coal")
         self.assertEqual(self.session.write_verified.call_count, 3)
         self.assertEqual(set(controls()), {switch.name})
 
