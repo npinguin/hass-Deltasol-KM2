@@ -988,6 +988,33 @@ class DiscoveryTests(unittest.TestCase):
         definitions = {d.name: d for d in parsed.definitions}
         self.assertGreater(len(definitions), 7000)
         self.assertEqual(definitions["Schema"].index, 86)
+        # Independent MX 2xx optimizer and BX Plus SET evidence agree on
+        # the 51 x 9 timer layout. Verify the exact pinned RPT independently.
+        for slot in range(1, 52):
+            prefix = f"Wsu{slot}"
+            base = 18401 + 13 * slot
+            for suffix, offset, kind in (
+                ("_Belegt", 0, "Boolean"),
+                ("_Schaltuhr_Woche_Initialisiert", 4, "Boolean"),
+                *(
+                    (f"_Schaltuhr_Woche_Tag{day}_Daten", 5 + i, "Blob")
+                    for i, day in enumerate(("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"))
+                ),
+            ):
+                row = definitions[prefix + suffix]
+                self.assertEqual(row.index, base + offset)
+                self.assertIn(kind, row.metadata["type_chain"])
+                self.assertIsNone(row.excluded)
+        # Corroborate the generic Solar function instance selector separately
+        # from its type-specific storage. No ordinal-to-instance assumption.
+        for slot in range(1, 17):
+            prefix = f"Solar_Wf{slot}"
+            self.assertEqual(
+                definitions[prefix + "_Type"].index, 4409 + (slot - 1) * 120
+            )
+            self.assertEqual(
+                definitions[prefix + "_Nr"].index, 4410 + (slot - 1) * 120
+            )
         # Corroborate the production write contracts against the exact RPT,
         # not the earlier optimizer indices.
         configuration = importlib.import_module(f"{PACKAGE}.configuration")
