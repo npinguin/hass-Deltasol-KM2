@@ -15,6 +15,7 @@ from threading import RLock
 from time import monotonic, sleep
 
 from .configuration import (
+    BX_PLUS_HQM_SETTINGS,
     BX_PLUS_MIXER_SETTINGS,
     BX_PLUS_SETTINGS,
     ConfigurationCapability,
@@ -97,7 +98,9 @@ PROFILES = (
         # physical module identity + exact activation and relay mappings.
         module_presence_lookup_optional_changeset=0x2734DABC,
         configuration_changeset=0x2734DABC,
-        settings=(*BX_PLUS_SETTINGS, *BX_PLUS_MIXER_SETTINGS),
+        settings=(
+            *BX_PLUS_SETTINGS, *BX_PLUS_MIXER_SETTINGS, *BX_PLUS_HQM_SETTINGS
+        ),
     ),
 )
 

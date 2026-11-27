@@ -475,6 +475,34 @@ class DiscoveryTests(unittest.TestCase):
             activity = definitions[setting.dependencies[0].name]
             self.assertEqual(activity.index, setting.dependencies[0].index)
             self.assertEqual(activity.metadata["value_text"][1]["label"], "Aktiviert")
+        self.assertEqual(len(configuration.BX_PLUS_HQM_SETTINGS), 21)
+        for setting in configuration.BX_PLUS_HQM_SETTINGS:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertIsNone(target.excluded)
+            self.assertEqual(target.storage, "unspecified")
+            self.assertTrue(target.metadata["menu_refs"])
+            self.assertFalse(target.metadata.get("compound_ref"))
+            self.assertFalse(target.metadata.get("selector_ref"))
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(selector.index, setting.installed_by.index)
+            self.assertEqual(selector.metadata["value_text"][1]["id"], "Wmz")
+            for dependency in setting.dependencies:
+                self.assertEqual(definitions[dependency.name].index, dependency.index)
+            if setting.kind == "switch":
+                self.assertIn("Boolean", target.metadata["type_chain"])
+            elif setting.kind == "select":
+                self.assertEqual(
+                    [item["id"] for item in target.metadata["value_text"]],
+                    ["CO2", "Oel", "Gas", "Kohle"],
+                )
+            else:
+                self.assertEqual(target.metadata["minimum"], "0.0000001")
+                self.assertEqual(target.metadata["maximum"], "100")
+                self.assertEqual(target.metadata["storeFactor"], "0.0000001")
+                self.assertEqual(target.metadata["displayFactor"], "0.0000001")
+                self.assertEqual(target.metadata["quant"], "1")
+                self.assertEqual(setting.encode(0.5000001), 5000001)
         self.assertEqual(definitions["Bedienercode"].excluded, "sensitive")
         self.assertEqual(
             definitions["MesseModus_BedienercodeReset"].excluded, "sensitive"
@@ -532,6 +560,7 @@ class DiscoveryTests(unittest.TestCase):
             "Heizung_Heizkreis1_Aktiviert_Modus",
             "Heizung_Heizkreis1_Heizkurve",
             "Heizung_Heizkreis1_System",
+            "Heizung_Heizkreis1_Heizsystem",
             "Wmz1_AlternativAnzeigeFaktor",
             "Heizung_Heizkreis1_dTTageskorrektur_K",
             "Heizung_Heizkreis1_dTNachtkorrektur_K",

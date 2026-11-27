@@ -140,6 +140,52 @@ class ParameterTests(unittest.TestCase):
                 self.api.set_configuration(telemetry(), cap, invalid)
         self.session.write_verified.assert_called_once()
 
+    def test_hqm_display_family_checks_activation_and_typed_factor(self):
+        self.session.read.return_value = 0x2734DABC
+        switch, unit, factor = parameters_configuration.BX_PLUS_HQM_SETTINGS[:3]
+        installed = switch.installed_by
+        active = switch.dependencies[0]
+        self.values.update(
+            {
+                installed.name: (installed.index, 1),
+                active.name: (active.index, 1),
+                switch.name: (switch.index, 0),
+                unit.name: (unit.index, 0),
+                factor.name: (factor.index, 5000000),
+            }
+        )
+        hints = {
+            installed.name: parameters.ParameterObservation(installed.index, 1, "read")
+        }
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        self.assertEqual(set(controls()), {switch.name})
+
+        def write(address, index, value, changeset, *, save):
+            self.assertTrue(save)
+            name = next(name for name, pair in self.values.items() if pair[0] == index)
+            self.values[name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.api.set_configuration(telemetry(), controls()[switch.name], True)
+        caps = controls()
+        self.assertEqual(set(caps), {switch.name, unit.name, factor.name})
+        self.api.set_configuration(telemetry(), caps[unit.name], "Gas")
+        self.api.set_configuration(telemetry(), caps[factor.name], 0.5000001)
+        self.assertEqual(self.values[factor.name][1], 5000001)
+        self.assertEqual(self.session.write_verified.call_count, 3)
+        self.values[switch.name] = (switch.index, 0)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), caps[unit.name], "Coal")
+        self.assertEqual(self.session.write_verified.call_count, 3)
+        self.assertEqual(set(controls()), {switch.name})
+
     def test_verified_configuration_save_and_reconnect(self):
         self.session.read.return_value = 0x2734DABC
         self.values["AutoSommerWinterzeit"] = (56, 1)

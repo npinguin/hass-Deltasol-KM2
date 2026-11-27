@@ -29,6 +29,20 @@ class Dependency:
 
 
 @dataclass(frozen=True)
+class RangeDependency:
+    """Verified raw numeric dependency, checked again before an action."""
+
+    name: str
+    index: int
+    minimum: int
+    maximum: int
+
+    def matches(self, values):
+        raw = values.get(self.name)
+        return type(raw) is int and self.minimum <= raw <= self.maximum
+
+
+@dataclass(frozen=True)
 class RelativeConstraint:
     """Verified relation between values with the same raw encoding."""
 
@@ -60,7 +74,7 @@ class Setting:
     # Exact static engineering-unit limits, not inferred vendor metadata.
     limits: tuple[str, str, str, str] | None = None  # min, max, step, factor
     unit: str | None = None
-    dependencies: tuple[Dependency, ...] = ()
+    dependencies: tuple[Dependency | RangeDependency, ...] = ()
     owner_address: int | None = None
     relative_constraints: tuple[RelativeConstraint, ...] = ()
     # Installed program selector: may be used as a Discovery hint, never as
@@ -220,6 +234,61 @@ BX_PLUS_MIXER_SETTINGS = tuple(
     )
     for number in range(1, 17)
     for offset in ((number - 1) * 251,)
+)
+
+
+# BX Plus manual from firmware 2.03, HQM alternative unit/Unit/Factor:
+# boolean, four exact RPT enum ordinals and 7-decimal conversion factor.
+# The vendor factor uses a special type (not generic Number), with quant=1
+# raw unit and store/display factor 1e-7. Verify all slots against exact
+# 2.08 metadata in CI. Never change meter assignment, counter or fluid.
+def _hqm_display_settings(number):
+    prefix = f"Wmz{number}"
+    offset = (number - 1) * 133
+    installed = Dependency(f"{prefix}_Type", 17260 + offset, (1,))
+    active = Dependency(f"{prefix}_Aktiviert_Modus", 17263 + offset, (1,))
+    enabled = Dependency(f"{prefix}_OAlternativAnzeige", 17273 + offset, (1,))
+    unit = Dependency(f"{prefix}_AlternativAnzeigeEinheit", 17274 + offset, (0, 1, 2, 3))
+    factor = RangeDependency(
+        f"{prefix}_AlternativAnzeigeFaktor", 17275 + offset, 1, 1000000000
+    )
+    return (
+        Setting(
+            enabled.name,
+            enabled.index,
+            f"HQM {number} alternative display",
+            "switch",
+            True,
+            dependencies=(active, unit, factor),
+            installed_by=installed,
+        ),
+        Setting(
+            unit.name,
+            unit.index,
+            f"HQM {number} alternative display unit",
+            "select",
+            True,
+            (("CO2", 0), ("Oil", 1), ("Gas", 2), ("Coal", 3)),
+            dependencies=(active, enabled, factor),
+            installed_by=installed,
+        ),
+        Setting(
+            factor.name,
+            factor.index,
+            f"HQM {number} alternative display conversion factor",
+            "number",
+            True,
+            limits=("0.0000001", "100", "0.0000001", "0.0000001"),
+            dependencies=(active, enabled, unit),
+            installed_by=installed,
+        ),
+    )
+
+
+BX_PLUS_HQM_SETTINGS = tuple(
+    setting
+    for number in range(1, 8)
+    for setting in _hqm_display_settings(number)
 )
 
 

@@ -566,10 +566,12 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
     async def async_set_configuration(self, unique_id, value):
         """Native entities use one live validated configuration action."""
         try:
-            await self._async_set_configuration(unique_id, value)
+            refresh_dependents = await self._async_set_configuration(unique_id, value)
         except VBusError as error:
             await self._async_action_failed(error)
             raise HomeAssistantError(str(error)) from error
+        if refresh_dependents:
+            await self.async_refresh()
 
     async def _async_set_configuration(self, unique_id, value):
         async with self._lock:
@@ -600,12 +602,32 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             except VBusError as error:
                 self.async_set_update_error(error)
                 raise
+            # A changed selector invalidates dependent controls before the
+            # read-only refresh. Never retain a capability derived from an old
+            # condition, even if the next refresh fails.
+            changed = verified.raw != capability.raw
+            dependents = (
+                {
+                    setting.name
+                    for setting in self.data.profile.settings_for(verified.changeset)
+                    if setting.name != verified.setting.name
+                    and verified.setting.name in setting.expected
+                }
+                if changed and self.data.profile
+                else set()
+            )
+            remaining = {
+                uid: cap
+                for uid, cap in self.data.configuration.items()
+                if cap.setting.name not in dependents
+            }
             self.async_set_updated_data(
                 replace(
                     self.data,
-                    configuration={**self.data.configuration, unique_id: verified},
+                    configuration={**remaining, unique_id: verified},
                 )
             )
+            return bool(dependents)
 
     async def async_set_mode(self, unique_id, option):
         """Do not accept calls that bypass entity availability."""
