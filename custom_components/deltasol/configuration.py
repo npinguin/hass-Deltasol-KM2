@@ -329,9 +329,17 @@ PUMP_ROLES = (
     (4, "Primaerpumpe"),
     (5, "Sekundaerpumpe"),
     (6, "Speicherpumpe"),
-    (8, "BypassPumpe"),
-    (10, "ExtWTPrimaerpumpe"),
-    (11, "ExtWTSekundaerpumpe"),
+    (9, "BypassPumpe"),
+    (11, "ExtWTPrimaerpumpe"),
+    (12, "ExtWTSekundaerpumpe"),
+    (16, "Zwillingspumpe"),
+    (34, "HeizungThDesinfektionUmwaelzpumpe"),
+    (36, "HeizungThBwErwaermungLadepumpe"),
+    (37, "HeizungBwVorerwaermungPumpe"),
+    (39, "HeizungHeizkreisPumpe"),
+    (44, "HeizungHeizkreisNachheizungLadepumpe"),
+    (64, "AnlageWTUmwaelzpumpe"),
+    (67, "HeizungRelaisPumpe"),
 )
 
 
