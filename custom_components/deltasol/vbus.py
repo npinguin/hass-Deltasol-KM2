@@ -220,17 +220,18 @@ class VBusSession:
 
     def request(self, address, command, index=0, value=0, *, replies=(0x0100,)):
         """Send exactly once and correlate the response to its address and ID."""
+        mutating = command & 0xFF80 in (0x0200, 0x0400, 0x1500) or command in (
+            0x1400,
+            0x1402,
+            0x1404,
+        )
         self.connection.settimeout(2)
         try:
             self.connection.sendall(
                 Datagram(address, SELF_ADDRESS, command, index, value).encode()
             )
         except OSError as error:
-            if command & 0xFF80 in (0x0200, 0x0400, 0x1500) or command in (
-                0x1400,
-                0x1402,
-                0x1404,
-            ):
+            if mutating:
                 raise VBusError("VBus write outcome uncertain") from error
             raise VBusTransientError(
                 "VBus command send failed", "send", command=command, index=index
@@ -251,11 +252,7 @@ class VBusSession:
         try:
             return self.receive_matching(matches, 2)
         except (OSError, VBusError) as error:
-            if command & 0xFF80 in (0x0200, 0x0400, 0x1500) or command in (
-                0x1400,
-                0x1402,
-                0x1404,
-            ):
+            if mutating:
                 raise VBusError("VBus write outcome uncertain") from error
             raise VBusTransientError(
                 "VBus parameter response failed",
@@ -521,7 +518,6 @@ class VBusSession:
             raise VBusError("VBus write readback differs")
         return value
 
-
     def write_packed_verified(self, address, index, before, wanted, changeset):
         """Internal atomic three-word transport for a previously verified Blob.
 
@@ -538,8 +534,10 @@ class VBusSession:
             or any(
                 not isinstance(words, tuple)
                 or len(words) != 3
-                or any(type(word) is not int or not -(2**31) <= word < 2**31
-                       for word in words)
+                or any(
+                    type(word) is not int or not -(2**31) <= word < 2**31
+                    for word in words
+                )
                 for words in (before, wanted)
             )
         ):
@@ -569,14 +567,14 @@ class VBusSession:
                 acknowledged(0x1500 | subindex, 0x1600 | subindex, index, word)
             if self.read(address, 0) != changeset:
                 raise VBusError("Controller changeset changed during write")
-        except (OSError, VBusError) as error:
+        except (OSError, VBusError):
             try:
                 acknowledged(0x1404, 0x1405)
             except (OSError, VBusError) as rollback_error:
                 raise VBusError(
                     "VBus bulk transaction rollback unconfirmed"
                 ) from rollback_error
-            raise error
+            raise
         # A missing commit reply may mean it committed. Never send commit
         # twice or attempt rollback after commit has been attempted.
         acknowledged(0x1402, 0x1403)

@@ -127,8 +127,20 @@ class VBusTests(unittest.TestCase):
         self.assertEqual(
             [p.command for p in sent],
             [
-                0x0300, 0x0300, 0x0301, 0x0302, 0x1400, 0x1500, 0x1501, 0x1502,
-                0x0300, 0x1402, 0x0300, 0x0300, 0x0301, 0x0302,
+                0x0300,
+                0x0300,
+                0x0301,
+                0x0302,
+                0x1400,
+                0x1500,
+                0x1501,
+                0x1502,
+                0x0300,
+                0x1402,
+                0x0300,
+                0x0300,
+                0x0301,
+                0x0302,
             ],
         )
         self.assertEqual([p.value for p in sent[5:8]], list(wanted))
@@ -210,7 +222,9 @@ class VBusTests(unittest.TestCase):
                         ADDRESS, index, before, before, changeset
                     )
             sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
-            self.assertEqual([p.command for p in sent], [0x0300, 0x0300, 0x0301, 0x0302])
+            self.assertEqual(
+                [p.command for p in sent], [0x0300, 0x0300, 0x0301, 0x0302]
+            )
 
     def test_corrupt_frame_rejected(self):
         raw = bytearray(response(0x0100, 1321, 2))
