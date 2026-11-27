@@ -393,6 +393,59 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(pumps())
         self.session.write_verified.assert_called_once()
 
+    def test_thermostat_preserves_orientation_and_switch_controlled_mode(self):
+        setting = next(
+            setting
+            for setting in parameters_configuration.BX_PLUS_THERMOSTAT_SETTINGS
+            if setting.name == "Anlage_Wf1_Funktionsblock_TTh1Ein"
+            and setting.unit == "°C"
+        )
+        values = {
+            "Anlage_Wf1_Type": 9,
+            "Anlage_Wf1_Aktiviert_Modus": 2,
+            "TemperatureHysteresisSelector": 0,
+            "Anlage_Wf1_Funktionsblock_OThermostat1": 1,
+            "Anlage_Wf1_Funktionsblock_TTh1Ein": 500,
+            "Anlage_Wf1_Funktionsblock_TTh1Ein_C": 500,
+            "Anlage_Wf1_Funktionsblock_TTh1Aus": 600,
+            "Anlage_Wf1_Funktionsblock_TTh1Aus_C": 600,
+        }
+        self.assertTrue(setting.accepts(values))
+        self.assertTrue(setting.accepts(values, setting.encode(55)))
+        self.assertFalse(setting.accepts(values, setting.encode(60)))
+        self.assertFalse(setting.accepts(values, setting.encode(65)))
+        values["Anlage_Wf1_Funktionsblock_OThermostat1"] = 0
+        self.assertFalse(setting.accepts(values))
+
+    def test_circulation_runtime_requires_demand_mode_and_exact_seconds(self):
+        self.session.read.return_value = 0x2734DABC
+        setting = next(
+            s
+            for s in parameters_configuration.BX_PLUS_TIMING_SETTINGS
+            if s.name == "Heizung_Wf1_Zirkulation_dtLaufzeit"
+        )
+        self.values.update(
+            {
+                "Heizung_Wf1_Type": (11266, 4),
+                "Heizung_Wf1_Aktiviert_Modus": (11273, 2),
+                "Heizung_Wf1_Zirkulation_Variante": (11405, 3),
+                setting.name: (setting.index, 180),
+            }
+        )
+        hints = {
+            "Heizung_Wf1_Type": parameters.ParameterObservation(11266, 4, "read")
+        }
+        cap = next(iter(self.api.discover(telemetry(), hints).configuration.values()))
+        self.assertEqual(cap.value, 180)
+        self.assertEqual(cap.setting.unit, "s")
+        self.assertEqual(cap.setting.encode(195), 195)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 191)
+        self.values["Heizung_Wf1_Zirkulation_Variante"] = (11405, 1)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 195)
+        self.session.write_verified.assert_not_called()
+
     def test_verified_configuration_save_and_reconnect(self):
         self.session.read.return_value = 0x2734DABC
         self.values["AutoSommerWinterzeit"] = (56, 1)

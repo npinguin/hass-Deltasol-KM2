@@ -654,6 +654,41 @@ class DiscoveryTests(unittest.TestCase):
                         catalog.numeric_encoding(child),
                         tuple(Decimal(v) for v in setting.limits),
                     )
+        self.assertEqual(len(configuration.BX_PLUS_THERMOSTAT_SETTINGS), 128)
+        for setting in configuration.BX_PLUS_THERMOSTAT_SETTINGS:
+            parent = definitions[setting.name]
+            self.assertEqual(parent.index, setting.index)
+            self.assertTrue(parent.metadata["compound_parent_read_candidate"])
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            for name, _, alias, _ in setting.compound_mirrors:
+                self.assertEqual(definitions[alias].metadata["compound_ref"], name)
+                if name == setting.name:
+                    self.assertEqual(
+                        catalog.numeric_encoding(definitions[alias]),
+                        tuple(Decimal(v) for v in setting.limits),
+                    )
+        self.assertEqual(len(configuration.BX_PLUS_TIMING_SETTINGS), 112)
+        for setting in configuration.BX_PLUS_TIMING_SETTINGS:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertIsNone(target.excluded)
+            self.assertEqual(target.storage, "unspecified")
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            self.assertTrue(target.metadata["menu_refs"])
+            if "Time" in target.metadata["type_chain"]:
+                self.assertEqual(target.metadata["minimum"], "1:00")
+                self.assertEqual(target.metadata["maximum"], "15:00")
+                self.assertEqual(target.metadata["quant"], "00:15")
+            else:
+                self.assertEqual(
+                    Decimal(target.metadata["minimum"]), Decimal(setting.limits[0])
+                )
+                self.assertEqual(
+                    Decimal(target.metadata["maximum"]), Decimal(setting.limits[1])
+                )
+                self.assertEqual(target.metadata["unit"].strip(), setting.unit)
         self.assertEqual(len(configuration.BX_PLUS_MIXER_SETTINGS), 16)
         for setting in configuration.BX_PLUS_MIXER_SETTINGS:
             target = definitions[setting.name]

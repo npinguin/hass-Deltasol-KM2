@@ -22,6 +22,8 @@ from .configuration import (
     BX_PLUS_PUMP_ASSIGNMENT_SETTINGS,
     BX_PLUS_PUMP_SETTINGS,
     BX_PLUS_SETTINGS,
+    BX_PLUS_THERMOSTAT_SETTINGS,
+    BX_PLUS_TIMING_SETTINGS,
     ConfigurationCapability,
     Setting,
     encode_action,
@@ -110,6 +112,8 @@ PROFILES = (
             *BX_PLUS_PUMP_SETTINGS,
             *BX_PLUS_PUMP_ASSIGNMENT_SETTINGS,
             *BX_PLUS_DIFFERENTIAL_SETTINGS,
+            *BX_PLUS_THERMOSTAT_SETTINGS,
+            *BX_PLUS_TIMING_SETTINGS,
         ),
     ),
 )

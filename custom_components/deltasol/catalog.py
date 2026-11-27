@@ -496,6 +496,16 @@ def ordinal_options(definition):
     return dict(enumerate(labels))
 
 
+def _known_display_scaling(chain, factor, display):
+    return display == factor or (
+        factor == Decimal("0.1")
+        and display == 1
+        and bool(
+            {"TemperatureCelsius", "TemperatureFahrenheit"}.intersection(chain)
+        )
+    )
+
+
 def decoded_value(definition, raw):
     """Decode verified numeric scaling, booleans and enum mappings."""
     chain = definition.metadata.get("type_chain", [])
@@ -521,11 +531,7 @@ def decoded_value(definition, raw):
     # For corroborated temperature-short types the storage factor is the
     # wire-to-engineering conversion; displayFactor only affects display.
     # Keep unrelated or unknown factor differences undecoded.
-    if display != factor and not (
-        factor == Decimal("0.1")
-        and display == 1
-        and ("TemperatureCelsius" in chain or "TemperatureFahrenheit" in chain)
-    ):
+    if not _known_display_scaling(chain, factor, display):
         return None
     return int(value) if value == value.to_integral_value() else float(value)
 
@@ -563,7 +569,7 @@ def numeric_encoding(definition):
     if (
         factor is None
         or factor <= 0
-        or display != factor
+        or not _known_display_scaling(chain, factor, display)
         or minimum is None
         or maximum is None
         or step is None

@@ -50,8 +50,15 @@ class RelativeConstraint:
     index: int
     operation: str
 
-    def matches(self, raw, values):
+    def matches(self, raw, values, current=None):
         other = values.get(self.name)
+        if self.operation == "preserve_order":
+            return (
+                type(raw) is int
+                and type(current) is int
+                and type(other) is int
+                and ((current < other and raw < other) or (current > other and raw > other))
+            )
         compare = {"lt": lt, "le": le, "gt": gt, "ge": ge, "ne": ne}.get(self.operation)
         return (
             compare is not None
@@ -172,7 +179,10 @@ class Setting:
             )
             and (self.installed_by is None or self.installed_by.matches(values))
             and all(dep.matches(values) for dep in self.dependencies)
-            and all(rule.matches(raw, values) for rule in self.relative_constraints)
+            and all(
+                rule.matches(raw, values, values.get(self.name))
+                for rule in self.relative_constraints
+            )
         )
 
 
@@ -571,6 +581,140 @@ def _pump_assignment_settings():
 
 
 BX_PLUS_PUMP_ASSIGNMENT_SETTINGS = tuple(_pump_assignment_settings())
+
+
+def _thermostat_settings():
+    """Existing function-block thermostats; preserve heating/cooling direction."""
+    for slot in range(1, 17):
+        offset = (slot - 1) * 251
+        root = f"Anlage_Wf{slot}"
+        prefix = f"{root}_Funktionsblock"
+        installed = Dependency(f"{root}_Type", 6559 + offset, (9,))
+        active = Dependency(f"{root}_Aktiviert_Modus", 6566 + offset, (1, 2))
+        for thermostat in (1, 2):
+            start = 6716 + offset + (thermostat - 1) * 6
+            enabled = Dependency(
+                f"{prefix}_OThermostat{thermostat}", 6704 + offset + thermostat, (1,)
+            )
+            on = f"{prefix}_TTh{thermostat}Ein"
+            off = f"{prefix}_TTh{thermostat}Aus"
+            for selector, suffix, unit, limits in (
+                (0, "_C", "°C", ("-40", "250", "1", "0.1")),
+                (1, "_F", "°F", ("-40", "482", "2", "0.1")),
+            ):
+                mirrors = (
+                    (on, start, on + suffix, start + selector + 1),
+                    (off, start + 3, off + suffix, start + selector + 4),
+                )
+                for name, index, other, other_index, label in (
+                    (on, start, off, start + 3, "on"),
+                    (off, start + 3, on, start, "off"),
+                ):
+                    yield Setting(
+                        name,
+                        index,
+                        f"Function block {slot} thermostat {thermostat} {label}",
+                        "number",
+                        True,
+                        limits=limits,
+                        unit=unit,
+                        dependencies=(
+                            active,
+                            enabled,
+                            Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                        ),
+                        relative_constraints=(
+                            RelativeConstraint(other, other_index, "preserve_order"),
+                        ),
+                        installed_by=installed,
+                        compound_mirrors=mirrors,
+                    )
+
+
+BX_PLUS_THERMOSTAT_SETTINGS = tuple(_thermostat_settings())
+
+
+def _timing_settings():
+    """Native durations from documented adjustment channels, not raw timers.
+
+    Shared weekly schedule blobs are intentionally not treated as durations.
+    Keep topology, enable flags, safety timing and manual heating unchanged.
+    """
+    for slot in range(1, 17):
+        ao = (slot - 1) * 251
+        ho = (slot - 1) * 151
+        so = (slot - 1) * 120
+        arrangement = f"Anlage_Wf{slot}"
+        heating = f"Heizung_Wf{slot}"
+        solar = f"Solar_Wf{slot}"
+        for suffix, index, flag, flag_index, label in (
+            ("dtNachlauf", 6622, "ONachlauf", 6621, "overrun"),
+            ("dtVerzoegerung", 6624, "OVerzoegerung", 6623, "delay"),
+        ):
+            yield Setting(
+                f"{arrangement}_Parallelrelais_{suffix}",
+                index + ao,
+                f"Arrangement function {slot} parallel relay {label}",
+                "number",
+                True,
+                limits=("1", "30", "1", "1"),
+                unit="min",
+                dependencies=(
+                    Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (1, 2)),
+                    Dependency(f"{arrangement}_Parallelrelais_{flag}", flag_index + ao, (1,)),
+                ),
+                installed_by=Dependency(f"{arrangement}_Type", 6559 + ao, (1,)),
+            )
+        yield Setting(
+            f"{heating}_ThBwErwaermung_Nachlaufzeit",
+            11377 + ho,
+            f"Heating function {slot} DHW loading pump overrun",
+            "number",
+            True,
+            limits=("1", "10", "1", "1"),
+            unit="min",
+            dependencies=(
+                Dependency(f"{heating}_Aktiviert_Modus", 11273 + ho, (1, 2)),
+                Dependency(f"{heating}_ThBwErwaermung_OLadepumpe", 11375 + ho, (1,)),
+                Dependency(f"{heating}_ThBwErwaermung_ONachlaufzeit", 11376 + ho, (1,)),
+            ),
+            installed_by=Dependency(f"{heating}_Type", 11266 + ho, (2,)),
+        )
+        for suffix, index, bounds, unit, label in (
+            ("dtLaufzeit", 11406, ("60", "900", "15", "1"), "s", "runtime"),
+            ("dtPausenzeit", 11407, ("10", "60", "1", "1"), "min", "break time"),
+            ("dtVerzoegerung", 11414, ("0", "3", "1", "1"), "s", "demand delay"),
+        ):
+            yield Setting(
+                f"{heating}_Zirkulation_{suffix}",
+                index + ho,
+                f"Heating function {slot} circulation {label}",
+                "number",
+                True,
+                limits=bounds,
+                unit=unit,
+                dependencies=(
+                    Dependency(f"{heating}_Aktiviert_Modus", 11273 + ho, (1, 2)),
+                    Dependency(f"{heating}_Zirkulation_Variante", 11405 + ho, (3, 4)),
+                ),
+                installed_by=Dependency(f"{heating}_Type", 11266 + ho, (4,)),
+            )
+        yield Setting(
+            f"{solar}_Zwillingspumpe_Laufzeit",
+            4465 + so,
+            f"Solar function {slot} twin pump runtime",
+            "number",
+            True,
+            limits=("1", "48", "1", "1"),
+            unit="h",
+            dependencies=(
+                Dependency(f"{solar}_Aktiviert_Modus", 4415 + so, (1, 2)),
+            ),
+            installed_by=Dependency(f"{solar}_Type", 4409 + so, (11,)),
+        )
+
+
+BX_PLUS_TIMING_SETTINGS = tuple(_timing_settings())
 
 
 def encode_action(setting, value):
