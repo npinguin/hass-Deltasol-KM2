@@ -814,6 +814,36 @@ class DiscoveryTests(unittest.TestCase):
         with self.assertRaises(catalog.CatalogError):
             catalog.load_catalog("/nonexistent/archive.zip")
 
+    def test_catalogue_binding_rejects_unapproved_metadata_changes(self):
+        configuration = importlib.import_module(f"{PACKAGE}.configuration")
+        setting = configuration.Setting(
+            "Limit", 17, "Limit", "number", True, limits=("0", "100", "1", "1")
+        )
+        definition = catalog.Definition(
+            "Limit",
+            17,
+            "unspecified",
+            "Number",
+            {"type_chain": ["Number"], "minimum": "0", "maximum": "100"},
+        )
+        bound = configuration.bind_setting(setting, {"Limit": definition})
+        self.assertEqual(bound.encode(42), 42)
+        self.assertEqual(bound.decode(42), 42)
+        self.assertEqual(bound.value_definition.metadata["step"], "1")
+        for altered in (
+            catalog.Definition("Limit", 18, "unspecified", "Number", definition.metadata),
+            catalog.Definition("Limit", 17, "volatile", "Number", definition.metadata),
+            catalog.Definition(
+                "Limit", 17, "unspecified", "Number", {**definition.metadata, "maximum": "101"}
+            ),
+            catalog.Definition(
+                "Limit", 17, "unspecified", "Number", {**definition.metadata, "quant": "2"}
+            ),
+        ):
+            with self.assertRaises(catalog.CatalogError):
+                configuration.bind_setting(setting, {"Limit": altered})
+        self.assertIsNone(setting.value_definition)
+
     @unittest.skipUnless(os.environ.get("RPT_ARCHIVE"), "real archive not provided")
     def test_exact_vendor_archive(self):
         parsed = catalog.load_catalog(os.environ["RPT_ARCHIVE"])

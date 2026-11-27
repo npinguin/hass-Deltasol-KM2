@@ -8,8 +8,8 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
-from functools import cached_property
 from decimal import Decimal, InvalidOperation
+from functools import cached_property
 from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlsplit

@@ -726,19 +726,32 @@ class RelayParameters:
         if (
             profile is None
             or controller != capability.controller
-            or capability.setting
-            not in profile.settings_for(capability.changeset, catalog)
             or find_device(inventory, capability.device.address) != capability.device
         ):
             raise VBusError("Configuration capability or controller identity changed")
-        setting = capability.setting
+        contracts = profile.settings_for(capability.changeset, catalog)
+        # An existing source-verified control may have been registered just
+        # before initial catalogue acquisition. Use its newly bound contract
+        # only if the authorization and every encoding constraint are identical.
+        matches = tuple(
+            candidate
+            for candidate in contracts
+            if candidate == capability.setting
+            or (
+                capability.setting.value_definition is None
+                and replace(candidate, value_definition=None) == capability.setting
+            )
+        )
+        if len(matches) != 1:
+            raise VBusError("Configuration parameter is no longer supported")
+        setting = matches[0]
         wanted = encode_action(setting, value)
         # A logical setting can have several firmware contracts (unit variant,
         # assignment evidence). Recheck competing live contracts, not just the
         # one in an older entity snapshot. First read selectors to bound work.
         alternatives = tuple(
             candidate
-            for candidate in profile.settings_for(capability.changeset, catalog)
+            for candidate in contracts
             if candidate.name == setting.name
         )
 
