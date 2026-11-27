@@ -473,6 +473,32 @@ class DiscoveryTests(unittest.TestCase):
         ):
             self.assertIsNone(discovery.decode_native_day(malformed))
 
+    def test_native_set_day_encoder_roundtrip_and_rejection(self):
+        for payload in (
+            bytes.fromhex("20284850ffffffffffffffff"),
+            bytes.fromhex("3a43ffffffffffffffffffff"),
+            bytes([255] * 12),
+            bytes(range(12)),
+        ):
+            self.assertEqual(
+                discovery.encode_native_day(discovery.decode_native_day(payload)),
+                payload,
+            )
+        for windows in (
+            [{"start_minute": 0, "end_minute": 1440}],
+            [{"start_minute": 1, "end_minute": 60}],
+            [{"start_minute": 0, "end_minute": 0}],
+            [{"start_minute": True, "end_minute": 60}],
+            [{"start_minute": 0, "end_minute": 60}] * 7,
+            [
+                {"start_minute": 0, "end_minute": 60},
+                {"start_minute": 45, "end_minute": 90},
+            ],
+            [{"start_minute": 0}],
+        ):
+            with self.subTest(windows=windows), self.assertRaises(ValueError):
+                discovery.encode_native_day(windows)
+
     def test_weekly_program_candidate_requires_complete_verified_source(self):
         import struct
 

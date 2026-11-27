@@ -50,6 +50,34 @@ def decode_native_day(payload):
     return windows
 
 
+def encode_native_day(windows):
+    """Encode only the established native SET representation, not a VBus write.
+
+    Preserve the six-window limit and the verified quarter-hour grid. Until
+    the end-of-day sentinel is established, reject 24:00 instead of rounding.
+    """
+    if not isinstance(windows, (list, tuple)) or len(windows) > 6:
+        raise ValueError("Invalid native day windows")
+    payload = bytearray([255] * 12)
+    for index, window in enumerate(windows):
+        if not isinstance(window, dict) or set(window) != {
+            "start_minute",
+            "end_minute",
+        }:
+            raise ValueError("Invalid native day windows")
+        start, end = window["start_minute"], window["end_minute"]
+        if any(
+            type(value) is not int or not 0 <= value <= 1425 or value % 15
+            for value in (start, end)
+        ):
+            raise ValueError("Invalid native day windows")
+        payload[2 * index : 2 * index + 2] = bytes((start // 15, end // 15))
+    result = bytes(payload)
+    if decode_native_day(result) is None:
+        raise ValueError("Invalid native day windows")
+    return result
+
+
 @dataclass
 class ConfigurationCapture:
     """One bounded, resumable capture and its comparison baseline."""
