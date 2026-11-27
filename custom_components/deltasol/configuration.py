@@ -894,18 +894,14 @@ def _heating_comfort_settings():
                     f"Heating circuit {circuit} {label}",
                     "number",
                     True,
-                    limits=(
-                        str(low * factor), str(high * factor), str(factor), "0.1"
-                    ),
+                    limits=(str(low * factor), str(high * factor), str(factor), "0.1"),
                     unit=unit,
                     dependencies=(
                         active,
                         heating,
                         regulation,
                         *extra,
-                        Dependency(
-                            "TemperatureHysteresisSelector", 60, (selector,)
-                        ),
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                     ),
                     installed_by=installed,
                     compound_mirrors=(
@@ -955,7 +951,9 @@ def _heating_comfort_settings():
                         unit=unit,
                         dependencies=(
                             *conditions,
-                            Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                            Dependency(
+                                "TemperatureHysteresisSelector", 60, (selector,)
+                            ),
                         ),
                         installed_by=installed,
                         compound_mirrors=(

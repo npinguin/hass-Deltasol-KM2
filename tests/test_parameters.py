@@ -428,9 +428,9 @@ class ParameterTests(unittest.TestCase):
         values["Heizung_Heizkreis1_ModusSchaltuhr"] = 1
         self.assertFalse(night.accepts(values))
         room = next(
-            s for s in settings
-            if s.name == "Heizung_Heizkreis1_Raumthermostat1_TRaum"
-            and s.unit == "°C"
+            s
+            for s in settings
+            if s.name == "Heizung_Heizkreis1_Raumthermostat1_TRaum" and s.unit == "°C"
         )
         values.update(
             {
