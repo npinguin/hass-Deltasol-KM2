@@ -1285,6 +1285,24 @@ class DiscoveryTests(unittest.TestCase):
                     if not item.is_dir()
                 ],
             )
+            # Static research only: identify whether the shipped RPT assembly
+            # contains relevant named symbols. No execution, decompilation
+            # or vendor binary contents in the release or CI artifacts.
+            binary = archive.read("BXPLUS_2.08/DeltaSol_BXPlus_208.dll")
+            import re
+
+            identifiers = set(re.findall(rb"[A-Za-z_][A-Za-z0-9_]{3,100}", binary))
+            keywords = (b"wochenschalt", b"schaltuhr", b"zeitfenster", b"blob", b"systemid")
+            print(
+                "RPT assembly symbol evidence:",
+                [
+                    (
+                        keyword.decode(),
+                        sum(keyword in symbol.lower() for symbol in identifiers),
+                    )
+                    for keyword in keywords
+                ],
+            )
             root = ET.fromstring(archive.read(catalog.BX_PLUS_MENU))
         # Targeted structural evidence for the remaining protocol blockers.
         # Output tag/attribute names and counts only, never proprietary XML.

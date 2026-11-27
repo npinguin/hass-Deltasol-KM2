@@ -7,6 +7,7 @@ It is an independent protocol test, not physical RESOL evidence.
 import ast
 import asyncio
 import json
+import shutil
 import socketserver
 import struct
 import sys
@@ -512,6 +513,41 @@ async def qualify(directory, phase):
     sys.path.insert(0, str(directory))
     from custom_components.deltasol.catalog import Catalog, CatalogError, Definition
 
+    # Restrict only the independent peer's long discovery workload. The
+    # candidate still loads the complete, checksum-verified vendor archive
+    # and binds all runtime contracts against its original definitions.
+    # The separate 3,200-item soak and exact-archive source test retain
+    # large-inventory coverage. This is not a full physical catalogue scan.
+    qualification_names = {
+        "Schema",
+        "Relais_Regler_R4_Handbetrieb",
+        "AutoSommerWinterzeit",
+        "TemperatureHysteresisSelector",
+        "FlowSelector",
+        "PressureSelector",
+        "EnergySelector",
+        *CONFIG_SELECTORS,
+        *CONFIG_SETTINGS,
+        *COMPOUND_ALIASES,
+        *TEMPERATURE_ALIASES,
+    }
+    candidate_filter = nullcontext()
+    if phase in ("upgrade", "restart"):
+        from custom_components.deltasol.discovery import ConfigurationCapture
+
+        original_base = ConfigurationCapture.base_candidates
+
+        def qualification_base(capture):
+            base = original_base.__get__(capture, type(capture))
+            if capture.catalog.matches(ADDRESS, CHANGESET):
+                return tuple(d for d in base if d.name in qualification_names)
+            return base
+
+        candidate_filter = patch.object(
+            ConfigurationCapture, "base_candidates", property(qualification_base)
+        )
+    candidate_filter.__enter__()
+
     fixture = Catalog(
         "isolated-test-catalogue",
         (
@@ -724,34 +760,7 @@ async def qualify(directory, phase):
         )
         assert Peer.saves == 0
 
-        config_fixture = Catalog(
-            "isolated-full-configuration",
-            (
-                *fixture.definitions,
-                *(
-                    Definition(name, index, "unspecified", None, {})
-                    for name, (index, _) in CONFIG_SELECTORS.items()
-                ),
-                *(
-                    Definition(name, index, "unspecified", None, {})
-                    for name, (index, _, _, _) in CONFIG_SETTINGS.items()
-                ),
-                *(
-                    Definition(name, index, "unspecified", None, {})
-                    for name, (index, _, _) in {
-                        **COMPOUND_ALIASES,
-                        **TEMPERATURE_ALIASES,
-                    }.items()
-                ),
-            ),
-        )
-        expected_config_count = (
-            3
-            + len(CONFIG_SELECTORS)
-            + len(CONFIG_SETTINGS)
-            + len(COMPOUND_ALIASES)
-            + len(TEMPERATURE_ALIASES)
-        )
+        expected_config_count = len(qualification_names)
         button = registry.async_get_entity_id(
             "button", "deltasol", f"{entry.entry_id}_configuration_discovery"
         )
@@ -780,13 +789,13 @@ async def qualify(directory, phase):
                 diagnostic["configuration_discovery"]["checkpoint_error"]
                 == "checkpoint_incompatible"
             )
-        with patch(
-            "custom_components.deltasol.load_catalog",
-            return_value=config_fixture if phase == "restart" else fixture,
+        with (
+            nullcontext()
+            if phase == "restart"
+            else patch("custom_components.deltasol.load_catalog", return_value=fixture)
         ):
             if phase == "restart":
-                # The independent peer's small catalogue is injected in the test
-                # only; the real pinned archive is verified by the source gate.
+                # Restore through the real local archive loader, not a mock.
                 assert await hass.config_entries.async_reload(entry.entry_id)
                 resumed = entry.runtime_data.capture
                 marker = json.loads(
@@ -800,6 +809,8 @@ async def qualify(directory, phase):
                     await entry.runtime_data.capture_task
                 assert resumed.status == "complete"
                 assert resumed.offset == expected_config_count
+                assert resumed.catalog.matches(ADDRESS, CHANGESET)
+                assert {d.name for d in resumed.candidates} == qualification_names
                 assert float(hass.states.get(percent).state) == 100
                 assert Peer.writes == 0
                 assert Peer.saves == 0
@@ -1215,16 +1226,27 @@ async def qualify(directory, phase):
         # Discover the actual installed-function selectors through TCP, not
         # direct runtime injection. Then operate native Number/Select/Switch
         # entities and check both wire persistence and HA observations.
-        with patch(
-            "custom_components.deltasol.load_catalog", return_value=config_fixture
-        ):
-            await hass.services.async_call(
-                "button", "press", {"entity_id": button}, blocking=True
-            )
-            await entry.runtime_data.capture_task
-            assert entry.runtime_data.capture.offset == expected_config_count
+        archive = directory / "deltasol" / "BXPLUS_2.08.zip"
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile("/reference/BXPLUS_2.08.zip", archive)
+        await hass.services.async_call(
+            "button", "press", {"entity_id": button}, blocking=True
+        )
+        await entry.runtime_data.capture_task
+        capture = entry.runtime_data.capture
+        assert capture.offset == expected_config_count
+        assert {d.name for d in capture.candidates} == qualification_names
+        assert capture.catalog.matches(ADDRESS, CHANGESET)
+        assert len(capture.catalog.definitions) == 15680
         await entry.runtime_data.relay_coordinator.async_refresh()
         await hass.async_block_till_done()
+        diagnostic = await async_get_config_entry_diagnostics(hass, entry)
+        assert (
+            diagnostic["configuration_discovery"]["catalogue_source"]["compatibility"]
+            == "verified"
+        )
+        bound = entry.runtime_data.relay_coordinator.data.configuration
+        assert any(cap.setting.value_definition is not None for cap in bound.values())
 
         def entity(name, kind):
             return registry.async_get_entity_id(
@@ -1362,9 +1384,6 @@ async def qualify(directory, phase):
         # Stop the actual HA process with an incomplete active capture. The
         # following restart phase must restore the same committed checkpoint.
         with (
-            patch(
-                "custom_components.deltasol.load_catalog", return_value=config_fixture
-            ),
             patch("custom_components.deltasol.discovery.BATCH_SIZE", 1),
             patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 3),
         ):
@@ -1391,8 +1410,11 @@ async def qualify(directory, phase):
         assert checkpoint["capture"]["started_at"] == marker["started_at"]
         assert 1 <= checkpoint["capture"]["offset"] < expected_config_count
     finally:
-        if not stopped:
-            await hass.async_stop(force=True)
+        try:
+            if not stopped:
+                await hass.async_stop(force=True)
+        finally:
+            candidate_filter.__exit__(None, None, None)
 
 
 def main():

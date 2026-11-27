@@ -95,6 +95,8 @@ jobs:
           gh release download 1.2.16 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
           echo "0ebc0ff72b57a4c3938a520d0edbd7973644e417a47a6463a4ac3267c35c9945  $Q/rollback/deltasol.zip" | sha256sum -c -
           sha256sum "$PACKAGE" "$Q/rollback/deltasol.zip"
+          curl --fail --location --retry 2 --connect-timeout 10 --max-time 60 https://www.mastersolar.rs/wp-content/uploads/2021/02/BXPLUS_2.08.zip -o "$Q/BXPLUS_2.08.zip"
+          echo "1bcc59cac3d4176c68de255fced3b95840bada06db33b0bdae0cddb007a9f079  $Q/BXPLUS_2.08.zip" | sha256sum -c -
           docker pull "$HA_IMAGE"
           install_zip() {
             rm -rf "$Q/config/custom_components/deltasol"
@@ -106,6 +108,7 @@ jobs:
               -e PYTHONDONTWRITEBYTECODE=1 \
               -v "$Q/config:/qualification" \
               -v "$GITHUB_WORKSPACE/tests/qualify_ha.py:/qualify.py:ro" \
+              -v "$Q/BXPLUS_2.08.zip:/reference/BXPLUS_2.08.zip:ro" \
               "$HA_IMAGE" /qualify.py /qualification "$1"
           }
           install_zip "$Q/rollback/deltasol.zip"
