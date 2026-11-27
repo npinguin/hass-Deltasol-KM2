@@ -184,10 +184,15 @@ jobs:
           unzip -Z1 "$PACKAGE" | grep -Eq '(^|/)manifest.json$'
           unzip -Z1 "$PACKAGE" | grep -Eq '(^|/)sensor.py$'
 
+          RELEASE_NOTES="$(git show -s --format=%b "$GITHUB_SHA")"
+          if [[ -z "$RELEASE_NOTES" ]]; then
+            RELEASE_NOTES="Qualified DeltaSol $VERSION TEST. Isolated Home Assistant install, upgrade, restart and rollback passed; physical installation acceptance is separate."
+          fi
+
           gh release create "$VERSION" "$PACKAGE" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "DeltaSol $VERSION TEST" \
             --prerelease \
-            --notes "Configuration Expansion TEST (owner-approved bounded DS-PAR-01–05 scope): expanded inventory, native device/function grouping and conditional typed controls. Preserves 1.2.15 stability and checkpoint compatibility. Weekly schedule editing, solar topology, alternate pump assignment and remaining configuration contracts stay open in #10. Compound writes and other new controls require physical acceptance; isolated HA qualification is not site proof."
+            --notes "$RELEASE_NOTES"
           echo "Published $VERSION with deltasol.zip for HACS."
