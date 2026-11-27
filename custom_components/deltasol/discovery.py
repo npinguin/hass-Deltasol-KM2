@@ -276,7 +276,7 @@ class ConfigurationCapture:
             capture.results[name] = ParameterObservation(index, value, status)
         packed_words = data.get("packed_words", {})
         if not isinstance(packed_words, dict):
-            raise ValueError("Invalid packed parameter observations")
+            raise TypeError("Invalid packed parameter observations")
         for name, words in packed_words.items():
             observation = capture.results.get(name)
             if (
