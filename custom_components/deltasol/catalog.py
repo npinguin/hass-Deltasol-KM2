@@ -496,6 +496,7 @@ ORDINAL_TYPES = frozenset(
         "VtFlowSelector",
         "VtPressureSelector",
         "VtEnergySelector",
+        "VtSolar_Beladungstyp",
         "Wmz_WmzX_Struct_Vt{0}_AlternativAnzeigeEinheit",
     )
 )

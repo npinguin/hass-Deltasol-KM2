@@ -892,7 +892,8 @@ class ParameterTests(unittest.TestCase):
             }
 
         names = {
-            s.name for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
+            s.name
+            for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
         }
         self.assertTrue(names <= controls().keys())
         cap = controls()["Solar_Pendelpause"]
