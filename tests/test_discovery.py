@@ -445,6 +445,88 @@ class DiscoveryTests(unittest.TestCase):
         with self.assertRaises(catalog.CatalogError):
             catalog.encode_numeric_value(temp, 60)
 
+    def test_native_set_day_codec(self):
+        # Observed native RPT 2.08 offline export, 2026-11-27, issue #10.
+        monday = bytes.fromhex("20284850ffffffffffffffff")
+        tuesday = bytes.fromhex("3a43ffffffffffffffffffff")
+        self.assertEqual(
+            discovery.decode_native_day(monday),
+            [
+                {"start_minute": 480, "end_minute": 600},
+                {"start_minute": 1080, "end_minute": 1200},
+            ],
+        )
+        self.assertEqual(
+            discovery.decode_native_day(tuesday),
+            [{"start_minute": 870, "end_minute": 1005}],
+        )
+        self.assertEqual(discovery.decode_native_day(bytes([255] * 12)), [])
+        for malformed in (
+            bytes(12),
+            bytes(11),
+            bytes.fromhex("2020ffffffffffffffffffff"),
+            bytes.fromhex("20283027ffffffffffffffff"),
+            bytes.fromhex("ffff2028ffffffffffffffff"),
+            bytes.fromhex("205fffffffffffffffffffff")[:11],
+            bytes.fromhex("205f5f60ffffffffffffffff"),
+            bytes.fromhex("20ffffffffffffffffffffff"),
+        ):
+            self.assertIsNone(discovery.decode_native_day(malformed))
+
+    def test_weekly_program_candidate_requires_complete_verified_source(self):
+        import struct
+
+        source = catalog.source_for(0x7112, catalog.BX_PLUS_CHANGESET)
+        definitions = tuple(
+            catalog.Definition(name, index, "unspecified", kind, {"type_chain": [kind]})
+            for name, index, kind in (
+                ("Wsu1_Belegt", 18414, "Boolean"),
+                ("Wsu1_Schaltuhr_Woche_Initialisiert", 18418, "Boolean"),
+                ("Wsu1_Schaltuhr_Woche_TagMo_Daten", 18419, "Blob"),
+                ("Anlage_Wf1_SchaltuhrNr", 6620, "WochenschaltuhrNr"),
+            )
+        )
+        controller = SimpleNamespace(address=source.address)
+        words = struct.unpack("<iii", bytes.fromhex("20284850ffffffffffffffff"))
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog(source.digest, definitions, source), controller
+        )
+        flag, initialized, day, reference = definitions
+        capture.results = {
+            flag.name: vbus.ParameterObservation(flag.index, 1, "read"),
+            initialized.name: vbus.ParameterObservation(initialized.index, 1, "read"),
+            day.name: vbus.ParameterObservation(day.index, words[0], "read", words),
+            reference.name: vbus.ParameterObservation(reference.index, 1, "read"),
+        }
+        exported = capture.weekly_program_evidence()
+        result = exported["programs"]["Wsu1"]["days"]["Mo"]
+        self.assertFalse(result["payload_verified"])
+        self.assertEqual(result["candidate_windows"][0]["start_minute"], 480)
+        self.assertEqual(result["candidate_status"], "wire_word_mapping_unverified")
+        self.assertEqual(
+            exported["references"][reference.name]["candidate_program"], "Wsu1"
+        )
+        capture.results[day.name] = vbus.ParameterObservation(
+            day.index, words[0], "read", (words[0], None, words[2])
+        )
+        self.assertNotIn(
+            "candidate_windows",
+            capture.weekly_program_evidence()["programs"]["Wsu1"]["days"]["Mo"],
+        )
+        capture.results[day.name] = vbus.ParameterObservation(
+            day.index, words[0], "read", words
+        )
+        capture.catalog = catalog.Catalog(source.digest, definitions)
+        self.assertNotIn(
+            "candidate_windows",
+            capture.weekly_program_evidence()["programs"]["Wsu1"]["days"]["Mo"],
+        )
+        capture.results[flag.name] = vbus.ParameterObservation(flag.index, 0, "read")
+        self.assertNotIn(
+            "candidate_program",
+            capture.weekly_program_evidence()["references"][reference.name],
+        )
+
     def test_weekly_program_evidence_never_invents_schedule_payload(self):
         blob = catalog.Definition(
             "Wsu23_Schaltuhr_Woche_TagMo_Daten",

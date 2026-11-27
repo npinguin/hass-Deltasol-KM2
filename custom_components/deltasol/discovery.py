@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import re
+import struct
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cached_property
@@ -23,6 +24,30 @@ from .vbus import ERROR_CODES, ParameterObservation, VBusError, VBusTransientErr
 BATCH_SIZE = 16
 CHECKPOINT_INTERVAL = 128
 RETRY_DELAYS = (2, 5, 10, 20, 30, 60)
+
+
+def decode_native_day(payload):
+    """Decode the day layout corroborated by BX Plus 2.08 native SET exports.
+
+    Six ordered start/end quarter-hour pairs, unused pairs FF FF.
+    Midnight-as-end representation and malformed or overlapping windows are
+    not established; retain the original bytes rather than inventing times.
+    This codec alone never establishes the VBus subindex mapping or write access.
+    """
+    if not isinstance(payload, bytes) or len(payload) != 12:
+        return None
+    windows = []
+    previous_end = 0
+    unused = False
+    for start, end in zip(payload[::2], payload[1::2], strict=True):
+        if (start, end) == (255, 255):
+            unused = True
+            continue
+        if unused or not previous_end <= start < end <= 95:
+            return None
+        windows.append({"start_minute": start * 15, "end_minute": end * 15})
+        previous_end = end
+    return windows
 
 
 @dataclass
@@ -528,9 +553,10 @@ class ConfigurationCapture:
     def weekly_program_evidence(self):
         """Inventory packed weekly programs without interpreting a scalar as a day.
 
-        The exact catalogue provides seven Blob definitions per week and
-        separate WochenschaltuhrNr references. Scalar datagrams do not
-        establish a complete schedule or the reference namespace.
+        Native SET evidence establishes the serialized day codec and one
+        function-block reference. Three correlated VBus words are required
+        even to interpret a candidate day. Never promote a plausible word
+        reconstruction to verified live schedule or permission to write.
         """
         weeks = {}
         references = {}
@@ -573,6 +599,24 @@ class ConfigurationCapture:
             week["allocated"] = bool(allocated) if allocated in (0, 1) else None
             week["initialized"] = bool(initialized) if initialized in (0, 1) else None
             week["catalogue_days"] = len(week["days"])
+            if (
+                allocated == 1
+                and initialized == 1
+                and self.catalog.matches(self.controller.address, self.changeset)
+                and self.controller.address == 0x7112
+                and self.changeset == BX_PLUS_CHANGESET
+            ):
+                for day in week["days"].values():
+                    words = day["observed_words"]
+                    if len(words) != 3 or any(type(word) is not int for word in words):
+                        continue
+                    if not all(-(2**31) <= word < 2**31 for word in words):
+                        continue
+                    candidate = decode_native_day(struct.pack("<iii", *words))
+                    if candidate is not None:
+                        day["candidate_windows"] = candidate
+                        day["candidate_encoding"] = "native_set_quarter_hour_pairs"
+                        day["candidate_status"] = "wire_word_mapping_unverified"
             week["schedule_status"] = (
                 "unallocated"
                 if allocated == 0
@@ -582,8 +626,17 @@ class ConfigurationCapture:
                 if allocated == 1 and initialized == 1
                 else "unknown"
             )
+        # A positive reference is a potential link, not an allocation or
+        # exclusive owner authorization. Zero is never treated as a live link.
+        for reference in references.values():
+            raw = reference["reference"]
+            if type(raw) is int and raw > 0:
+                program = f"Wsu{raw}"
+                if program in weeks and weeks[program]["allocated"] is True:
+                    reference["candidate_program"] = program
+                    reference["reference_evidence"] = "native_set_slot_number"
         return {
-            "value_semantics": "catalogue_and_capture_evidence_not_decoded_schedule",
+            "value_semantics": "catalogue_and_capture_evidence_not_verified_live_schedule",
             "write_access": "not_verified",
             "programs": weeks,
             "references": references,
