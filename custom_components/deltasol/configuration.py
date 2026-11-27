@@ -355,8 +355,22 @@ def _pump_settings(prefix, address, first_mode_index):
         speed = Dependency(f"{name}_ODrehzahl", mode_index - 4, (1,))
         automatic = Dependency(f"{name}_Handbetrieb", mode_index, (2,))
         for label, suffix, index, other_suffix, other_index, operation in (
-            ("minimum", "MinDrehzahl", mode_index - 3, "MaxDrehzahl", mode_index - 2, "le"),
-            ("maximum", "MaxDrehzahl", mode_index - 2, "MinDrehzahl", mode_index - 3, "ge"),
+            (
+                "minimum",
+                "MinDrehzahl",
+                mode_index - 3,
+                "MaxDrehzahl",
+                mode_index - 2,
+                "le",
+            ),
+            (
+                "maximum",
+                "MaxDrehzahl",
+                mode_index - 2,
+                "MinDrehzahl",
+                mode_index - 3,
+                "ge",
+            ),
         ):
             other = f"{name}_{other_suffix}"
             yield Setting(
@@ -373,7 +387,9 @@ def _pump_settings(prefix, address, first_mode_index):
                     RangeDependency(other, other_index, 20, 100),
                 ),
                 owner_address=address,
-                relative_constraints=(RelativeConstraint(other, other_index, operation),),
+                relative_constraints=(
+                    RelativeConstraint(other, other_index, operation),
+                ),
                 installed_by=installed,
                 owner_relay=number,
             )

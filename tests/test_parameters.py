@@ -230,9 +230,7 @@ class ParameterTests(unittest.TestCase):
                 maximum.name: (maximum.index, 80),
             }
         )
-        hints = {
-            role.name: parameters.ParameterObservation(role.index, 2, "read")
-        }
+        hints = {role.name: parameters.ParameterObservation(role.index, 2, "read")}
         data = {**telemetry(), **module(1)}
 
         def controls():

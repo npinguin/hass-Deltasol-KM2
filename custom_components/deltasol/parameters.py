@@ -261,7 +261,12 @@ def _read_settings(
                 continue
             if relay_capabilities is None:
                 _, relays = _read_group(
-                    session, profile, changeset, group, controller, device,
+                    session,
+                    profile,
+                    changeset,
+                    group,
+                    controller,
+                    device,
                     (setting.owner_relay,),
                 )
             else:
