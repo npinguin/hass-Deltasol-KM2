@@ -344,8 +344,7 @@ class DiscoveryTests(unittest.TestCase):
                 {
                     "type_chain": [base],
                     "value_text": [
-                        {"value": None, "id": label, "label": label}
-                        for label in labels
+                        {"value": None, "id": label, "label": label} for label in labels
                     ],
                 },
             )
@@ -357,7 +356,9 @@ class DiscoveryTests(unittest.TestCase):
             definition("Anlage_Wf2_Type", 13, "Anlage_WfX_Type", ("Frei", "Mixer")),
             definition("Anlage_Wf2_Relais1_Nr", 14, "AktorNr"),
             definition("Anlage_Wf3_Type", 15, "Anlage_WfX_Type", ("Frei", "Mixer")),
-            definition("Relais_R1_AktorFunktion", 16, "AktorFunktion", ("Free", "Pump")),
+            definition(
+                "Relais_R1_AktorFunktion", 16, "AktorFunktion", ("Free", "Pump")
+            ),
         )
         rows[2].metadata["menu_refs"] = [{"menu": "Anlage_Wf1_Mixer"}]
         capture = discovery.ConfigurationCapture(

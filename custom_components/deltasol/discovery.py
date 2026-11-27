@@ -477,7 +477,11 @@ class ConfigurationCapture:
                         if not reference_types.intersection(chain):
                             continue
                         menu_refs = definition.metadata.get("menu_refs", ())
-                        if family in ("arrangement", "solar_optional", "heating_optional"):
+                        if family in (
+                            "arrangement",
+                            "solar_optional",
+                            "heating_optional",
+                        ):
                             # A slot contains values for all possible function
                             # types. Only its selected menu supplies candidates.
                             menu_refs = [
