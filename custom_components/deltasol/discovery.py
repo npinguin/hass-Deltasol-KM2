@@ -3,6 +3,7 @@
 import asyncio
 import hashlib
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cached_property
@@ -463,6 +464,47 @@ class ConfigurationCapture:
             }
         return result
 
+    def weekly_program_evidence(self):
+        """Inventory packed weekly programs without interpreting a scalar as a day.
+
+        The exact catalogue provides seven Blob definitions per week and
+        separate WochenschaltuhrNr references. Scalar datagrams do not
+        establish a complete schedule or the reference namespace.
+        """
+        weeks = {}
+        references = {}
+        for definition in self.catalog.definitions:
+            if is_sensitive(definition) or definition.index in self.sensitive_indices:
+                continue
+            chain = definition.metadata.get("type_chain", ())
+            match = re.fullmatch(
+                r"(Wsu[0-9]+)_Schaltuhr_Woche_Tag(Mo|Di|Mi|Do|Fr|Sa|So)_Daten",
+                definition.name,
+            )
+            if match and "Blob" in chain:
+                week = weeks.setdefault(match[1], {})
+                observed = self.results.get(definition.name)
+                week[match[2]] = {
+                    "parameter": definition.name,
+                    "reference_index": definition.index,
+                    "observation": observed.status if observed else "not_scanned",
+                    "scalar_observed": self._observed_raw(definition) is not None,
+                    "payload_verified": False,
+                }
+            elif "WochenschaltuhrNr" in chain:
+                value = self._observed_raw(definition)
+                references[definition.name] = {
+                    "reference_index": definition.index,
+                    "reference": value,
+                    "status": "observed" if value is not None else "unknown",
+                }
+        return {
+            "value_semantics": "catalogue_and_capture_evidence_not_decoded_schedule",
+            "write_access": "not_verified",
+            "programs": weeks,
+            "references": references,
+        }
+
     @cached_property
     def function_slots(self):
         """Index catalogue-defined slots and their members once per capture."""
@@ -712,6 +754,10 @@ class ConfigurationCapture:
             "native_function_inventory": {
                 "functions": functions,
                 "value_semantics": "observations_during_capture_not_live_poll",
+                "status": "capture_observation" if current else "stale",
+            },
+            "weekly_programs": {
+                **self.weekly_program_evidence(),
                 "status": "capture_observation" if current else "stale",
             },
             "compound_parameters": {

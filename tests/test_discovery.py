@@ -435,6 +435,37 @@ class DiscoveryTests(unittest.TestCase):
         with self.assertRaises(catalog.CatalogError):
             catalog.encode_numeric_value(temp, 60)
 
+    def test_weekly_program_evidence_never_invents_schedule_payload(self):
+        blob = catalog.Definition(
+            "Wsu23_Schaltuhr_Woche_TagMo_Daten",
+            10,
+            "unspecified",
+            "Blob",
+            {"type_chain": ["Blob"]},
+        )
+        reference = catalog.Definition(
+            "Anlage_Wf1_SchaltuhrNr",
+            11,
+            "unspecified",
+            "WochenschaltuhrNr",
+            {"type_chain": ["WochenschaltuhrNr"]},
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", (blob, reference)),
+            SimpleNamespace(address=0x7112),
+        )
+        capture.results = {
+            blob.name: vbus.ParameterObservation(10, 0, "read"),
+            reference.name: vbus.ParameterObservation(11, 23, "read"),
+        }
+        result = capture.export(True)["weekly_programs"]
+        day = result["programs"]["Wsu23"]["Mo"]
+        self.assertTrue(day["scalar_observed"])
+        self.assertFalse(day["payload_verified"])
+        self.assertEqual(result["references"][reference.name]["reference"], 23)
+        self.assertEqual(result["write_access"], "not_verified")
+        self.assertEqual(capture.export(False)["weekly_programs"]["status"], "stale")
+
     def test_function_context_is_catalogue_driven_not_fixed_slot_count(self):
         rows = (
             catalog.Definition(
