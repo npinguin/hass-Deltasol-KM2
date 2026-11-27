@@ -612,7 +612,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(capture.next_batch()[0].name, "Schema")
         self.assertNotIn("Bedienercode", capture.export(True)["parameters"])
         self.assertEqual(len(capture.base_candidates), 11325)
-        parents = capture.candidates[len(capture.base_candidates):]
+        parents = capture.candidates[len(capture.base_candidates) :]
         self.assertIn("Solar_Sp1_dTein", {d.name for d in parents})
         self.assertIn("Anlage_Wf1_Feststoffkessel_dTEin", {d.name for d in parents})
         self.assertTrue(all(not catalog.is_sensitive(d) for d in parents))

@@ -86,10 +86,7 @@ class ConfigurationCapture:
     @cached_property
     def candidates(self):
         """Append verified read-only compound parents after legacy coverage."""
-        safe_children = {
-            d.metadata.get("compound_ref")
-            for d in self.base_candidates
-        }
+        safe_children = {d.metadata.get("compound_ref") for d in self.base_candidates}
         parents = tuple(
             d
             for d in self.catalog.definitions
@@ -194,7 +191,8 @@ class ConfigurationCapture:
             not in ("running", "recovering", "paused", "incomplete", "complete")
             or (
                 not legacy_complete
-                and (data["status"] == "complete") != (offset == len(capture.candidates))
+                and (data["status"] == "complete")
+                != (offset == len(capture.candidates))
             )
             or type(data["retry_count"]) is not int
             or data["retry_count"] < 0
@@ -324,16 +322,19 @@ class ConfigurationCapture:
         parameters = {}
         counts = {}
         definitions = {d.name: d for d in self.catalog.definitions}
-        parent_names = {d.name for d in self.candidates[len(self.base_candidates):]}
+        parent_names = {d.name for d in self.candidates[len(self.base_candidates) :]}
         for definition in self.catalog.definitions:
             if is_sensitive(definition) or definition.index in self.sensitive_indices:
                 counts["sensitive_redacted"] = counts.get("sensitive_redacted", 0) + 1
                 continue
             observed = self.results.get(definition.name)
             status = (
-                observed.status if observed else "not_scanned"
-            ) if definition.name in parent_names else (
-                definition.excluded or (observed.status if observed else "not_scanned")
+                (observed.status if observed else "not_scanned")
+                if definition.name in parent_names
+                else (
+                    definition.excluded
+                    or (observed.status if observed else "not_scanned")
+                )
             )
             if observed and not current:
                 status = "stale"
