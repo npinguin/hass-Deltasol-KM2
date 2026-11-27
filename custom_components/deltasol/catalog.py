@@ -454,17 +454,58 @@ def configuration_evidence(definition, definitions):
     return result
 
 
+# Ordinal interpretation is corroborated for these controller selectors by
+# the MIT BaseConfigurationOptimizer and the exact BX Plus 2.08 archive.
+# In particular, AktorFunktion is NOT in this list: the live reference values
+# may contain encoded function identities rather than plain enum ordinals.
+ORDINAL_TYPES = frozenset(
+    (
+        "Anlage_WfX_Type",
+        "Solar_WfX_Type",
+        "Heizung_WfX_Type",
+        "Heizung_HeizkreisX_Type",
+        "WmzX_Type",
+        "ActivityMode",
+        "Heizung_HeizkreisX_Heizsystem",
+        "VtTemperatureHysteresisSelector",
+        "VtFlowSelector",
+        "VtPressureSelector",
+        "VtEnergySelector",
+        "Wmz_WmzX_Struct_Vt{0}_AlternativAnzeigeEinheit",
+    )
+)
+
+
+def ordinal_options(definition):
+    """Exact reference ordinals for corroborated selector types only."""
+    metadata = definition.metadata
+    if not ORDINAL_TYPES.intersection(metadata.get("type_chain", ())):
+        return {}
+    options = metadata.get("value_text", ())
+    if (
+        metadata.get("unresolved_base")
+        or not options
+        or any(item.get("value") is not None for item in options)
+    ):
+        return {}
+    labels = [item.get("id") or item.get("label") for item in options]
+    if not all(labels) or len(set(labels)) != len(labels):
+        return {}
+    return dict(enumerate(labels))
+
+
 def decoded_value(definition, raw):
     """Decode verified numeric scaling, booleans and enum mappings."""
     chain = definition.metadata.get("type_chain", [])
-    if raw is None:
+    if type(raw) is not int:
         return None
     if "Boolean" in chain:
         return bool(raw) if raw in (0, 1) else None
     if "Handbetrieb" in chain:
         return {0: "Off", 1: "Min", 2: "Auto", 3: "Max", 4: "On"}.get(raw)
     if "Number" not in chain:
-        return explicit_options(definition).get(raw)
+        explicit = explicit_options(definition)
+        return (explicit or ordinal_options(definition)).get(raw)
     factor = _number(definition.metadata.get("storeFactor", "1"))
     if factor is None or factor <= 0:
         return None
@@ -475,8 +516,14 @@ def decoded_value(definition, raw):
         if item.get("label") == "-" and _number(item.get("value")) == value:
             return None
     display = _number(definition.metadata.get("displayFactor", str(factor)))
-    # The displayed unit is not established when the factors differ.
-    if display != factor:
+    # For corroborated temperature-short types the storage factor is the
+    # wire-to-engineering conversion; displayFactor only affects display.
+    # Keep unrelated or unknown factor differences undecoded.
+    if display != factor and not (
+        factor == Decimal("0.1")
+        and display == Decimal("1")
+        and ("TemperatureCelsius" in chain or "TemperatureFahrenheit" in chain)
+    ):
         return None
     return int(value) if value == value.to_integral_value() else float(value)
 

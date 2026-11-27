@@ -13,6 +13,7 @@ from .catalog import (
     decoded_value,
     explicit_options,
     is_sensitive,
+    ordinal_options,
 )
 from .parameters import device_inventory, find_profile
 from .vbus import ERROR_CODES, ParameterObservation, VBusError, VBusTransientError
@@ -318,6 +319,102 @@ class ConfigurationCapture:
             self.status = "complete"
             self.finished_at = datetime.now(UTC).isoformat()
 
+    def native_functions(self):
+        """Project native installed slots and raw reference assignments.
+
+        This is a capture projection, not a second live owner, a mapping to
+        physical equipment, or permission to change the controller program.
+        """
+        definitions = {d.name: d for d in self.catalog.definitions}
+
+        def observation(name):
+            definition = definitions.get(name)
+            observed = self.results.get(name)
+            if (
+                definition is None
+                or is_sensitive(definition)
+                or definition.index in self.sensitive_indices
+                or observed is None
+                or observed.status != "read"
+                or observed.index != definition.index
+                or type(observed.value) is not int
+            ):
+                return None
+            return observed.value
+
+        families = (
+            ("arrangement", "Anlage_Wf", 16),
+            ("solar_optional", "Solar_Wf", 16),
+            ("heating_optional", "Heizung_Wf", 16),
+            ("heating_circuit", "Heizung_Heizkreis", 7),
+            ("heat_meter", "Wmz", 7),
+        )
+        functions = {}
+        for family, prefix, count in families:
+            for slot in range(1, count + 1):
+                name = f"{prefix}{slot}"
+                type_name = f"{name}_Type"
+                if type_name not in definitions:
+                    continue
+                raw = observation(type_name)
+                options = ordinal_options(definitions[type_name])
+                kind = options.get(raw)
+                activity = observation(f"{name}_Aktiviert_Modus")
+                status = (
+                    "unknown"
+                    if kind is None
+                    else "unused"
+                    if kind == "Frei"
+                    else "configured"
+                )
+                item = {
+                    "family": family,
+                    "slot": slot,
+                    "type_parameter": type_name,
+                    "type_raw": raw,
+                    "type": kind,
+                    "status": status,
+                    "activity_raw": activity,
+                    "activity_mode": {
+                        0: "disabled",
+                        1: "enabled",
+                        2: "switch_controlled",
+                    }.get(activity),
+                    "assignments": {},
+                }
+                if status == "configured":
+                    for ref, definition in definitions.items():
+                        if not ref.startswith(name + "_"):
+                            continue
+                        chain = definition.metadata.get("type_chain", ())
+                        reference_types = {
+                            "AktorNr",
+                            "RelaisNr",
+                            "AusgangNr",
+                            "SensorNr",
+                            "SensorSchalterNr",
+                            "SensorSchalterExtNr",
+                            "SensorVolumenstromNr",
+                            "SensorVolumenstromImpulsNr",
+                            "RelaisOderAusgangAlleNr",
+                        }
+                        if not reference_types.intersection(chain):
+                            continue
+                        value = observation(ref)
+                        if value is None or value == 0:
+                            continue
+                        # Keep raw reference IDs; their electrical/physical
+                        # interpretation is deliberately not inferred.
+                        item["assignments"][ref] = {
+                            "reference": value,
+                            "reference_type": chain[-1],
+                        }
+                functions[name] = item
+        return {
+            "value_semantics": "observations_during_capture_not_live_poll",
+            "functions": functions,
+        }
+
     def export(self, current):
         parameters = {}
         counts = {}
@@ -378,6 +475,7 @@ class ConfigurationCapture:
                     ),
                     "metadata": definition.metadata,
                     "explicit_options": explicit_options(definition),
+                    "ordinal_options": ordinal_options(definition),
                     "access": "read_observed",
                 }
             )
@@ -409,6 +507,7 @@ class ConfigurationCapture:
             "candidate_count": len(self.candidates),
             "compound_parent_candidate_count": len(parent_names),
             "counts": counts,
+            "native_function_inventory": self.native_functions(),
             "parameters": parameters,
         }
 

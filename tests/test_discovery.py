@@ -334,6 +334,67 @@ class DiscoveryTests(unittest.TestCase):
         with self.assertRaises(catalog.CatalogError):
             catalog.encode_numeric_value(definition, 6.5)
 
+    def test_native_function_inventory_and_known_wire_decoding(self):
+        def definition(name, index, base, labels=()):
+            return catalog.Definition(
+                name,
+                index,
+                "unspecified",
+                base,
+                {
+                    "type_chain": [base],
+                    "value_text": [
+                        {"value": None, "id": label, "label": label}
+                        for label in labels
+                    ],
+                },
+            )
+
+        rows = (
+            definition("Anlage_Wf1_Type", 10, "Anlage_WfX_Type", ("Frei", "Mixer")),
+            definition("Anlage_Wf1_Aktiviert_Modus", 11, "ActivityMode"),
+            definition("Anlage_Wf1_Relais1_Nr", 12, "AktorNr"),
+            definition("Anlage_Wf2_Type", 13, "Anlage_WfX_Type", ("Frei", "Mixer")),
+            definition("Anlage_Wf2_Relais1_Nr", 14, "AktorNr"),
+            definition("Anlage_Wf3_Type", 15, "Anlage_WfX_Type", ("Frei", "Mixer")),
+            definition("Relais_R1_AktorFunktion", 16, "AktorFunktion", ("Free", "Pump")),
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", rows), SimpleNamespace(address=0x7112)
+        )
+        capture.results = {
+            d.name: vbus.ParameterObservation(d.index, raw, "read")
+            for d, raw in zip(rows, (1, 2, 4, 0, 5, 99, 1), strict=True)
+        }
+        inventory = capture.native_functions()["functions"]
+        self.assertEqual(inventory["Anlage_Wf1"]["type"], "Mixer")
+        self.assertEqual(inventory["Anlage_Wf1"]["activity_mode"], "switch_controlled")
+        self.assertEqual(
+            inventory["Anlage_Wf1"]["assignments"]["Anlage_Wf1_Relais1_Nr"],
+            {"reference": 4, "reference_type": "AktorNr"},
+        )
+        self.assertEqual(inventory["Anlage_Wf2"]["status"], "unused")
+        self.assertEqual(inventory["Anlage_Wf2"]["assignments"], {})
+        self.assertEqual(inventory["Anlage_Wf3"]["status"], "unknown")
+        self.assertIsNone(catalog.decoded_value(rows[-1], 1))
+        self.assertEqual(catalog.decoded_value(rows[0], 1), "Mixer")
+        temp = catalog.Definition(
+            "Target_C",
+            20,
+            "unspecified",
+            "TemperatureCelsius",
+            {
+                "type_chain": ["TemperatureCelsius", "Temperature", "Number"],
+                "storeFactor": "0.1",
+                "displayFactor": "1.0",
+                "unit": "°C",
+            },
+        )
+        self.assertEqual(catalog.decoded_value(temp, 600), 60)
+        # Read semantics do not enable writing an unverified parent/child.
+        with self.assertRaises(catalog.CatalogError):
+            catalog.encode_numeric_value(temp, 60)
+
     def test_numeric_sentinel_and_unverified_display_units(self):
         metadata = {
             "type_chain": ["Number"],
