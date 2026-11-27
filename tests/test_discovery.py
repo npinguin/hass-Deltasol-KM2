@@ -846,7 +846,7 @@ class DiscoveryTests(unittest.TestCase):
         # Every generated mixer slot must match the exact firmware layout,
         # documented setting and ordinal semantics. The live Type and
         # ActivityMode checks still gate every native action.
-        self.assertEqual(len(configuration.BX_PLUS_DIFFERENTIAL_SETTINGS), 256)
+        self.assertEqual(len(configuration.BX_PLUS_DIFFERENTIAL_SETTINGS), 352)
         for setting in configuration.BX_PLUS_DIFFERENTIAL_SETTINGS:
             parent = definitions[setting.name]
             self.assertEqual(parent.index, setting.index)
@@ -1029,14 +1029,13 @@ class DiscoveryTests(unittest.TestCase):
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
         self.assertEqual(len(configuration.BX_PLUS_TRANSFER_SETTINGS), 224)
-        for setting in configuration.BX_PLUS_TRANSFER_SETTINGS:
+        self.assertEqual(len(configuration.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS), 80)
+        for setting in (
+            *configuration.BX_PLUS_TRANSFER_SETTINGS,
+            *configuration.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS,
+        ):
             parent = definitions[setting.name]
             self.assertEqual(parent.index, setting.index)
-            self.assertEqual(parent.storage, "abstract")
-            self.assertTrue(parent.metadata["compound_parent_read_candidate"])
-            self.assertEqual(
-                parent.metadata["selector_ref"], "TemperatureHysteresisSelector"
-            )
             selector = definitions[setting.installed_by.name]
             self.assertEqual(
                 selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
@@ -1044,6 +1043,18 @@ class DiscoveryTests(unittest.TestCase):
             )
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
+            if not setting.compound_mirrors:
+                self.assertEqual(parent.storage, "unspecified")
+                self.assertEqual(
+                    catalog.numeric_encoding(parent),
+                    tuple(Decimal(v) for v in setting.limits),
+                )
+                continue
+            self.assertEqual(parent.storage, "abstract")
+            self.assertTrue(parent.metadata["compound_parent_read_candidate"])
+            self.assertEqual(
+                parent.metadata["selector_ref"], "TemperatureHysteresisSelector"
+            )
             for name, _, alias, _ in setting.compound_mirrors:
                 child = definitions[alias]
                 self.assertEqual(child.metadata["compound_ref"], name)

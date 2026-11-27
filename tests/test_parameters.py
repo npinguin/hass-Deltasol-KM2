@@ -452,6 +452,58 @@ class ParameterTests(unittest.TestCase):
             self.api.set_configuration(telemetry(), cap, 70)
         self.session.write_verified.assert_called_once()
 
+    def test_optional_transfer_controls_follow_existing_function_options(self):
+        block = next(
+            s
+            for s in parameters_configuration.BX_PLUS_DIFFERENTIAL_SETTINGS
+            if s.name == "Anlage_Wf1_Funktionsblock_dTEin" and s.unit == "K"
+        )
+        values = {
+            "Anlage_Wf1_Type": 9,
+            "Anlage_Wf1_Aktiviert_Modus": 2,
+            "TemperatureHysteresisSelector": 0,
+            "Anlage_Wf1_Funktionsblock_ODifferenz": 1,
+        }
+        for parent, _, child, _ in block.compound_mirrors:
+            raw = {"dTEin": 50, "dTAus": 30, "dTSoll": 100}[parent.rsplit("_", 1)[1]]
+            values[parent] = values[child] = raw
+        self.assertTrue(block.accepts(values, block.encode(6)))
+        self.assertFalse(block.accepts(values, block.encode(3)))
+        values["Anlage_Wf1_Funktionsblock_ODifferenz"] = 0
+        self.assertFalse(block.accepts(values))
+
+        mixer = next(
+            s
+            for s in parameters_configuration.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS
+            if s.name == "Anlage_Wf1_Feststoffkessel_Mischer_dtIntervall"
+        )
+        values.update(
+            {
+                "Anlage_Wf1_Type": 6,
+                "Anlage_Wf1_Feststoffkessel_OMischer": 1,
+                mixer.name: 4,
+            }
+        )
+        self.assertTrue(mixer.accepts(values, mixer.encode(5)))
+        values["Anlage_Wf1_Feststoffkessel_OMischer"] = 0
+        self.assertFalse(mixer.accepts(values))
+        target = next(
+            s
+            for s in parameters_configuration.BX_PLUS_TRANSFER_SETTINGS
+            if s.name == "Anlage_Wf1_Feststoffkessel_Zieltemperatur_TZiel"
+            and s.unit == "°C"
+        )
+        values.update(
+            {
+                "Anlage_Wf1_Feststoffkessel_OZieltemperatur": 1,
+                target.name: 650,
+                target.name + "_C": 650,
+            }
+        )
+        self.assertTrue(target.accepts(values, target.encode(70)))
+        values["Anlage_Wf1_Feststoffkessel_OZieltemperatur"] = 0
+        self.assertFalse(target.accepts(values))
+
     def test_heating_comfort_requires_applicable_native_configuration(self):
         settings = parameters_configuration.BX_PLUS_HEATING_COMFORT_SETTINGS
         night = next(

@@ -378,10 +378,10 @@ BX_PLUS_HEATING_SETTINGS = tuple(
 
 # BX Plus firmware 2.03 manual, Output submenu, p. 16: relative pump
 # minimum and maximum are 20..100% when speed control is enabled.
-# 2.08 exact RPT establishes names, indices and actuator roles. A speed
-# flag alone does not distinguish a pump from a mixing valve or a relay.
-# Permit only positively identified pump roles, keep output assignment,
-# signal type, safety limits and manual override unchanged.
+# 2.08 exact RPT establishes names, indices and native speed flags.
+# This is adjustment of the already-enabled native output, not an inferred
+# pump assignment. Explicit contrary role evidence still blocks adjustment.
+# Keep output assignment, signal type, protection and manual mode unchanged.
 PUMP_ROLES = (
     (2, "Kollektorpumpe"),
     (4, "Primaerpumpe"),
@@ -498,6 +498,14 @@ DIFFERENTIAL_FAMILIES = (
         ("1", "29", "0.5"),
         None,
     ),
+    (
+        "Funktionsblock",
+        9,
+        6707,
+        ("1", "50", "0.5"),
+        ("0.5", "49.5", "0.5"),
+        ("2", "100", "1"),
+    ),
 )
 
 
@@ -508,7 +516,12 @@ def _differential_settings():
         for kind, ordinal, start, on, off, target in DIFFERENTIAL_FAMILIES:
             prefix = f"{root}_{kind}"
             installed = Dependency(f"{root}_Type", 6559 + offset, (ordinal,))
-            active = Dependency(f"{root}_Aktiviert_Modus", 6566 + offset, (1,))
+            active = Dependency(f"{root}_Aktiviert_Modus", 6566 + offset, (1, 2))
+            extra = (
+                (Dependency(f"{prefix}_ODifferenz", 6704 + offset, (1,)),)
+                if ordinal == 9
+                else ()
+            )
             entries = tuple(
                 (f"{prefix}_{suffix}", start + offset + delta, limits, label)
                 for suffix, delta, limits, label in (
@@ -555,6 +568,7 @@ def _differential_settings():
                         unit=unit,
                         dependencies=(
                             active,
+                            *extra,
                             Dependency(
                                 "TemperatureHysteresisSelector", 60, (selector,)
                             ),
@@ -661,6 +675,62 @@ def _transfer_temperature_settings():
 
 
 BX_PLUS_TRANSFER_SETTINGS = tuple(_transfer_temperature_settings())
+
+
+def _solid_fuel_mixer_settings():
+    """Adjust an already-configured mixer without changing topology."""
+    for slot in range(1, 17):
+        offset = (slot - 1) * 251
+        root = f"Anlage_Wf{slot}"
+        prefix = f"{root}_Feststoffkessel"
+        installed = Dependency(f"{root}_Type", 6559 + offset, (6,))
+        deps = (
+            Dependency(f"{root}_Aktiviert_Modus", 6566 + offset, (1, 2)),
+            Dependency(f"{prefix}_OMischer", 6685 + offset, (1,)),
+        )
+        yield Setting(
+            f"{prefix}_Mischer_dtIntervall",
+            6692 + offset,
+            f"Arrangement function {slot} solid fuel mixer interval",
+            "number",
+            True,
+            limits=("1", "20", "1", "1"),
+            unit="s",
+            dependencies=deps,
+            installed_by=installed,
+        )
+        # Open and close use their own differential thresholds; read the
+        # selected alias and require the exact firmware engineering bounds.
+        for selector, suffix, unit, opened, closed in (
+            (0, "_K", "K", ("0.5", "30", "0.5"), ("0", "29.5", "0.5")),
+            (1, "_R", "°R", ("1", "60", "1"), ("1", "59", "1")),
+        ):
+            for name, index, bounds, label in (
+                ("dTAuf", 6686, opened, "open"),
+                ("dTZu", 6689, closed, "close"),
+            ):
+                name = f"{prefix}_Mischer_{name}"
+                index += offset
+                yield Setting(
+                    name,
+                    index,
+                    f"Arrangement function {slot} solid fuel mixer {label} differential",
+                    "number",
+                    True,
+                    limits=(*bounds, "0.1"),
+                    unit=unit,
+                    dependencies=(
+                        *deps,
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    installed_by=installed,
+                    compound_mirrors=(
+                        (name, index, name + suffix, index + selector + 1),
+                    ),
+                )
+
+
+BX_PLUS_SOLID_FUEL_MIXER_SETTINGS = tuple(_solid_fuel_mixer_settings())
 
 
 def _thermostat_settings():
