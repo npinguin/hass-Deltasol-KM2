@@ -9,10 +9,10 @@ from functools import cached_property
 
 from .catalog import (
     BX_PLUS_CHANGESET,
+    configuration_evidence,
     decoded_value,
     explicit_options,
     is_sensitive,
-    parameterization_evidence,
 )
 from .parameters import device_inventory, find_profile
 from .vbus import ERROR_CODES, ParameterObservation, VBusError, VBusTransientError
@@ -290,6 +290,7 @@ class ConfigurationCapture:
     def export(self, current):
         parameters = {}
         counts = {}
+        definitions = {d.name: d for d in self.catalog.definitions}
         for definition in self.catalog.definitions:
             if is_sensitive(definition) or definition.index in self.sensitive_indices:
                 counts["sensitive_redacted"] = counts.get("sensitive_redacted", 0) + 1
@@ -307,6 +308,7 @@ class ConfigurationCapture:
                 "storage": definition.storage,
                 "type": definition.type_id,
             }
+            item.update(configuration_evidence(definition, definitions))
             parameters[definition.name] = item
             if observed is None:
                 continue
@@ -337,19 +339,16 @@ class ConfigurationCapture:
                     "metadata": definition.metadata,
                     "explicit_options": explicit_options(definition),
                     "access": "read_observed",
-                    "parameterization_evidence": parameterization_evidence(definition),
-                    "write_access": "not_assessed",
-                    "applicability": "not_assessed",
                 }
             )
         counts.setdefault("sensitive_redacted", 0)
         return {
             "status": self.status if current else "stale",
             "capture_status": self.status,
-            "export_format": 2,
+            "export_format": 3,
             "metadata_scope": "read_values_only",
             "unread_access": "unknown",
-            "unread_write_access": "not_assessed",
+            "unread_write_access": "not_verified",
             "value_semantics": "observations_during_capture_not_live_poll",
             "catalog_digest": self.catalog.digest,
             "controller_address": f"0x{self.controller.address:04X}",

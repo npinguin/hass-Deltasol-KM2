@@ -226,6 +226,31 @@ class DiscoveryTests(unittest.TestCase):
             definition = catalog.Definition("Setting", 1, storage, None, metadata)
             self.assertEqual(catalog.parameterization_evidence(definition), expected)
 
+    def test_configuration_evidence_preserves_compound_and_selector_boundary(self):
+        selector = catalog.Definition("Unit", 60, "unspecified", "Enum", {})
+        parent = catalog.Definition(
+            "Setpoint", 100, "abstract", "Temperature",
+            {"selector_ref": "Unit"}, "non_value_definition"
+        )
+        child = catalog.Definition(
+            "Setpoint_C", 101, "unspecified", "Number",
+            {"compound_ref": "Setpoint", "type_chain": ["Number"]}
+        )
+        definitions = {d.name: d for d in (selector, parent, child)}
+        evidence = catalog.configuration_evidence(child, definitions)
+        self.assertEqual(evidence["write_access"], "not_verified")
+        self.assertEqual(evidence["write_access_reason"], "compound_target_unverified")
+        self.assertEqual(evidence["compound_target"], "Setpoint")
+        self.assertEqual(evidence["selector_dependencies"], ("Unit",))
+        self.assertEqual(evidence["storage_action"], "not_verified")
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", tuple(definitions.values())),
+            SimpleNamespace(address=0x7112),
+        )
+        row = capture.export(True)["parameters"]["Setpoint_C"]
+        self.assertEqual(row["write_access_reason"], "compound_target_unverified")
+        self.assertEqual(row["status"], "not_scanned")
+
     def test_numeric_sentinel_and_unverified_display_units(self):
         metadata = {
             "type_chain": ["Number"],
@@ -412,6 +437,42 @@ class DiscoveryTests(unittest.TestCase):
             status = definition.excluded or "candidate"
             counts[status] = counts.get(status, 0) + 1
         print("Exact vendor archive: definitions", len(definitions), counts)
+        # Targeted firmware evidence, not live values or redistributed XML.
+        for name in (
+            "Relais_Regler_R1_MinDrehzahl",
+            "Relais_Regler_R1_MaxDrehzahl",
+            "Relais_Regler_R1_ODrehzahl",
+            "Relais_Regler_R1_AktorFunktion",
+            "Relais_Regler_R1_OAdapter",
+            "Relais_Modul1_R1_MinDrehzahl",
+            "Solar_SystemId",
+            "Solar_Sp1_dTein",
+            "Solar_Sp1_dTein_K",
+            "Solar_Sp1_dTein_R",
+            "Anlage_Wf1_Type",
+            "Anlage_Wf1_Aktiviert_Modus",
+            "Anlage_Wf1_Feststoffkessel_dTEin",
+            "Anlage_Wf1_Feststoffkessel_dTEin_K",
+            "Anlage_Wf1_Feststoffkessel_dTEin_R",
+            "Heizung_Heizkreis1_Betriebsstatus",
+            "Wmz1_Type",
+            "Wmz1_FrostschutzGehalt",
+        ):
+            d = definitions.get(name)
+            if d is None:
+                print("RPT exact contract absent:", name)
+                continue
+            relevant = {
+                k: d.metadata[k]
+                for k in (
+                    "type_chain", "selector_ref", "selector_refs", "compound_ref",
+                    "minimum", "maximum", "quant", "quant_step", "storeFactor",
+                    "displayFactor", "unit", "value_text", "menu_refs",
+                    "allow_parameterization", "force_use",
+                )
+                if k in d.metadata
+            }
+            print("RPT exact contract:", name, d.index, d.storage, relevant)
 
         # Aggregate schema evidence only: no vendor data or site values bundled.
         with zipfile.ZipFile(os.environ["RPT_ARCHIVE"]) as archive:

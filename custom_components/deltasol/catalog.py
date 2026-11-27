@@ -146,7 +146,11 @@ def _metadata(type_node, types):
         if node.get("unit") is not None:
             result["unit"] = node.get("unit")
         if node.get("selectorValueRef") is not None:
-            result["selector_ref"] = node.get("selectorValueRef")
+            selector = node.get("selectorValueRef")
+            result["selector_ref"] = selector
+            refs = result.setdefault("selector_refs", [])
+            if selector not in refs:
+                refs.append(selector)
         for tag in (
             "storeFactor",
             "displayFactor",
@@ -229,6 +233,8 @@ def parse_menu(xml, digest):
             metadata["allow_parameterization"] = node.get("allowParameterization")
         if node.get("priority"):
             metadata["priority"] = node.get("priority")
+        if node.get("forceUse") is not None:
+            metadata["force_use"] = node.get("forceUse")
         excluded = None
         if is_sensitive(Definition(name, index, storage, type_id, metadata)):
             excluded = "sensitive"
@@ -357,6 +363,76 @@ def parameterization_evidence(definition):
     if definition.storage in ("volatile", "persistent"):
         return "storage_only"
     return "unclassified"
+
+
+def configuration_evidence(definition, definitions):
+    """Classify catalogue structure and proof gaps without granting write access."""
+    metadata = definition.metadata
+    compound = metadata.get("compound_ref")
+    selectors = tuple(
+        dict.fromkeys(
+            (
+                *metadata.get("selector_refs", ()),
+                *((metadata["selector_ref"],) if metadata.get("selector_ref") else ()),
+            )
+        )
+    )
+    parent = definitions.get(compound) if compound else None
+    if parent:
+        selectors = tuple(
+            dict.fromkeys(
+                (
+                    *selectors,
+                    *parent.metadata.get("selector_refs", ()),
+                    *(
+                        (parent.metadata["selector_ref"],)
+                        if parent.metadata.get("selector_ref")
+                        else ()
+                    ),
+                )
+            )
+        )
+    dependencies = tuple(
+        name
+        for name in selectors
+        if name in definitions and not is_sensitive(definitions[name])
+    )
+    result = {
+        "parameterization_evidence": parameterization_evidence(definition),
+        "write_access": "not_verified",
+        "applicability": "not_assessed",
+        "storage_action": "not_verified",
+    }
+    if definition.excluded:
+        result["write_access_reason"] = definition.excluded
+    elif compound:
+        result["write_access_reason"] = "compound_target_unverified"
+        if parent and not is_sensitive(parent):
+            result["compound_target"] = compound
+    elif selectors:
+        result["write_access_reason"] = "selector_contract_unverified"
+    elif metadata.get("allow_parameterization") == "true":
+        result["write_access_reason"] = "explicit_hint_requires_contract"
+    elif definition.storage in ("volatile", "persistent"):
+        result["write_access_reason"] = "storage_not_write_permission"
+    elif metadata.get("unresolved_base") or not metadata.get("type_chain"):
+        result["write_access_reason"] = "type_unverified"
+    else:
+        result["write_access_reason"] = "no_verified_configuration_contract"
+    if dependencies:
+        result["selector_dependencies"] = dependencies
+    if len(dependencies) != len(selectors):
+        result["selector_evidence_incomplete"] = True
+    if metadata.get("menu_refs"):
+        result["menu_evidence"] = (
+            "conditional"
+            if any(
+                any(key in ref for key in ("mask", "maskVal", "extraRef"))
+                for ref in metadata["menu_refs"]
+            )
+            else "menu_reference"
+        )
+    return result
 
 
 def decoded_value(definition, raw):

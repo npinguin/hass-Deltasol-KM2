@@ -1,6 +1,7 @@
 """Native Home Assistant diagnostics; export cached state without I/O."""
 
 import re
+from collections import Counter
 
 from .const import CONF_VBUS_PASSWORD
 from .discovery import compare_captures
@@ -175,18 +176,29 @@ async def async_get_config_entry_diagnostics(hass, entry):
             }
     # Do not present historical inventory values as live control readback.
     # The capture is a snapshot; the existing coordinator owns current controls.
+    relay_contracts = {
+        item["parameter"]: item for item in relays.values()
+    }
+    coverage = Counter()
     for name, item in configuration.get("parameters", {}).items():
-        if item["status"] != "read":
-            continue
         control = settings.get(name)
+        relay_control = relay_contracts.get(name)
         if control and control["status"] == "supported":
             item["write_access"] = "profile_verified"
             item["applicability"] = "confirmed"
             item["configuration_device_address"] = control["device_address"]
             item["storage_action"] = control["storage_action"]
-        else:
-            item["write_access"] = "not_verified"
-            item["write_access_reason"] = "no_verified_live_configuration_contract"
+            item.pop("write_access_reason", None)
+        elif relay_control and relay_control["status"] == "supported":
+            item["write_access"] = "profile_verified"
+            item["applicability"] = "confirmed"
+            item["configuration_device_address"] = relay_control["device_address"]
+            item["storage_action"] = "volatile"
+            item.pop("write_access_reason", None)
+        elif control or relay_control:
+            item["write_access_reason"] = "live_capability_not_confirmed"
+        coverage[item["write_access"]] += 1
+    configuration["write_access_counts"] = dict(coverage)
     return {
         "configuration_discovery": configuration,
         "configuration_controls": settings,
