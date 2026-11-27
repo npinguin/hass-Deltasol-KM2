@@ -274,7 +274,10 @@ class ConfigurationCapture:
             if status == "not_resolved" and index is not None:
                 raise ValueError("Unresolved checkpoint contains index")
             capture.results[name] = ParameterObservation(index, value, status)
-        for name, words in data.get("packed_words", {}).items():
+        packed_words = data.get("packed_words", {})
+        if not isinstance(packed_words, dict):
+            raise ValueError("Invalid packed parameter observations")
+        for name, words in packed_words.items():
             observation = capture.results.get(name)
             if (
                 name not in capture.packed_days
@@ -290,8 +293,7 @@ class ConfigurationCapture:
                 or (
                     words[-1] is not None
                     and (
-                        type(words[-1]) is not int
-                        or not -(2**31) <= words[-1] < 2**31
+                        type(words[-1]) is not int or not -(2**31) <= words[-1] < 2**31
                     )
                 )
                 or (len(words) == 2 and words[-1] is not None)
@@ -881,6 +883,23 @@ def compare_captures(previous, current):
                 "before_index": old.index if old else None,
                 "after_index": observation.index,
             }
+            if observation.packed_words or (old and old.packed_words):
+                before = old.packed_words if old else ()
+                after = observation.packed_words
+                changes[name]["packed_word_evidence"] = {
+                    "before": list(before),
+                    "after": list(after),
+                    "status": (
+                        "observed_words_changed"
+                        if before
+                        and after
+                        and any(
+                            left is not None and right is not None and left != right
+                            for left, right in zip(before, after, strict=False)
+                        )
+                        else "coverage_changed"
+                    ),
+                }
     return {"status": "compared", "changes": changes}
 
 

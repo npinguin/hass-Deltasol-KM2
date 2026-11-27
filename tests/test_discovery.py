@@ -532,6 +532,21 @@ class DiscoveryTests(unittest.TestCase):
         item = restored.weekly_program_evidence()["programs"]["Wsu2"]["days"]["Mo"]
         self.assertEqual(item["observed_words"], [1, -1, 2])
         self.assertFalse(item["payload_verified"])
+        restored.results[day.name] = vbus.ParameterObservation(
+            12, 1, "read", (1, -1, 3)
+        )
+        changes = discovery.compare_captures(capture, restored)["changes"]
+        self.assertEqual(
+            changes[day.name]["packed_word_evidence"]["status"],
+            "observed_words_changed",
+        )
+        self.assertEqual(changes[day.name]["before_raw"], 1)
+        self.assertEqual(changes[day.name]["after_raw"], 1)
+        restored.results[day.name] = vbus.ParameterObservation(12, 1, "read")
+        changes = discovery.compare_captures(capture, restored)["changes"]
+        self.assertEqual(
+            changes[day.name]["packed_word_evidence"]["status"], "coverage_changed"
+        )
         stored["packed_words"][day.name][0] = 2
         with self.assertRaises(ValueError):
             discovery.ConfigurationCapture.restore(
@@ -1026,6 +1041,19 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(capture.next_batch()[0].name, "Schema")
         self.assertNotIn("Bedienercode", capture.export(True)["parameters"])
         self.assertEqual(len(capture.base_candidates), 11325)
+        self.assertEqual(len(capture.packed_days), 357)
+        self.assertEqual(
+            len({name.split("_")[0] for name in capture.packed_days}), 51
+        )
+        self.assertTrue(
+            all(
+                definitions[name].index is not None
+                and all(
+                    definitions[flag].index == index for flag, index in flags.items()
+                )
+                for name, flags in capture.packed_days.items()
+            )
+        )
         parents = capture.candidates[len(capture.base_candidates) :]
         self.assertIn("Solar_Sp1_dTein", {d.name for d in parents})
         self.assertIn("Anlage_Wf1_Feststoffkessel_dTEin", {d.name for d in parents})
@@ -1114,6 +1142,28 @@ class DiscoveryTests(unittest.TestCase):
         # Aggregate schema evidence only: no vendor data or site values bundled.
         with zipfile.ZipFile(os.environ["RPT_ARCHIVE"]) as archive:
             root = ET.fromstring(archive.read(catalog.BX_PLUS_MENU))
+        # Targeted structural evidence for the remaining protocol blockers.
+        # Output tag/attribute names and counts only, never proprietary XML.
+        for type_id in ("Blob", "Solar_SystemId", "WochenschaltuhrTag"):
+            nodes = [n for n in root.iter("type") if n.get("id") == type_id]
+            print(
+                "RPT type structure:",
+                type_id,
+                [
+                    (sorted(n.attrib), sorted({child.tag for child in n}))
+                    for n in nodes
+                ],
+            )
+        print(
+            "RPT solar presence definition tags:",
+            sorted(
+                {
+                    n.tag
+                    for n in root.iter()
+                    if n.get("id") in ("Solar_Sp1_Vorhanden", "Solar_Mehrspeicher")
+                }
+            ),
+        )
         value_attributes = Counter()
         value_children = Counter()
         tags = Counter(node.tag for node in root.iter())

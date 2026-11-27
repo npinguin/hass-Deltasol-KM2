@@ -83,7 +83,9 @@ class VBusTests(unittest.TestCase):
             self.assertEqual(
                 result["Day"].packed_words, (1, -1, None) if allocated else ()
             )
-            sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+            sent = [
+                vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list
+            ]
             self.assertEqual(
                 [p.command for p in sent if p.command in (0x0301, 0x0302)],
                 [0x0301, 0x0302] if allocated else [],
