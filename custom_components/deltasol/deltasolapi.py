@@ -152,11 +152,11 @@ class DeltasolApi:
     def parameter_cooldown_remaining(self):
         return self._parameters.cooldown_remaining() if self._parameters else 0
 
-    def fetch_relay_modes(self, telemetry, configuration_hints=None):
+    def fetch_relay_modes(self, telemetry, configuration_hints=None, catalog=None):
         """Discover available relay parameters without altering any setting."""
         if not self.supports_parameter_access:
             return RelayDiscovery(None, {}, {})
-        return self._parameters.discover(telemetry, configuration_hints)
+        return self._parameters.discover(telemetry, configuration_hints, catalog)
 
     def read_configuration_batch(
         self, telemetry, controller, names, changeset, packed=None
@@ -168,11 +168,11 @@ class DeltasolApi:
             telemetry, controller, names, changeset, packed
         )
 
-    def set_configuration(self, telemetry, capability, value):
+    def set_configuration(self, telemetry, capability, value, catalog=None):
         """Route typed configuration through the existing parameter owner."""
         if not self.supports_parameter_access:
             raise VBusError("VBus parameter access is not configured")
-        return self._parameters.set_configuration(telemetry, capability, value)
+        return self._parameters.set_configuration(telemetry, capability, value, catalog)
 
     def set_relay_mode(self, telemetry, capability, option):
         """Use the same capability-checked writer for all HA consumers."""

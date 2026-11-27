@@ -550,6 +550,17 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         async with self._lock:
             await asyncio.sleep(self.api.parameter_cooldown_remaining())
 
+    def _configuration_catalog(self):
+        """Use the existing capture's verified catalogue, no second cache."""
+        capture = self.runtime.capture
+        if capture is None:
+            return None
+        try:
+            source = source_for(capture.controller.address, capture.changeset)
+        except CatalogError:
+            return None
+        return capture.catalog if capture.catalog.digest == source.digest else None
+
     def _configuration_hints(self):
         profile, controller = find_profile(device_inventory(self.telemetry.data))
         if not profile:
@@ -583,6 +594,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 guard=self._check_open,
                 initial=self.initial_refresh,
                 configuration_hints=self._configuration_hints(),
+                catalog=self._configuration_catalog(),
             )
         except VBusError as error:
             # Retry ordinary polling sooner while unavailable, not by issuing
@@ -676,6 +688,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                     self.telemetry.data,
                     capability,
                     value,
+                    self._configuration_catalog(),
                 )
             except VBusError as error:
                 self.async_set_update_error(error)
@@ -774,8 +787,10 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 self.data.profile
                 and option == "Auto"
                 and any(
-                    setting.installed_by
-                    and setting.installed_by.name in hints
+                    (
+                        setting.installed_by is None
+                        or setting.installed_by.name in hints
+                    )
                     and capability.name in setting.expected
                     for setting in self.data.profile.settings_for(capability.changeset)
                 )

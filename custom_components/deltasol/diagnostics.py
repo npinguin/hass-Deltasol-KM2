@@ -180,10 +180,16 @@ async def async_get_config_entry_diagnostics(hass, entry):
     reference_contracts = {}
     if profile and capture and capture.changeset == profile.configuration_changeset:
         for setting in profile.settings_for(capture.changeset):
-            reference_contracts[setting.name] = {
-                "kind": setting.kind,
-                "storage_action": "save" if setting.save else "volatile",
-            }
+            row = reference_contracts.setdefault(
+                setting.name,
+                {
+                    "kind": setting.kind,
+                    "storage_action": "save" if setting.save else "volatile",
+                    "catalogue_binding": "not_confirmed",
+                },
+            )
+            if profile.bind(setting, capture.catalog) is not None:
+                row["catalogue_binding"] = "verified"
     coverage = Counter()
     contract_coverage = Counter()
     for name, item in configuration.get("parameters", {}).items():
@@ -201,6 +207,11 @@ async def async_get_config_entry_diagnostics(hass, entry):
             item["configuration_device_address"] = relay_control["device_address"]
             item["storage_action"] = "volatile"
             item.pop("write_access_reason", None)
+        elif (
+            name in reference_contracts
+            and reference_contracts[name]["catalogue_binding"] != "verified"
+        ):
+            item["write_access_reason"] = "catalogue_contract_not_confirmed"
         elif control or relay_control or name in reference_contracts:
             item["write_access_reason"] = "live_capability_not_confirmed"
         if name in reference_contracts:

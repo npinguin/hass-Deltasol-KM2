@@ -14,6 +14,7 @@ from datetime import UTC, datetime
 from threading import RLock
 from time import monotonic, sleep
 
+from .catalog import CatalogError, source_for
 from .configuration import (
     BX_PLUS_DIFFERENTIAL_SETTINGS,
     BX_PLUS_HEATING_COMFORT_SETTINGS,
@@ -29,6 +30,7 @@ from .configuration import (
     BX_PLUS_TRANSFER_SETTINGS,
     ConfigurationCapability,
     Setting,
+    bind_setting,
     encode_action,
 )
 from .vbus import (
@@ -74,8 +76,31 @@ class ControllerProfile:
     configuration_changeset: int | None = None
     settings: tuple[Setting, ...] = ()
 
-    def settings_for(self, changeset):
-        return self.settings if changeset == self.configuration_changeset else ()
+    def settings_for(self, changeset, catalog=None):
+        if changeset != self.configuration_changeset:
+            return ()
+        if catalog is None:
+            # Existing exact firmware contracts remain usable before the
+            # catalogue is acquired; they are independently source-verified.
+            return self.settings
+        try:
+            source = source_for(self.address, changeset)
+        except CatalogError:
+            return ()
+        if catalog.digest != source.digest:
+            return ()
+        return tuple(
+            setting
+            for original in self.settings
+            if (setting := self.bind(original, catalog)) is not None
+        )
+
+    @staticmethod
+    def bind(setting, catalog):
+        try:
+            return bind_setting(setting, catalog.by_name)
+        except CatalogError:
+            return None
 
 
 PROFILES = (
@@ -442,7 +467,13 @@ async def run_parameter_job(hass, function, *args):
 
 
 async def refresh_relay_modes(
-    telemetry, lock=None, *, guard=None, initial=False, configuration_hints=None
+    telemetry,
+    lock=None,
+    *,
+    guard=None,
+    initial=False,
+    configuration_hints=None,
+    catalog=None,
 ):
     """Retry reads, releasing async ownership between attempts."""
 
@@ -450,8 +481,10 @@ async def refresh_relay_modes(
         if guard is not None:
             guard()
         arguments = (telemetry.data,)
-        if configuration_hints is not None:
+        if configuration_hints is not None or catalog is not None:
             arguments += (configuration_hints,)
+        if catalog is not None:
+            arguments += (catalog,)
         return await run_parameter_job(
             telemetry.hass, telemetry.api.fetch_relay_modes, *arguments
         )
@@ -588,7 +621,7 @@ class RelayParameters:
                     elapsed if connect_seconds is None else connect_seconds,
                 )
 
-    def discover(self, telemetry, configuration_hints=None):
+    def discover(self, telemetry, configuration_hints=None, catalog=None):
         inventory = device_inventory(telemetry)
         profile, controller = find_profile(inventory)
         if profile is None:
@@ -625,7 +658,7 @@ class RelayParameters:
             # layout, current values and identity before exposing controls.
             settings = tuple(
                 setting
-                for setting in profile.settings_for(changeset)
+                for setting in profile.settings_for(changeset, catalog)
                 if setting.installed_by is None
                 or (
                     configuration_hints is not None
@@ -686,14 +719,15 @@ class RelayParameters:
             )
         return {name: observations[name] for name in names}
 
-    def set_configuration(self, telemetry, capability, value):
+    def set_configuration(self, telemetry, capability, value, catalog=None):
         """Same serialized owner; save once and confirm via a new VBus session."""
         inventory = device_inventory(telemetry)
         profile, controller = find_profile(inventory)
         if (
             profile is None
             or controller != capability.controller
-            or capability.setting not in profile.settings_for(capability.changeset)
+            or capability.setting
+            not in profile.settings_for(capability.changeset, catalog)
             or find_device(inventory, capability.device.address) != capability.device
         ):
             raise VBusError("Configuration capability or controller identity changed")
@@ -704,7 +738,7 @@ class RelayParameters:
         # one in an older entity snapshot. First read selectors to bound work.
         alternatives = tuple(
             candidate
-            for candidate in profile.settings_for(capability.changeset)
+            for candidate in profile.settings_for(capability.changeset, catalog)
             if candidate.name == setting.name
         )
 

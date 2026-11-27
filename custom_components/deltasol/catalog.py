@@ -8,6 +8,7 @@ import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
+from functools import cached_property
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.error import URLError
@@ -108,6 +109,10 @@ def is_sensitive(definition):
 class Catalog:
     digest: str
     definitions: tuple[Definition, ...]
+
+    @cached_property
+    def by_name(self):
+        return {definition.name: definition for definition in self.definitions}
 
 
 def _number(text):

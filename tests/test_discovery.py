@@ -824,6 +824,16 @@ class DiscoveryTests(unittest.TestCase):
         # Corroborate the production write contracts against the exact RPT,
         # not the earlier optimizer indices.
         configuration = importlib.import_module(f"{PACKAGE}.configuration")
+        parameters = importlib.import_module(f"{PACKAGE}.parameters")
+        profile = parameters.PROFILES[0]
+        bound = profile.settings_for(catalog.BX_PLUS_CHANGESET, parsed)
+        for setting in profile.settings:
+            with self.subTest(contract=setting.name, unit=setting.unit):
+                compiled = configuration.bind_setting(setting, parsed.by_name)
+                self.assertIn(compiled, bound)
+                self.assertEqual(compiled.name, setting.name)
+                self.assertEqual(compiled.expected, setting.expected)
+        self.assertEqual(len(bound), len(profile.settings))
         for setting in configuration.BX_PLUS_SETTINGS:
             definition = definitions[setting.name]
             self.assertEqual(definition.index, setting.index)

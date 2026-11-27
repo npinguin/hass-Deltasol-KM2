@@ -12,7 +12,15 @@ from dataclasses import dataclass, replace
 from decimal import Decimal
 from operator import ge, gt, le, lt, ne
 
-from .catalog import CatalogError, Definition, encode_numeric_value
+from .catalog import (
+    CatalogError,
+    Definition,
+    encode_numeric_value,
+    explicit_options,
+    is_sensitive,
+    numeric_encoding,
+    ordinal_options,
+)
 from .vbus import VBusError
 
 
@@ -102,6 +110,8 @@ class Setting:
     # Exact encoding bounds for sibling settings that participate in a
     # compound transaction. Their current values must also be valid.
     peer_limits: tuple[tuple[str, tuple[str, str, str, str]], ...] = ()
+    # Runtime metadata derived only from an authorized, exact catalogue.
+    value_definition: Definition | None = None
 
     @property
     def native_slot(self):
@@ -122,6 +132,8 @@ class Setting:
     def numeric_definition(self):
         if self.kind != "number" or self.limits is None:
             raise CatalogError("Numeric setting bounds are not established")
+        if self.value_definition is not None:
+            return self.value_definition
         minimum, maximum, step, factor = self.limits
         return Definition(
             self.name,
@@ -188,7 +200,10 @@ class Setting:
                 for parent, _, child, _ in self.compound_mirrors
             )
             and all(
-                replace(self, limits=limits).decode(values.get(name)) is not None
+                replace(self, limits=limits, value_definition=None).decode(
+                    values.get(name)
+                )
+                is not None
                 for name, limits in self.peer_limits
             )
             and (self.installed_by is None or self.installed_by.matches(values))
@@ -198,6 +213,102 @@ class Setting:
                 for rule in self.relative_constraints
             )
         )
+
+
+def _normalized_numeric(definition, limits):
+    """Interpret known firmware encodings, without inferring write permission.
+
+    The approved contract supplies only explicitly corroborated exceptions
+    (integer step absent from menu, time in seconds, HQM raw quant).
+    """
+    metadata = dict(definition.metadata)
+    chain = metadata.get("type_chain", ())
+    if "Time" in chain:
+        if limits[3] != "1":
+            raise CatalogError("Unsupported duration factor")
+        for key in ("minimum", "maximum", "quant"):
+            parts = str(metadata.get(key)).split(":")
+            if len(parts) != 2 or not all(part.isdecimal() for part in parts):
+                raise CatalogError("Unsupported duration encoding")
+            minutes, seconds = map(int, parts)
+            if seconds >= 60:
+                raise CatalogError("Invalid duration")
+            metadata[key] = str(minutes * 60 + seconds)
+        metadata["type_chain"] = [*chain, "Number"]
+    elif (
+        "Wmz_WmzX_Struct_Vt{0}_AlternativAnzeigeFaktor" in chain
+        and metadata.get("quant") == "1"
+        and metadata.get("storeFactor") == "0.0000001"
+    ):
+        metadata["quant"] = metadata["storeFactor"]
+        metadata["type_chain"] = [*chain, "Number"]
+    elif "step" not in metadata and "quant" not in metadata:
+        # Exact integer step established by the existing approved contract.
+        if Decimal(limits[2]) != 1 or Decimal(limits[3]) != 1:
+            raise CatalogError("Missing numeric increment")
+        metadata["step"] = "1"
+    normalized = replace(definition, metadata=metadata)
+    actual = numeric_encoding(normalized)
+    if actual != tuple(Decimal(value) for value in limits):
+        raise CatalogError("Catalogue numeric contract differs")
+    return normalized
+
+
+def bind_setting(setting, definitions):
+    """Bind an approved semantic contract to vendor metadata, fail closed.
+
+    Catalogue data defines encoding, never access or save semantics. The
+    reference profile authorizes the setting and its conditional relationships.
+    No arbitrary menu entry or unverified alias can become a writable entity.
+    """
+    for name, index in setting.expected.items():
+        definition = definitions.get(name)
+        if (
+            definition is None
+            or definition.index != index
+            or is_sensitive(definition)
+            or (
+                definition.excluded
+                and not definition.metadata.get("compound_parent_read_candidate")
+            )
+        ):
+            raise CatalogError("Catalogue contract layout differs")
+    target = definitions[setting.name]
+    alias = target
+    for parent, _, child, _ in setting.compound_mirrors:
+        parent_definition = definitions[parent]
+        child_definition = definitions[child]
+        if (
+            not parent_definition.metadata.get("compound_parent_read_candidate")
+            or child_definition.metadata.get("compound_ref") != parent
+            or child_definition.excluded
+        ):
+            raise CatalogError("Catalogue compound contract differs")
+        if parent == setting.name:
+            alias = child_definition
+        if parent != setting.name:
+            limits = dict(setting.peer_limits).get(parent)
+            if limits is not None:
+                _normalized_numeric(child_definition, limits)
+    if target.metadata.get("compound_ref") or (
+        target.storage == "abstract" and alias is target
+    ):
+        raise CatalogError("Catalogue write target is an alias or structure")
+    if setting.save and target.storage not in ("unspecified", "persistent", "abstract"):
+        raise CatalogError("Catalogue storage contract differs")
+    if setting.kind == "number":
+        normalized = _normalized_numeric(alias, setting.limits)
+        return replace(setting, value_definition=normalized)
+    if setting.kind == "switch":
+        if "Boolean" not in target.metadata.get("type_chain", ()):
+            raise CatalogError("Catalogue boolean contract differs")
+    elif setting.kind == "select":
+        options = explicit_options(target) or ordinal_options(target)
+        if set(options) != {raw for _, raw in setting.options}:
+            raise CatalogError("Catalogue enumeration contract differs")
+    else:
+        raise CatalogError("Unsupported configuration contract")
+    return setting
 
 
 @dataclass(frozen=True)
