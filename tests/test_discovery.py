@@ -229,12 +229,19 @@ class DiscoveryTests(unittest.TestCase):
     def test_configuration_evidence_preserves_compound_and_selector_boundary(self):
         selector = catalog.Definition("Unit", 60, "unspecified", "Enum", {})
         parent = catalog.Definition(
-            "Setpoint", 100, "abstract", "Temperature",
-            {"selector_ref": "Unit"}, "non_value_definition"
+            "Setpoint",
+            100,
+            "abstract",
+            "Temperature",
+            {"selector_ref": "Unit"},
+            "non_value_definition",
         )
         child = catalog.Definition(
-            "Setpoint_C", 101, "unspecified", "Number",
-            {"compound_ref": "Setpoint", "type_chain": ["Number"]}
+            "Setpoint_C",
+            101,
+            "unspecified",
+            "Number",
+            {"compound_ref": "Setpoint", "type_chain": ["Number"]},
         )
         definitions = {d.name: d for d in (selector, parent, child)}
         evidence = catalog.configuration_evidence(child, definitions)
@@ -250,6 +257,30 @@ class DiscoveryTests(unittest.TestCase):
         row = capture.export(True)["parameters"]["Setpoint_C"]
         self.assertEqual(row["write_access_reason"], "compound_target_unverified")
         self.assertEqual(row["status"], "not_scanned")
+
+    def test_rpt_decimal_comma_quant_and_numeric_sentinels(self):
+        definition = catalog.Definition(
+            "Differential_K",
+            123,
+            "unspecified",
+            "Temperature",
+            {
+                "type_chain": ["Temperature", "Number"],
+                "minimum": "1,0",
+                "maximum": "20,0",
+                "quant": "0,5",
+                "storeFactor": "0.1",
+                "displayFactor": "0.1",
+                "value_text": [{"value": "999.9", "label": "-"}],
+            },
+        )
+        self.assertEqual(catalog.encode_numeric_value(definition, 6.5), 65)
+        for value in (6.1, 999.9, 0.5, 20.5, True):
+            with self.subTest(value=value), self.assertRaises(catalog.CatalogError):
+                catalog.encode_numeric_value(definition, value)
+        definition.metadata["quant_step"] = "alternate"
+        with self.assertRaises(catalog.CatalogError):
+            catalog.encode_numeric_value(definition, 6.5)
 
     def test_numeric_sentinel_and_unverified_display_units(self):
         metadata = {
@@ -437,12 +468,21 @@ class DiscoveryTests(unittest.TestCase):
             status = definition.excluded or "candidate"
             counts[status] = counts.get(status, 0) + 1
         print("Exact vendor archive: definitions", len(definitions), counts)
+        self.assertEqual(
+            catalog.encode_numeric_value(definitions["Solar_Sp1_dTein_K"], 6.5),
+            65,
+        )
+        self.assertEqual(
+            catalog.encode_numeric_value(
+                definitions["Anlage_Wf1_Feststoffkessel_dTEin_K"], 6
+            ),
+            60,
+        )
         # Targeted firmware evidence, not live values or redistributed XML.
         for name in (
             "Relais_Regler_R1_MinDrehzahl",
             "Relais_Regler_R1_MaxDrehzahl",
             "Relais_Regler_R1_ODrehzahl",
-            "Relais_Regler_R1_AktorFunktion",
             "Relais_Regler_R1_OAdapter",
             "Relais_Modul1_R1_MinDrehzahl",
             "Solar_SystemId",
@@ -457,6 +497,14 @@ class DiscoveryTests(unittest.TestCase):
             "Heizung_Heizkreis1_Betriebsstatus",
             "Wmz1_Type",
             "Wmz1_FrostschutzGehalt",
+            "Wmz1_OAlternativAnzeige",
+            "Wmz1_AlternativAnzeigeEinheit",
+            "Anlage_Wf1_Mischer_dtIntervall",
+            "Heizung_Heizkreis1_Type",
+            "Heizung_Heizkreis1_Aktiviert_Modus",
+            "Heizung_Heizkreis1_Heizkurve",
+            "Heizung_Heizkreis1_dTTageskorrektur_K",
+            "Heizung_Heizkreis1_dTNachtkorrektur_K",
         ):
             d = definitions.get(name)
             if d is None:
@@ -465,10 +513,21 @@ class DiscoveryTests(unittest.TestCase):
             relevant = {
                 k: d.metadata[k]
                 for k in (
-                    "type_chain", "selector_ref", "selector_refs", "compound_ref",
-                    "minimum", "maximum", "quant", "quant_step", "storeFactor",
-                    "displayFactor", "unit", "value_text", "menu_refs",
-                    "allow_parameterization", "force_use",
+                    "type_chain",
+                    "selector_ref",
+                    "selector_refs",
+                    "compound_ref",
+                    "minimum",
+                    "maximum",
+                    "quant",
+                    "quant_step",
+                    "storeFactor",
+                    "displayFactor",
+                    "unit",
+                    "value_text",
+                    "menu_refs",
+                    "allow_parameterization",
+                    "force_use",
                 )
                 if k in d.metadata
             }

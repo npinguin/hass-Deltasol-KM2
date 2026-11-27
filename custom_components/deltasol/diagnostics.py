@@ -176,9 +176,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
             }
     # Do not present historical inventory values as live control readback.
     # The capture is a snapshot; the existing coordinator owns current controls.
-    relay_contracts = {
-        item["parameter"]: item for item in relays.values()
-    }
+    relay_contracts = {item["parameter"]: item for item in relays.values()}
     coverage = Counter()
     for name, item in configuration.get("parameters", {}).items():
         control = settings.get(name)

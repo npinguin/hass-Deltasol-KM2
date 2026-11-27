@@ -111,6 +111,10 @@ class Catalog:
 
 
 def _number(text):
+    # RPT uses both decimal points and decimal commas, but not thousands
+    # separators. Normalize only an unambiguous decimal literal.
+    if isinstance(text, str) and re.fullmatch(r"[+-]?[0-9]+,[0-9]+", text):
+        text = text.replace(",", ".")
     try:
         number = Decimal(text)
         return number if number.is_finite() else None
@@ -462,11 +466,14 @@ def decoded_value(definition, raw):
     return int(value) if value == value.to_integral_value() else float(value)
 
 
-def encode_numeric_value(definition, value):
-    """Validate exact static bounds, step and signed wire encoding.
+def numeric_encoding(definition):
+    """Return established static numeric bounds, increment and wire factor.
 
-    This is conversion only, not permission to write. Conditional constraints,
-    active function, current mapping and storage still require separate proof.
+    The RPT quant field supplies a plain engineering-unit increment when
+    no alternate quant step expression exists. A valueText sentinel is
+    measurement absence, not an enumerated choice. This function establishes
+    encoding only; applicability, permission, storage and dynamic bounds
+    are separate requirements.
     """
     metadata = definition.metadata
     chain = metadata.get("type_chain", [])
@@ -476,27 +483,51 @@ def encode_numeric_value(definition, value):
         or "Number" not in chain
         or "Boolean" in chain
         or "Handbetrieb" in chain
-        or metadata.get("value_text")
         or metadata.get("unresolved_base")
-        or isinstance(value, bool)
+        or any(
+            item.get("label") != "-" or _number(item.get("value")) is None
+            for item in metadata.get("value_text", ())
+        )
+        or metadata.get("quant_step") is not None
     ):
         raise CatalogError("Numeric encoding not established")
     factor = _number(metadata.get("storeFactor", "1"))
+    display = _number(metadata.get("displayFactor", str(factor)))
     minimum = _number(metadata.get("minimum"))
     maximum = _number(metadata.get("maximum"))
-    step = _number(metadata.get("step"))
-    number = _number(str(value))
+    step = _number(metadata.get("step", metadata.get("quant")))
     if (
-        number is None
-        or factor is None
+        factor is None
         or factor <= 0
+        or display != factor
         or minimum is None
         or maximum is None
         or step is None
         or step <= 0
         or minimum > maximum
+        or any(number % factor for number in (minimum, maximum, step))
     ):
         raise CatalogError("Numeric bounds or step not established")
+    return minimum, maximum, step, factor
+
+
+def encode_numeric_value(definition, value):
+    """Validate exact static bounds, step and signed wire encoding.
+
+    This is conversion only, not permission to write. Conditional constraints,
+    active function, current mapping and storage still require separate proof.
+    """
+    if isinstance(value, bool):
+        raise CatalogError("Numeric encoding not established")
+    minimum, maximum, step, factor = numeric_encoding(definition)
+    number = _number(str(value))
+    if number is None:
+        raise CatalogError("Invalid numeric value")
+    if any(
+        _number(item.get("value")) == number
+        for item in definition.metadata.get("value_text", ())
+    ):
+        raise CatalogError("Numeric sentinel is not an adjustable value")
     if not minimum <= number <= maximum:
         raise CatalogError("Value outside parameter range")
     if (number - minimum) % step:
