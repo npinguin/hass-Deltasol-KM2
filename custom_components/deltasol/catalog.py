@@ -521,7 +521,7 @@ def decoded_value(definition, raw):
     # Keep unrelated or unknown factor differences undecoded.
     if display != factor and not (
         factor == Decimal("0.1")
-        and display == Decimal("1")
+        and display == 1
         and ("TemperatureCelsius" in chain or "TemperatureFahrenheit" in chain)
     ):
         return None

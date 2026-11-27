@@ -319,6 +319,94 @@ class ConfigurationCapture:
             self.status = "complete"
             self.finished_at = datetime.now(UTC).isoformat()
 
+    def _observed_raw(self, definition):
+        """Only exact, nonsensitive observations may feed derived views."""
+        if definition is None:
+            return None
+        observed = self.results.get(definition.name)
+        if (
+            is_sensitive(definition)
+            or definition.index in self.sensitive_indices
+            or observed is None
+            or observed.status != "read"
+            or observed.index != definition.index
+            or type(observed.value) is not int
+        ):
+            return None
+        return observed.value
+
+    def compound_parameters(self):
+        """Consolidate temperature variants without guessing the write target."""
+        definitions = {d.name: d for d in self.catalog.definitions}
+        groups = {}
+        for definition in self.base_candidates:
+            parent = definition.metadata.get("compound_ref")
+            if parent:
+                groups.setdefault(parent, []).append(definition)
+        selector = definitions.get("TemperatureHysteresisSelector")
+        selected = self._observed_raw(selector)
+        result = {}
+        for name, children in groups.items():
+            parent = definitions.get(name)
+            if (
+                parent is None
+                or is_sensitive(parent)
+                or parent.index in self.sensitive_indices
+                or parent.metadata.get("compound_parent_read_candidate") is not True
+            ):
+                continue
+            variants = {}
+            for child in children:
+                chain = child.metadata.get("type_chain", ())
+                unit = next(
+                    (
+                        symbol
+                        for type_id, symbol in (
+                            ("TemperatureCelsius", "°C"),
+                            ("TemperatureFahrenheit", "°F"),
+                            ("HysteresisKelvin", "K"),
+                            ("HysteresisRankine", "°R"),
+                        )
+                        if type_id in chain
+                    ),
+                    None,
+                )
+                if unit is None:
+                    continue
+                variants.setdefault(unit, []).append(child)
+            if set(variants) not in ({"°C", "°F"}, {"K", "°R"}) or any(
+                len(items) != 1 for items in variants.values()
+            ):
+                continue
+            units = ("K", "°R") if "K" in variants else ("°C", "°F")
+            active = variants[units[selected]][0] if selected in (0, 1) else None
+            raw = self._observed_raw(active)
+            parent_raw = self._observed_raw(parent)
+            value = decoded_value(active, raw) if active else None
+            evidence = (
+                "selector_unknown"
+                if active is None
+                else "child_not_decoded"
+                if value is None
+                else "parent_not_observed"
+                if parent_raw is None
+                else "parent_matches_selected_child"
+                if parent_raw == raw
+                else "parent_encoding_unverified"
+            )
+            result[name] = {
+                "selected_parameter": active.name if active else None,
+                "unit": units[selected] if selected in (0, 1) else None,
+                "value": value,
+                "parent_reference_index": parent.index,
+                "parent_raw_value": parent_raw,
+                "selected_raw_value": raw,
+                "selector_raw": selected,
+                "evidence": evidence,
+                "write_access": "not_verified",
+            }
+        return result
+
     def native_functions(self):
         """Project native installed slots and raw reference assignments.
 
@@ -328,19 +416,7 @@ class ConfigurationCapture:
         definitions = {d.name: d for d in self.catalog.definitions}
 
         def observation(name):
-            definition = definitions.get(name)
-            observed = self.results.get(name)
-            if (
-                definition is None
-                or is_sensitive(definition)
-                or definition.index in self.sensitive_indices
-                or observed is None
-                or observed.status != "read"
-                or observed.index != definition.index
-                or type(observed.value) is not int
-            ):
-                return None
-            return observed.value
+            return self._observed_raw(definitions.get(name))
 
         families = (
             ("arrangement", "Anlage_Wf", 16),
@@ -400,6 +476,17 @@ class ConfigurationCapture:
                         }
                         if not reference_types.intersection(chain):
                             continue
+                        menu_refs = definition.metadata.get("menu_refs", ())
+                        if family in ("arrangement", "solar_optional", "heating_optional"):
+                            # A slot contains values for all possible function
+                            # types. Only its selected menu supplies candidates.
+                            menu_refs = [
+                                menu
+                                for menu in menu_refs
+                                if menu.get("menu") == f"{name}_{kind}"
+                            ]
+                            if not menu_refs:
+                                continue
                         value = observation(ref)
                         if value is None or value == 0:
                             continue
@@ -408,6 +495,16 @@ class ConfigurationCapture:
                         item["assignments"][ref] = {
                             "reference": value,
                             "reference_type": chain[-1],
+                            "applicability": (
+                                "conditional_unverified"
+                                if any(
+                                    menu.get("mask") or menu.get("extraRef")
+                                    for menu in menu_refs
+                                )
+                                else "selected_function_reference"
+                                if menu_refs
+                                else "unverified"
+                            ),
                         }
                 functions[name] = item
         return {
@@ -507,7 +604,15 @@ class ConfigurationCapture:
             "candidate_count": len(self.candidates),
             "compound_parent_candidate_count": len(parent_names),
             "counts": counts,
-            "native_function_inventory": self.native_functions(),
+            "native_function_inventory": {
+                **self.native_functions(),
+                "status": "capture_observation" if current else "stale",
+            },
+            "compound_parameters": {
+                "status": "capture_observation" if current else "stale",
+                "value_semantics": "observations_during_capture_not_live_poll",
+                "parameters": self.compound_parameters(),
+            },
             "parameters": parameters,
         }
 

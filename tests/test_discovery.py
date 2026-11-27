@@ -359,6 +359,7 @@ class DiscoveryTests(unittest.TestCase):
             definition("Anlage_Wf3_Type", 15, "Anlage_WfX_Type", ("Frei", "Mixer")),
             definition("Relais_R1_AktorFunktion", 16, "AktorFunktion", ("Free", "Pump")),
         )
+        rows[2].metadata["menu_refs"] = [{"menu": "Anlage_Wf1_Mixer"}]
         capture = discovery.ConfigurationCapture(
             catalog.Catalog("test", rows), SimpleNamespace(address=0x7112)
         )
@@ -371,7 +372,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(inventory["Anlage_Wf1"]["activity_mode"], "switch_controlled")
         self.assertEqual(
             inventory["Anlage_Wf1"]["assignments"]["Anlage_Wf1_Relais1_Nr"],
-            {"reference": 4, "reference_type": "AktorNr"},
+            {
+                "reference": 4,
+                "reference_type": "AktorNr",
+                "applicability": "selected_function_reference",
+            },
         )
         self.assertEqual(inventory["Anlage_Wf2"]["status"], "unused")
         self.assertEqual(inventory["Anlage_Wf2"]["assignments"], {})
@@ -394,6 +399,65 @@ class DiscoveryTests(unittest.TestCase):
         # Read semantics do not enable writing an unverified parent/child.
         with self.assertRaises(catalog.CatalogError):
             catalog.encode_numeric_value(temp, 60)
+
+    def test_compound_projection_requires_exact_selector_and_parent_evidence(self):
+        parent = catalog.Definition(
+            "Target",
+            100,
+            "abstract",
+            "TemperatureProxy",
+            {"compound_parent_read_candidate": True},
+            "non_value_definition",
+        )
+        selector = catalog.Definition(
+            "TemperatureHysteresisSelector", 60, "unspecified", None, {}
+        )
+        children = tuple(
+            catalog.Definition(
+                f"Target_{suffix}",
+                index,
+                "unspecified",
+                base,
+                {
+                    "compound_ref": parent.name,
+                    "type_chain": [base, "Number"],
+                    "storeFactor": "0.1",
+                    "displayFactor": "1",
+                },
+            )
+            for suffix, index, base in (
+                ("C", 101, "TemperatureCelsius"),
+                ("F", 102, "TemperatureFahrenheit"),
+            )
+        )
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog("test", (selector, parent, *children)),
+            SimpleNamespace(address=0x7112),
+        )
+        capture.results = {
+            selector.name: vbus.ParameterObservation(60, 0, "read"),
+            children[0].name: vbus.ParameterObservation(101, 600, "read"),
+            children[1].name: vbus.ParameterObservation(102, 1400, "read"),
+        }
+        row = capture.compound_parameters()["Target"]
+        self.assertEqual(row["value"], 60)
+        self.assertEqual(row["unit"], "°C")
+        self.assertEqual(row["evidence"], "parent_not_observed")
+        capture.results[parent.name] = vbus.ParameterObservation(100, 600, "read")
+        self.assertEqual(
+            capture.compound_parameters()["Target"]["evidence"],
+            "parent_matches_selected_child",
+        )
+        capture.results[selector.name] = vbus.ParameterObservation(60, 1, "read")
+        row = capture.compound_parameters()["Target"]
+        self.assertEqual(row["value"], 140)
+        self.assertEqual(row["unit"], "°F")
+        self.assertEqual(row["evidence"], "parent_encoding_unverified")
+        self.assertEqual(row["write_access"], "not_verified")
+        capture.results[selector.name] = vbus.ParameterObservation(60, 2, "read")
+        row = capture.compound_parameters()["Target"]
+        self.assertIsNone(row["value"])
+        self.assertEqual(row["evidence"], "selector_unknown")
 
     def test_numeric_sentinel_and_unverified_display_units(self):
         metadata = {
