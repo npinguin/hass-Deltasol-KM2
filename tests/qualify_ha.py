@@ -54,11 +54,15 @@ CONFIG_SETTINGS = {
     "Wmz1_OAlternativAnzeige": (17273, 0, 0, 1),
     "Wmz1_AlternativAnzeigeEinheit": (17274, 0, 0, 3),
     "Wmz1_AlternativAnzeigeFaktor": (17275, 5000000, 1, 1000000000),
+    "Relais_Regler_R1_MinDrehzahl": (1974, 30, 20, 100),
+    "Relais_Regler_R1_MaxDrehzahl": (1975, 80, 20, 100),
     "Relais_Modul1_R1_MinDrehzahl": (2170, 30, 20, 100),
     "Relais_Modul1_R1_MaxDrehzahl": (2171, 80, 20, 100),
     "Anlage_Wf2_Feststoffkessel_dTEin": (6914, 50, 20, 300),
     "Anlage_Wf2_Feststoffkessel_dTAus": (6917, 30, 10, 290),
     "Anlage_Wf2_Feststoffkessel_dTSoll": (6920, 100, 30, 400),
+    "Anlage_Wf2_Feststoffkessel_TMax": (6923, 800, 40, 950),
+    "Anlage_Wf2_Feststoffkessel_TMin": (6926, 600, 40, 950),
 }
 # This peer deliberately models the selected-unit parent contract. It is
 # independent software evidence, not a physical observation of this encoding.
@@ -73,6 +77,22 @@ COMPOUND_ALIASES = {
     for suffix, delta, factor in (("_K", 1, 1), ("_R", 2, 2))
 }
 COMPOUND_PARENTS = {CONFIG_SETTINGS[name][0] for name in COMPOUND_NAMES}
+TEMPERATURE_NAMES = (
+    "Anlage_Wf2_Feststoffkessel_TMax",
+    "Anlage_Wf2_Feststoffkessel_TMin",
+)
+TEMPERATURE_PARENTS = {CONFIG_SETTINGS[name][0] for name in TEMPERATURE_NAMES}
+TEMPERATURE_ALIASES = {
+    name + suffix: (CONFIG_SETTINGS[name][0] + delta, CONFIG_SETTINGS[name][0], delta)
+    for name in TEMPERATURE_NAMES
+    for suffix, delta in (("_C", 1), ("_F", 2))
+}
+
+
+def temperature_wire(celsius_raw, fahrenheit):
+    # Test values use exactly representable temperatures in both unit variants.
+    # This is a peer fixture, not a claim about physical vendor rounding.
+    return celsius_raw * 9 // 5 + 320 if fahrenheit else celsius_raw
 
 
 class Peer:
@@ -153,7 +173,7 @@ def additional_configuration():
         Peer.extra_values[index] = value
     for name, (index, _, _, _) in CONFIG_SETTINGS.items():
         Peer.extra_lookups[semantic_hash(name)] = index
-    for name, (index, _, _) in COMPOUND_ALIASES.items():
+    for name, (index, _, _) in {**COMPOUND_ALIASES, **TEMPERATURE_ALIASES}.items():
         Peer.extra_lookups[semantic_hash(name)] = index
 
 
@@ -253,6 +273,14 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         alias: Peer.settings[parent] * factor
                         for alias, parent, factor in COMPOUND_ALIASES.values()
                     },
+                    **{
+                        parent: temperature_wire(Peer.settings[parent], Peer.settings[60])
+                        for parent in TEMPERATURE_PARENTS
+                    },
+                    **{
+                        alias: temperature_wire(Peer.settings[parent], delta == 2)
+                        for alias, parent, delta in TEMPERATURE_ALIASES.values()
+                    },
                 }[index]
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0200:
@@ -285,8 +313,23 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         for parent in COMPOUND_PARENTS
                     }
                     assert proposed[6917] < proposed[6914] < proposed[6920]
+                if index in TEMPERATURE_PARENTS:
+                    assert Peer.extra_values[6810] == 6
+                    assert Peer.extra_values[6817] == 1
+                    if Peer.settings[60]:
+                        assert (value - 320) * 5 % 9 == 0
+                        stored_value = (value - 320) * 5 // 9
+                    assert stored_value % 10 == 0
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index in (1974, 1975):
+                    assert Peer.extra_values[1977] == 2
+                    assert Peer.extra_values[1973] == 1
+                    assert (
+                        value <= Peer.settings[1975]
+                        if index == 1974
+                        else value >= Peer.settings[1974]
+                    )
                 if index in (2170, 2171):
                     assert Peer.em_present and Peer.em_mode == 2
                     assert Peer.extra_values[2167] == 2
@@ -659,12 +702,18 @@ async def qualify(directory, phase):
                 ),
                 *(
                     Definition(name, index, "unspecified", None, {})
-                    for name, (index, _, _) in COMPOUND_ALIASES.items()
+                    for name, (index, _, _) in {
+                        **COMPOUND_ALIASES, **TEMPERATURE_ALIASES
+                    }.items()
                 ),
             ),
         )
         expected_config_count = (
-            3 + len(CONFIG_SELECTORS) + len(CONFIG_SETTINGS) + len(COMPOUND_ALIASES)
+            3
+            + len(CONFIG_SELECTORS)
+            + len(CONFIG_SETTINGS)
+            + len(COMPOUND_ALIASES)
+            + len(TEMPERATURE_ALIASES)
         )
         button = registry.async_get_entity_id(
             "button", "deltasol", f"{entry.entry_id}_configuration_discovery"
@@ -729,6 +778,10 @@ async def qualify(directory, phase):
                     ("Relais_Modul1_R1_MinDrehzahl", "number", 40),
                     ("Relais_Modul1_R1_MaxDrehzahl", "number", 70),
                     ("Anlage_Wf2_Feststoffkessel_dTEin", "number", 14),
+                    ("Relais_Regler_R1_MinDrehzahl", "number", 40),
+                    ("Relais_Regler_R1_MaxDrehzahl", "number", 70),
+                    ("Anlage_Wf2_Feststoffkessel_TMin", "number", 158),
+                    ("Anlage_Wf2_Feststoffkessel_TMax", "number", 194),
                 ):
                     entity = registry.async_get_entity_id(
                         kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
@@ -1217,6 +1270,25 @@ async def qualify(directory, phase):
         assert float(hass.states.get(compound).state) == 14
         assert hass.states.get(compound).attributes["unit_of_measurement"] == "°R"
         assert Peer.saves == 15
+
+        # The local relay has no resolved volatile role. Native speed control
+        # and exact Auto/registration/readback still authorize its own bounds.
+        await number("Relais_Regler_R1_MinDrehzahl", 40)
+        await number("Relais_Regler_R1_MaxDrehzahl", 70)
+        assert Peer.settings[1974] == 40 and Peer.settings[1975] == 70
+        assert Peer.saves == 17
+        await set_mode(display, "°C")
+        minimum, maximum = TEMPERATURE_NAMES[1], TEMPERATURE_NAMES[0]
+        minimum_entity = entity(minimum, "number")
+        assert float(hass.states.get(minimum_entity).state) == 60
+        await number(minimum, 70)
+        await number(maximum, 90)
+        assert Peer.settings[6926] == 700 and Peer.settings[6923] == 900
+        await set_mode(display, "°F")
+        assert entity(minimum, "number") == minimum_entity
+        assert float(hass.states.get(minimum_entity).state) == 158
+        assert float(hass.states.get(entity(maximum, "number")).state) == 194
+        assert Peer.saves == 21
 
         # Stop the actual HA process with an incomplete active capture. The
         # following restart phase must restore the same committed checkpoint.
