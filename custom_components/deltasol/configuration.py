@@ -391,6 +391,8 @@ PUMP_ROLES = (
     (11, "ExtWTPrimaerpumpe"),
     (12, "ExtWTSekundaerpumpe"),
     (16, "Zwillingspumpe"),
+    (24, "AnlageWaermeaustausch"),
+    (25, "AnlageFeststoffkessel"),
     (34, "HeizungThDesinfektionUmwaelzpumpe"),
     (36, "HeizungThBwErwaermungLadepumpe"),
     (37, "HeizungBwVorerwaermungPumpe"),
