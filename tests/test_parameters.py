@@ -736,7 +736,8 @@ class ParameterTests(unittest.TestCase):
         self.session.read.return_value = 0x2734DABC
         name = "Solar_Sp1_dTein"
         setting = next(
-            s for s in parameters_configuration.BX_PLUS_SOLAR_STORE_SETTINGS
+            s
+            for s in parameters_configuration.BX_PLUS_SOLAR_STORE_SETTINGS
             if s.name == name and s.unit == "K"
         )
         self.values.update(
@@ -789,7 +790,8 @@ class ParameterTests(unittest.TestCase):
 
     def test_circulation_temperature_requires_thermal_variant_and_order(self):
         setting = next(
-            s for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            s
+            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
             if s.name == "Heizung_Wf1_Zirkulation_TEin" and s.unit == "°C"
         )
         values = {

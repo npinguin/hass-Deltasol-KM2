@@ -1193,7 +1193,10 @@ def _additional_operating_settings():
             (active, Dependency(f"{prefix}_ODifferenz", 11398 + ho, (1,))),
             (
                 (
-                    0, "_K", "K", ("1", "50", "0.5", "0.1"),
+                    0,
+                    "_K",
+                    "K",
+                    ("1", "50", "0.5", "0.1"),
                     ("0.5", "49.5", "0.5", "0.1"),
                 ),
                 (1, "_R", "°R", ("2", "100", "1", "0.1"), ("1", "99", "1", "0.1")),
@@ -1265,7 +1268,9 @@ def _solar_store_settings():
             for position, (name, index, limits, label) in enumerate(rows):
                 others = tuple(
                     (other_position, other, other_index, bounds)
-                    for other_position, (other, other_index, bounds, _) in enumerate(rows)
+                    for other_position, (other, other_index, bounds, _) in enumerate(
+                        rows
+                    )
                     if other_position != position
                 )
                 yield Setting(
@@ -1283,12 +1288,16 @@ def _solar_store_settings():
                     installed_by=installed,
                     relative_constraints=tuple(
                         RelativeConstraint(
-                            other, other_index, "gt" if rank[position] > rank[i] else "lt"
+                            other,
+                            other_index,
+                            "gt" if rank[position] > rank[i] else "lt",
                         )
                         for i, other, other_index, _ in others
                     ),
                     compound_mirrors=mirrors,
-                    peer_limits=tuple((other, bounds) for _, other, _, bounds in others),
+                    peer_limits=tuple(
+                        (other, bounds) for _, other, _, bounds in others
+                    ),
                 )
             name = f"{root}_Anstieg"
             index = 3597 + offset
@@ -1300,7 +1309,8 @@ def _solar_store_settings():
                 True,
                 limits=(
                     ("1", "20", "0.5", "0.1")
-                    if selector == 0 else ("2", "40", "1", "0.1")
+                    if selector == 0
+                    else ("2", "40", "1", "0.1")
                 ),
                 unit=unit,
                 dependencies=(
@@ -1338,7 +1348,9 @@ def _solar_store_settings():
                         Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                     ),
                     installed_by=installed,
-                    relative_constraints=(RelativeConstraint(other, other_index, direction),),
+                    relative_constraints=(
+                        RelativeConstraint(other, other_index, direction),
+                    ),
                     compound_mirrors=mirrors,
                     peer_limits=((other, limits),),
                 )

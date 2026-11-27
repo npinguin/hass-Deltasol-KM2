@@ -1094,8 +1094,9 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(definition.index, ref.index)
                 self.assertEqual(definition.storage, "volatile")
                 self.assertTrue(
-                    {"SensorNr", "AktorNr", "RelaisNr", "AusgangNr"}
-                    .intersection(definition.metadata["type_chain"])
+                    {"SensorNr", "AktorNr", "RelaisNr", "AusgangNr"}.intersection(
+                        definition.metadata["type_chain"]
+                    )
                 )
         self.assertEqual(len(configuration.BX_PLUS_TRANSFER_SETTINGS), 224)
         self.assertEqual(len(configuration.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS), 80)
