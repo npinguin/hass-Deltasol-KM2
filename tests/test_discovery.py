@@ -1042,9 +1042,7 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn("Bedienercode", capture.export(True)["parameters"])
         self.assertEqual(len(capture.base_candidates), 11325)
         self.assertEqual(len(capture.packed_days), 357)
-        self.assertEqual(
-            len({name.split("_")[0] for name in capture.packed_days}), 51
-        )
+        self.assertEqual(len({name.split("_")[0] for name in capture.packed_days}), 51)
         self.assertTrue(
             all(
                 definitions[name].index is not None
@@ -1149,10 +1147,7 @@ class DiscoveryTests(unittest.TestCase):
             print(
                 "RPT type structure:",
                 type_id,
-                [
-                    (sorted(n.attrib), sorted({child.tag for child in n}))
-                    for n in nodes
-                ],
+                [(sorted(n.attrib), sorted({child.tag for child in n})) for n in nodes],
             )
         print(
             "RPT solar presence definition tags:",
