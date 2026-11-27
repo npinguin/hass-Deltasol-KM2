@@ -544,9 +544,12 @@ class RelayParameters:
                 if setting.installed_by is None
                 or (
                     configuration_hints is not None
-                    and (observation := configuration_hints.get(
-                        setting.installed_by.name
-                    )) is not None
+                    and (
+                        observation := configuration_hints.get(
+                            setting.installed_by.name
+                        )
+                    )
+                    is not None
                     and observation.status == "read"
                     and observation.index == setting.installed_by.index
                     and setting.installed_by.matches(

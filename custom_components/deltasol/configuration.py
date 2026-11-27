@@ -118,9 +118,7 @@ class Setting:
     def expected(self):
         result = {self.name: self.index}
         installed = (self.installed_by,) if self.installed_by else ()
-        for dependency in (
-            *installed, *self.dependencies, *self.relative_constraints
-        ):
+        for dependency in (*installed, *self.dependencies, *self.relative_constraints):
             result[dependency.name] = dependency.index
         return result
 
@@ -218,9 +216,7 @@ BX_PLUS_MIXER_SETTINGS = tuple(
         dependencies=(
             Dependency(f"Anlage_Wf{number}_Aktiviert_Modus", 6566 + offset, (1,)),
         ),
-        installed_by=Dependency(
-            f"Anlage_Wf{number}_Type", 6559 + offset, (2,)
-        ),
+        installed_by=Dependency(f"Anlage_Wf{number}_Type", 6559 + offset, (2,)),
     )
     for number in range(1, 17)
     for offset in ((number - 1) * 251,)

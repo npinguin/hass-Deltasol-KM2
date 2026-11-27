@@ -462,11 +462,13 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(target.metadata["unit"].strip(), "s")
             self.assertFalse(target.metadata.get("compound_ref"))
             self.assertFalse(target.metadata.get("selector_ref"))
-            self.assertTrue(any(
-                ref["menu"] == setting.name.removesuffix("_dtIntervall")
-                and not ref.get("mask")
-                for ref in target.metadata["menu_refs"]
-            ))
+            self.assertTrue(
+                any(
+                    ref["menu"] == setting.name.removesuffix("_dtIntervall")
+                    and not ref.get("mask")
+                    for ref in target.metadata["menu_refs"]
+                )
+            )
             selector = definitions[setting.installed_by.name]
             self.assertEqual(selector.index, setting.installed_by.index)
             self.assertEqual(selector.metadata["value_text"][2]["id"], "Mischer")

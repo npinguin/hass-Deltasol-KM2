@@ -55,7 +55,12 @@ from .const import (
 )
 from .deltasolapi import DeltasolApi, DeltasolEndpoint
 from .discovery import ConfigurationCapture, capture_batches, capture_identity
-from .parameters import device_inventory, find_profile, refresh_relay_modes, run_parameter_job
+from .parameters import (
+    device_inventory,
+    find_profile,
+    refresh_relay_modes,
+    run_parameter_job,
+)
 from .vbus import VBusError, VBusTransientError
 
 _LOGGER = logging.getLogger(__name__)
