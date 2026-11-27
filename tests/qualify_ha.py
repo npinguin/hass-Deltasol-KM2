@@ -554,6 +554,7 @@ async def qualify(directory, phase):
         *TEMPERATURE_ALIASES,
         *TIMER_VALUES,
     }
+
     def assert_weekly_evidence(diagnostic):
         weekly = diagnostic["configuration_discovery"]["weekly_programs"]
         assert weekly["write_access"] == "not_verified"
