@@ -248,8 +248,8 @@ async def _async_save_capture(runtime):
     try:
         await runtime.capture_store.async_save(
             {
-                "capture": runtime.capture.checkpoint(),
-                "previous": runtime.previous_capture.checkpoint()
+                "capture": runtime.capture.storage_checkpoint(),
+                "previous": runtime.previous_capture.storage_checkpoint()
                 if runtime.previous_capture
                 else None,
                 "resume": runtime.capture.status not in ("complete", "incomplete")

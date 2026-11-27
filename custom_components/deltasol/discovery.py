@@ -33,6 +33,7 @@ class ConfigurationCapture:
     started_at: str = field(default_factory=lambda: datetime.now(UTC).isoformat())
     status: str = "running"
     finished_at: str | None = None
+    base_finished_at: str | None = None
     error: str | None = None
     results: dict = field(default_factory=dict)
     offset: int = 0
@@ -148,6 +149,7 @@ class ConfigurationCapture:
             "status": self.status,
             "started_at": self.started_at,
             "finished_at": self.finished_at,
+            "base_finished_at": self.base_finished_at,
             "offset": self.offset,
             "retry_count": self.retry_count,
             "consecutive_failures": self.consecutive_failures,
@@ -164,6 +166,29 @@ class ConfigurationCapture:
             ],
         }
 
+    def storage_checkpoint(self):
+        """Keep the legacy prefix readable by 1.2.15 after rollback."""
+        full = self.checkpoint()
+        base_count = len(self.base_candidates)
+        if (
+            len(self.candidates) == base_count
+            or self.offset < base_count
+            or not self.base_finished_at
+        ):
+            return full
+        extension = {**full, "observations": full["observations"][base_count:]}
+        return {
+            **full,
+            "status": "complete",
+            "finished_at": self.base_finished_at,
+            "offset": base_count,
+            "observations": full["observations"][:base_count],
+            "error": None,
+            "consecutive_failures": 0,
+            "last_failure": None,
+            "extension": extension,
+        }
+
     @classmethod
     def restore(cls, data, catalog, controller, changeset):
         """Reject stale, corrupt or incompatible checkpoints, never use for writes."""
@@ -174,6 +199,25 @@ class ConfigurationCapture:
             or data["changeset"] != changeset
         ):
             raise ValueError("Discovery checkpoint identity or layout changed")
+        if "extension" in data:
+            extension = data["extension"]
+            base_count = len(capture.base_candidates)
+            if (
+                not isinstance(extension, dict)
+                or data["status"] != "complete"
+                or data["offset"] != base_count
+                or len(data["observations"]) != base_count
+                or any(
+                    extension.get(key) != data[key]
+                    for key in ("identity", "catalog_digest", "changeset", "started_at")
+                )
+                or extension.get("base_finished_at") != data["finished_at"]
+            ):
+                raise ValueError("Invalid Discovery checkpoint extension")
+            data = {
+                **extension,
+                "observations": data["observations"] + extension["observations"],
+            }
         offset = data["offset"]
         rows = data["observations"]
         # Previous releases never attempted abstract compound parents.
@@ -232,6 +276,15 @@ class ConfigurationCapture:
             data["status"] == "complete" and not capture.finished_at
         ):
             raise ValueError("Missing Discovery checkpoint timestamp")
+        base_finished_at = data.get("base_finished_at")
+        if legacy_complete:
+            base_finished_at = capture.finished_at
+        if base_finished_at is not None and (
+            offset < len(capture.base_candidates)
+            or datetime.fromisoformat(base_finished_at).tzinfo is None
+        ):
+            raise ValueError("Invalid Discovery prefix timestamp")
+        capture.base_finished_at = base_finished_at
         capture.offset = offset
         capture.retry_count = data["retry_count"]
         consecutive = data.get("consecutive_failures", 0)
@@ -315,6 +368,8 @@ class ConfigurationCapture:
                 result = ParameterObservation(result.index, None, "layout_mismatch")
             self.results[definition.name] = result
         self.offset += len(batch)
+        if self.offset >= len(self.base_candidates) and not self.base_finished_at:
+            self.base_finished_at = datetime.now(UTC).isoformat()
         if self.offset == len(self.candidates):
             self.status = "complete"
             self.finished_at = datetime.now(UTC).isoformat()

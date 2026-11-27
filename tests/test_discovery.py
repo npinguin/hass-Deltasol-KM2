@@ -273,6 +273,25 @@ class DiscoveryTests(unittest.TestCase):
             restored.next_batch(), {name: vbus.ParameterObservation(100, 65, "read")}
         )
         self.assertEqual(restored.status, "complete")
+        compatible = restored.storage_checkpoint()
+        self.assertEqual(compatible["status"], "complete")
+        self.assertEqual(compatible["offset"], len(legacy))
+        self.assertEqual(len(compatible["observations"]), len(legacy))
+        self.assertEqual(
+            compatible["extension"]["observations"], [[name, 100, 65, "read"]]
+        )
+        roundtrip = discovery.ConfigurationCapture.restore(
+            compatible, parsed, controller, capture.changeset
+        )
+        self.assertEqual(roundtrip.status, "complete")
+        self.assertEqual(roundtrip.results, restored.results)
+        # The legacy prefix is independently valid and resumable after rollback.
+        legacy_only = {k: v for k, v in compatible.items() if k != "extension"}
+        resumed = discovery.ConfigurationCapture.restore(
+            legacy_only, parsed, controller, capture.changeset
+        )
+        self.assertEqual(resumed.status, "paused")
+        self.assertEqual(resumed.offset, len(legacy))
         row = restored.export(True)["parameters"][name]
         self.assertEqual(row["status"], "read")
         self.assertEqual(row["raw_value"], 65)
