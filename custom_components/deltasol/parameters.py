@@ -652,19 +652,29 @@ class RelayParameters:
             configuration,
         )
 
-    def read_configuration_batch(self, telemetry, controller, names, changeset):
+    def read_configuration_batch(
+        self, telemetry, controller, names, changeset, packed=None
+    ):
         """One bounded read batch using the existing session and identity gates."""
         profile, actual = find_profile(device_inventory(telemetry))
         if profile is None or actual != controller:
             raise VBusError("Controller identity changed during discovery")
+        expected = dict(names)
+        for flags in (packed or {}).values():
+            for name, index in flags.items():
+                if name in expected and expected[name] != index:
+                    raise VBusError("Conflicting configuration parameter layout")
+                expected[name] = index
         with self._session(profile.address) as session:
-            return session.read_parameter_observations(
+            observations = session.read_parameter_observations(
                 profile.address,
-                names,
+                expected,
                 changeset,
-                expected=names,
+                expected=expected,
                 schema=profile.schema_index,
+                packed=packed,
             )
+        return {name: observations[name] for name in names}
 
     def set_configuration(self, telemetry, capability, value):
         """Same serialized owner; save once and confirm via a new VBus session."""

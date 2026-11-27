@@ -158,12 +158,14 @@ class DeltasolApi:
             return RelayDiscovery(None, {}, {})
         return self._parameters.discover(telemetry, configuration_hints)
 
-    def read_configuration_batch(self, telemetry, controller, names, changeset):
+    def read_configuration_batch(
+        self, telemetry, controller, names, changeset, packed=None
+    ):
         """Share the same parameter transport and lock as relay operations."""
         if not self.supports_parameter_access:
             raise VBusError("VBus parameter access is not configured")
         return self._parameters.read_configuration_batch(
-            telemetry, controller, names, changeset
+            telemetry, controller, names, changeset, packed
         )
 
     def set_configuration(self, telemetry, capability, value):

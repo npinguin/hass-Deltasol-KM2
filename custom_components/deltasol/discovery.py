@@ -157,6 +157,11 @@ class ConfigurationCapture:
             "consecutive_failures": self.consecutive_failures,
             "error": error,
             "last_failure": self.last_failure,
+            "packed_words": {
+                name: list(observation.packed_words)
+                for name, observation in self.results.items()
+                if observation.packed_words
+            },
             "observations": [
                 [
                     d.name,
@@ -269,6 +274,32 @@ class ConfigurationCapture:
             if status == "not_resolved" and index is not None:
                 raise ValueError("Unresolved checkpoint contains index")
             capture.results[name] = ParameterObservation(index, value, status)
+        for name, words in data.get("packed_words", {}).items():
+            observation = capture.results.get(name)
+            if (
+                name not in capture.packed_days
+                or observation is None
+                or observation.status != "read"
+                or not isinstance(words, list)
+                or not 2 <= len(words) <= 3
+                or words[0] != observation.value
+                or any(
+                    type(word) is not int or not -(2**31) <= word < 2**31
+                    for word in words[:-1]
+                )
+                or (
+                    words[-1] is not None
+                    and (
+                        type(words[-1]) is not int
+                        or not -(2**31) <= words[-1] < 2**31
+                    )
+                )
+                or (len(words) == 2 and words[-1] is not None)
+            ):
+                raise ValueError("Invalid packed parameter observation")
+            capture.results[name] = ParameterObservation(
+                observation.index, observation.value, observation.status, tuple(words)
+            )
         for key in ("started_at", "finished_at"):
             value = data[key]
             if value is not None and datetime.fromisoformat(value).tzinfo is None:
@@ -355,8 +386,37 @@ class ConfigurationCapture:
             capture.finished_at = None
         return capture
 
+    @cached_property
+    def packed_days(self):
+        definitions = {d.name: d for d in self.base_candidates}
+        result = {}
+        for definition in self.base_candidates:
+            match = re.fullmatch(
+                r"(Wsu[0-9]+)_Schaltuhr_Woche_Tag(Mo|Di|Mi|Do|Fr|Sa|So)_Daten",
+                definition.name,
+            )
+            if not match or "Blob" not in definition.metadata.get("type_chain", ()):
+                continue
+            flags = (
+                definitions.get(f"{match[1]}_Belegt"),
+                definitions.get(f"{match[1]}_Schaltuhr_Woche_Initialisiert"),
+            )
+            if not all(
+                flag and "Boolean" in flag.metadata.get("type_chain", ())
+                for flag in flags
+            ):
+                continue
+            result[definition.name] = {flag.name: flag.index for flag in flags}
+        return result
+
     def next_batch(self):
-        return self.candidates[self.offset : self.offset + BATCH_SIZE]
+        batch = self.candidates[self.offset : self.offset + BATCH_SIZE]
+        # Extra subindex and allocation reads stay inside the existing bounded
+        # bus scheduling windows, not one long secondary schedule scan.
+        for position, definition in enumerate(batch):
+            if definition.name in self.packed_days:
+                return batch[:position] if position else batch[:4]
+        return batch
 
     def apply(self, batch, observations):
         for definition in batch:
@@ -489,6 +549,11 @@ class ConfigurationCapture:
                     "reference_index": definition.index,
                     "observation": observed.status if observed else "not_scanned",
                     "scalar_observed": self._observed_raw(definition) is not None,
+                    "observed_words": (
+                        list(observed.packed_words)
+                        if observed and self._observed_raw(definition) is not None
+                        else []
+                    ),
                     "payload_verified": False,
                 }
             elif "WochenschaltuhrNr" in chain:
@@ -505,9 +570,7 @@ class ConfigurationCapture:
                 definitions.get(f"{name}_Schaltuhr_Woche_Initialisiert")
             )
             week["allocated"] = bool(allocated) if allocated in (0, 1) else None
-            week["initialized"] = (
-                bool(initialized) if initialized in (0, 1) else None
-            )
+            week["initialized"] = bool(initialized) if initialized in (0, 1) else None
             week["catalogue_days"] = len(week["days"])
             week["schedule_status"] = (
                 "unallocated"
@@ -877,7 +940,11 @@ async def capture_batches(runtime, checkpoint=None):
             runtime.notify_capture()
             if capture.status == "complete":
                 return
-            if checkpoint and capture.offset % CHECKPOINT_INTERVAL == 0:
+            if (
+                checkpoint
+                and (capture.offset - len(batch)) // CHECKPOINT_INTERVAL
+                < capture.offset // CHECKPOINT_INTERVAL
+            ):
                 await checkpoint()
             await asyncio.sleep(0)
         capture.status = "paused"

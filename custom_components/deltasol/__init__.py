@@ -551,6 +551,11 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 capture.controller,
                 names,
                 capture.changeset,
+                {
+                    name: capture.packed_days[name]
+                    for name in names
+                    if name in capture.packed_days
+                },
             )
 
     async def _async_action_failed(self, error):

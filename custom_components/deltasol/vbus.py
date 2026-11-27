@@ -91,6 +91,9 @@ class ParameterObservation:
     index: int | None
     value: int | None
     status: str
+    # Optional raw words from a bounded read of an allocated weekly day.
+    # None represents an explicit correlated refusal, never fabricated zero.
+    packed_words: tuple[int | None, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -384,7 +387,15 @@ class VBusSession:
             self.phase_seconds["release"] = monotonic() - started
 
     def read_parameter_observations(
-        self, address, names, changeset, *, strict=False, expected=None, schema=None
+        self,
+        address,
+        names,
+        changeset,
+        *,
+        strict=False,
+        expected=None,
+        schema=None,
+        packed=None,
     ):
         """Resolve and read known IDs; a refused value is not a bus outage.
 
@@ -437,6 +448,33 @@ class VBusSession:
                 observations[name] = ParameterObservation(index, None, "read_refused")
             else:
                 observations[name] = ParameterObservation(index, value, "read")
+        # The caller supplies only exact, nonsensitive catalogue days and
+        # their two allocation flags. Read extra words only for an allocated,
+        # initialized day; the result is raw evidence, not a decoded schedule.
+        for name, flags in (packed or {}).items():
+            observed = observations.get(name)
+            if (
+                observed is None
+                or observed.status != "read"
+                or len(flags) != 2
+                or not all(
+                    flag in observations
+                    and observations[flag].status == "read"
+                    and observations[flag].value == 1
+                    for flag in flags
+                )
+            ):
+                continue
+            words = [observed.value]
+            for subindex in (1, 2):
+                try:
+                    words.append(self.read(address, observed.index, subindex=subindex))
+                except VBusReadRefused:
+                    words.append(None)
+                    break
+            observations[name] = ParameterObservation(
+                observed.index, observed.value, observed.status, tuple(words)
+            )
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during discovery")
         return {name: observations[name] for name in names}

@@ -498,6 +498,46 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(week["schedule_status"], status)
             self.assertFalse(week["days"]["Mo"]["payload_verified"])
 
+    def test_packed_day_checkpoint_preserves_scalar_compatibility(self):
+        rows = tuple(
+            catalog.Definition(name, index, "unspecified", None, {"type_chain": [kind]})
+            for name, index, kind in (
+                ("Wsu2_Belegt", 10, "Boolean"),
+                ("Wsu2_Schaltuhr_Woche_Initialisiert", 11, "Boolean"),
+                ("Wsu2_Schaltuhr_Woche_TagMo_Daten", 12, "Blob"),
+            )
+        )
+        controller = SimpleNamespace(
+            channel=0, address=0x7112, source="test", serial="test"
+        )
+        parsed = catalog.Catalog("test", rows)
+        capture = discovery.ConfigurationCapture(parsed, controller)
+        self.assertEqual(len(capture.next_batch()), 2)
+        self.assertEqual(len(capture.packed_days), 1)
+        capture.apply(
+            rows[:2],
+            {d.name: vbus.ParameterObservation(d.index, 1, "read") for d in rows[:2]},
+        )
+        day = rows[2]
+        capture.apply(
+            (day,),
+            {day.name: vbus.ParameterObservation(12, 1, "read", (1, -1, 2))},
+        )
+        stored = capture.storage_checkpoint()
+        self.assertEqual(stored["observations"][-1], [day.name, 12, 1, "read"])
+        restored = discovery.ConfigurationCapture.restore(
+            stored, parsed, controller, capture.changeset
+        )
+        self.assertEqual(restored.results[day.name].packed_words, (1, -1, 2))
+        item = restored.weekly_program_evidence()["programs"]["Wsu2"]["days"]["Mo"]
+        self.assertEqual(item["observed_words"], [1, -1, 2])
+        self.assertFalse(item["payload_verified"])
+        stored["packed_words"][day.name][0] = 2
+        with self.assertRaises(ValueError):
+            discovery.ConfigurationCapture.restore(
+                stored, parsed, controller, capture.changeset
+            )
+
     def test_function_context_is_catalogue_driven_not_fixed_slot_count(self):
         rows = (
             catalog.Definition(
