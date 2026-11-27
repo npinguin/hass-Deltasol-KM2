@@ -433,34 +433,6 @@ async def qualify(directory, phase):
     sys.path.insert(0, str(directory))
     from custom_components.deltasol.catalog import Catalog, CatalogError, Definition
 
-    display = registry.async_get_entity_id(
-        "select",
-        "deltasol",
-        "isolated-gateway_7112_TemperatureHysteresisSelector_configuration",
-    )
-    daylight = registry.async_get_entity_id(
-        "switch",
-        "deltasol",
-        "isolated-gateway_7112_AutoSommerWinterzeit_configuration",
-    )
-    assert display and daylight
-    assert (
-        registry.async_get(display).device_id
-        == registry.async_get(sensor).device_id
-    )
-    assert registry.async_get(display).entity_category == "config"
-    assert hass.states.get(display).state == ("°F" if phase == "restart" else "°C")
-    assert hass.states.get(daylight).state == (
-        "off" if phase == "restart" else "on"
-    )
-    assert (
-        diagnostic["configuration_controls"]["TemperatureHysteresisSelector"][
-            "write_access"
-        ]
-        == "profile_verified"
-    )
-    assert Peer.saves == 0
-
     fixture = Catalog(
         "isolated-test-catalogue",
         (
@@ -645,6 +617,34 @@ async def qualify(directory, phase):
         assert flags["Modul1_Aktiviert"]["raw_value"] == 1
         assert flags["Modul1_Vorhanden"]["status"] == "read"
         assert Peer.writes == 0
+        display = registry.async_get_entity_id(
+            "select",
+            "deltasol",
+            "isolated-gateway_7112_TemperatureHysteresisSelector_configuration",
+        )
+        daylight = registry.async_get_entity_id(
+            "switch",
+            "deltasol",
+            "isolated-gateway_7112_AutoSommerWinterzeit_configuration",
+        )
+        assert display and daylight
+        assert (
+            registry.async_get(display).device_id
+            == registry.async_get(sensor).device_id
+        )
+        assert registry.async_get(display).entity_category == "config"
+        assert hass.states.get(display).state == ("°F" if phase == "restart" else "°C")
+        assert hass.states.get(daylight).state == (
+            "off" if phase == "restart" else "on"
+        )
+        assert (
+            diagnostic["configuration_controls"]["TemperatureHysteresisSelector"][
+                "write_access"
+            ]
+            == "profile_verified"
+        )
+        assert Peer.saves == 0
+
         config_fixture = Catalog(
             "isolated-full-configuration",
             (
