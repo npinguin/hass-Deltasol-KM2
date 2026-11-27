@@ -426,9 +426,30 @@ BX_PLUS_PUMP_SETTINGS = tuple(
 # Keep safety min/max temperature limits and topology read-only.
 # Two selector variants use the same logical entity ID and parent index.
 DIFFERENTIAL_FAMILIES = (
-    ("Waermeaustausch", 5, 6639, ("1", "30", "0.5"), ("0.5", "29.5", "0.5"), ("1.5", "40", "0.5")),
-    ("Feststoffkessel", 6, 6663, ("2", "30", "1"), ("1", "29", "1"), ("3", "40", "1")),
-    ("Ruecklaufanhebung", 8, 6695, ("2", "30", "0.5"), ("1", "29", "0.5"), None),
+    (
+        "Waermeaustausch",
+        5,
+        6639,
+        ("1", "30", "0.5"),
+        ("0.5", "29.5", "0.5"),
+        ("1.5", "40", "0.5"),
+    ),
+    (
+        "Feststoffkessel",
+        6,
+        6663,
+        ("2", "30", "1"),
+        ("1", "29", "1"),
+        ("3", "40", "1"),
+    ),
+    (
+        "Ruecklaufanhebung",
+        8,
+        6695,
+        ("2", "30", "0.5"),
+        ("1", "29", "0.5"),
+        None,
+    ),
 )
 
 
@@ -459,7 +480,9 @@ def _differential_settings():
                 )
                 for position, (name, index, bounds, label) in enumerate(entries):
                     constraints = []
-                    for other_position, (other, other_index, _, _) in enumerate(entries):
+                    for other_position, (other, other_index, _, _) in enumerate(
+                        entries
+                    ):
                         if position == other_position:
                             continue
                         # on > off; target > on and off.
@@ -484,7 +507,9 @@ def _differential_settings():
                         unit=unit,
                         dependencies=(
                             active,
-                            Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                            Dependency(
+                                "TemperatureHysteresisSelector", 60, (selector,)
+                            ),
                         ),
                         relative_constraints=tuple(constraints),
                         installed_by=installed,

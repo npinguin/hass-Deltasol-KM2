@@ -635,11 +635,15 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(parent.index, setting.index)
             self.assertEqual(parent.storage, "abstract")
             self.assertTrue(parent.metadata["compound_parent_read_candidate"])
-            self.assertEqual(parent.metadata["selector_ref"], "TemperatureHysteresisSelector")
+            self.assertEqual(
+                parent.metadata["selector_ref"], "TemperatureHysteresisSelector"
+            )
             selector = definitions[setting.installed_by.name]
             self.assertEqual(selector.index, setting.installed_by.index)
             self.assertEqual(
-                selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
+                selector.metadata["value_text"][setting.installed_by.allowed[0]][
+                    "id"
+                ],
                 setting.name.split("_")[2],
             )
             for name, index in setting.expected.items():

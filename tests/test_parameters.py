@@ -94,31 +94,37 @@ class ParameterTests(unittest.TestCase):
     def test_compound_differential_requires_live_parent_child_and_unit(self):
         self.session.read.return_value = 0x2734DABC
         variants = [
-            s for s in parameters_configuration.BX_PLUS_DIFFERENTIAL_SETTINGS
+            s
+            for s in parameters_configuration.BX_PLUS_DIFFERENTIAL_SETTINGS
             if s.name == "Anlage_Wf1_Feststoffkessel_dTEin"
         ]
         celsius, fahrenheit = variants
-        self.values.update({
-            "TemperatureHysteresisSelector": (60, 0),
-            "Anlage_Wf1_Type": (6559, 6),
-            "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
-        })
+        self.values.update(
+            {
+                "TemperatureHysteresisSelector": (60, 0),
+                "Anlage_Wf1_Type": (6559, 6),
+                "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
+            }
+        )
         for parent, index, child, child_index in celsius.compound_mirrors:
-            raw = {"dTEin": 50, "dTAus": 30, "dTSoll": 100}[parent.rsplit("_", 1)[1]]
+            raw = {"dTEin": 50, "dTAus": 30, "dTSoll": 100}[
+                parent.rsplit("_", 1)[1]
+            ]
             self.values[parent] = (index, raw)
             self.values[child] = (child_index, raw)
             self.values[child[:-2] + "_R"] = (child_index + 1, raw * 2)
-        hints = {
-            "Anlage_Wf1_Type": parameters.ParameterObservation(6559, 6, "read")
-        }
+        hints = {"Anlage_Wf1_Type": parameters.ParameterObservation(6559, 6, "read")}
 
         def discover():
-            return self.api.discover(telemetry(), hints).configuration
+            return {
+                uid: cap
+                for uid, cap in self.api.discover(telemetry(), hints).configuration.items()
+                if cap.setting.compound_mirrors
+            }
 
         def capability():
             return next(
-                c for c in discover().values()
-                if c.setting.name == celsius.name
+                c for c in discover().values() if c.setting.name == celsius.name
             )
 
         initial = capability()
@@ -127,7 +133,9 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(len(discover()), 3)
 
         def write(address, index, value, changeset, *, save):
-            self.assertEqual((address, index, changeset, save), (0x7112, 6663, 0x2734DABC, True))
+            self.assertEqual(
+                (address, index, changeset, save), (0x7112, 6663, 0x2734DABC, True)
+            )
             self.values[celsius.name] = (index, value)
             self.values[celsius.name + "_K"] = (index + 1, value)
             return value
