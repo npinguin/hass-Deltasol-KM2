@@ -1314,9 +1314,8 @@ def _solar_store_settings():
                     f"Solar store {slot} {label}",
                     "number",
                     True,
-                    limits=tuple(
-                        str(Decimal(value) * multiplier) for value in bounds
-                    ) + ("0.1",),
+                    limits=tuple(str(Decimal(value) * multiplier) for value in bounds)
+                    + ("0.1",),
                     unit=unit,
                     dependencies=(
                         *deps,
