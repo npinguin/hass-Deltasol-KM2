@@ -405,6 +405,49 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(pumps())
         self.session.write_verified.assert_called_once()
 
+    def test_heating_comfort_requires_applicable_native_configuration(self):
+        settings = parameters_configuration.BX_PLUS_HEATING_COMFORT_SETTINGS
+        night = next(
+            s
+            for s in settings
+            if s.name == "Heizung_Heizkreis1_dTNachtkorrektur" and s.unit == "K"
+        )
+        values = {
+            "Heizung_Heizkreis1_Type": 1,
+            "Heizung_Heizkreis1_Aktiviert_Modus": 1,
+            "Heizung_Heizkreis1_System": 0,
+            "Heizung_Heizkreis1_Heizsystem": 1,
+            "Heizung_Heizkreis1_OSchaltuhr": 1,
+            "Heizung_Heizkreis1_ModusSchaltuhr": 0,
+            "TemperatureHysteresisSelector": 0,
+            night.name: -50,
+            night.name + "_K": -50,
+        }
+        self.assertTrue(night.accepts(values, night.encode(-6)))
+        self.assertFalse(night.accepts(values, -201))
+        values["Heizung_Heizkreis1_ModusSchaltuhr"] = 1
+        self.assertFalse(night.accepts(values))
+        room = next(
+            s for s in settings
+            if s.name == "Heizung_Heizkreis1_Raumthermostat1_TRaum"
+            and s.unit == "°C"
+        )
+        values.update(
+            {
+                "Heizung_Heizkreis1_Raumthermostat1_Option": 1,
+                "Heizung_Heizkreis1_Raumthermostat1_Aktiviert": 1,
+                "Heizung_Heizkreis1_Raumthermostat1_Typ": 0,
+                room.name: 200,
+                room.name + "_C": 200,
+            }
+        )
+        self.assertTrue(room.accepts(values, room.encode(21)))
+        values["Heizung_Heizkreis1_Raumthermostat1_Typ"] = 1
+        self.assertFalse(room.accepts(values))
+        values["Heizung_Heizkreis1_Raumthermostat1_Typ"] = 0
+        values["Heizung_Heizkreis1_System"] = 1
+        self.assertFalse(room.accepts(values))
+
     def test_loading_pair_rejects_bad_sibling_and_keeps_topology_unchanged(self):
         setting = next(
             candidate

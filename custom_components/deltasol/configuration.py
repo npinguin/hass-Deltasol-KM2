@@ -854,6 +854,119 @@ def _loading_temperature_settings():
 BX_PLUS_LOADING_SETTINGS = tuple(_loading_temperature_settings())
 
 
+def _heating_comfort_settings():
+    """Native heating comfort corrections and sensor-based room thermostats.
+
+    BX Plus manual heating circuit adjustment channels: day/night correction,
+    room setpoint and hysteresis. Keep flow safety limits and topology intact.
+    All indices, selector options and bounds are checked against exact RPT.
+    """
+    for circuit in range(1, 8):
+        offset = (circuit - 1) * 495
+        root = f"Heizung_Heizkreis{circuit}"
+        installed = Dependency(f"{root}_Type", 13684 + offset, (1,))
+        active = Dependency(f"{root}_Aktiviert_Modus", 13689 + offset, (1, 2))
+        heating = Dependency(f"{root}_System", 13697 + offset, (0, 2))
+        regulation = Dependency(f"{root}_Heizsystem", 13978 + offset, (1, 2, 3))
+        for suffix, index, low, high, label, extra in (
+            ("dTTageskorrektur", 13727, -5, 45, "day correction", ()),
+            (
+                "dTNachtkorrektur",
+                13730,
+                -20,
+                30,
+                "night correction",
+                (
+                    Dependency(f"{root}_OSchaltuhr", 13703 + offset, (1,)),
+                    Dependency(f"{root}_ModusSchaltuhr", 13704 + offset, (0,)),
+                ),
+            ),
+        ):
+            name = f"{root}_{suffix}"
+            index += offset
+            for selector, alias, unit, factor in (
+                (0, "_K", "K", 1),
+                (1, "_R", "°R", 2),
+            ):
+                yield Setting(
+                    name,
+                    index,
+                    f"Heating circuit {circuit} {label}",
+                    "number",
+                    True,
+                    limits=(
+                        str(low * factor), str(high * factor), str(factor), "0.1"
+                    ),
+                    unit=unit,
+                    dependencies=(
+                        active,
+                        heating,
+                        regulation,
+                        *extra,
+                        Dependency(
+                            "TemperatureHysteresisSelector", 60, (selector,)
+                        ),
+                    ),
+                    installed_by=installed,
+                    compound_mirrors=(
+                        (name, index, name + alias, index + selector + 1),
+                    ),
+                )
+        for thermostat in range(1, 6):
+            prefix = f"{root}_Raumthermostat{thermostat}"
+            base = 13819 + offset + (thermostat - 1) * 32
+            conditions = (
+                active,
+                heating,
+                Dependency(f"{prefix}_Option", base, (1,)),
+                Dependency(f"{prefix}_Aktiviert", base + 1, (1, 2)),
+                Dependency(f"{prefix}_Typ", base + 4, (0,)),
+            )
+            for suffix, delta, label, variants in (
+                (
+                    "TRaum",
+                    5,
+                    "room setpoint",
+                    (
+                        ("_C", "°C", ("10", "30", "1", "0.1")),
+                        ("_F", "°F", ("50", "86", "2", "0.1")),
+                    ),
+                ),
+                (
+                    "dTRaum",
+                    8,
+                    "room hysteresis",
+                    (
+                        ("_K", "K", ("0.5", "20", "0.1", "0.1")),
+                        ("_R", "°R", ("1", "40", "0.2", "0.1")),
+                    ),
+                ),
+            ):
+                name = f"{prefix}_{suffix}"
+                index = base + delta
+                for selector, (alias, unit, limits) in enumerate(variants):
+                    yield Setting(
+                        name,
+                        index,
+                        f"Heating circuit {circuit} thermostat {thermostat} {label}",
+                        "number",
+                        True,
+                        limits=limits,
+                        unit=unit,
+                        dependencies=(
+                            *conditions,
+                            Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                        ),
+                        installed_by=installed,
+                        compound_mirrors=(
+                            (name, index, name + alias, index + selector + 1),
+                        ),
+                    )
+
+
+BX_PLUS_HEATING_COMFORT_SETTINGS = tuple(_heating_comfort_settings())
+
+
 def encode_action(setting, value):
     """Return the validated wire value or a fixed, non-sensitive error."""
     try:

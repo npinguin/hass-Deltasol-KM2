@@ -526,7 +526,14 @@ def _known_display_scaling(chain, factor, display):
     return display == factor or (
         factor == Decimal("0.1")
         and display == 1
-        and bool({"TemperatureCelsius", "TemperatureFahrenheit"}.intersection(chain))
+        and bool(
+            {
+                "TemperatureCelsius",
+                "TemperatureFahrenheit",
+                "HysteresisKelvinShort",
+                "HysteresisRankineShort",
+            }.intersection(chain)
+        )
     )
 
 
