@@ -292,6 +292,27 @@ BX_PLUS_HQM_SETTINGS = tuple(
 )
 
 
+# Heating curve is available only in the two documented heating-system modes
+# (Kennlinie and Raumeinfluss), not merely when a circuit exists.
+BX_PLUS_HEATING_SETTINGS = tuple(
+    Setting(
+        f"Heizung_Heizkreis{number}_Heizkurve",
+        13698 + offset,
+        f"Heating circuit {number} heating curve",
+        "number",
+        True,
+        limits=("0.3", "3", "0.1", "0.1"),
+        dependencies=(
+            Dependency(f"Heizung_Heizkreis{number}_Aktiviert_Modus", 13689 + offset, (1,)),
+            Dependency(f"Heizung_Heizkreis{number}_Heizsystem", 13978 + offset, (1, 5)),
+        ),
+        installed_by=Dependency(f"Heizung_Heizkreis{number}_Type", 13684 + offset, (1,)),
+    )
+    for number in range(1, 8)
+    for offset in ((number - 1) * 495,)
+)
+
+
 def encode_action(setting, value):
     """Return the validated wire value or a fixed, non-sensitive error."""
     try:

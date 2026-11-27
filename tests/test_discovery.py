@@ -503,6 +503,32 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(target.metadata["displayFactor"], "0.0000001")
                 self.assertEqual(target.metadata["quant"], "1")
                 self.assertEqual(setting.encode(0.5000001), 5000001)
+        self.assertEqual(len(configuration.BX_PLUS_HEATING_SETTINGS), 7)
+        for setting in configuration.BX_PLUS_HEATING_SETTINGS:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertIsNone(target.excluded)
+            self.assertEqual(target.storage, "unspecified")
+            self.assertIn("Number", target.metadata["type_chain"])
+            self.assertEqual(target.metadata["minimum"], "0.3")
+            self.assertEqual(target.metadata["maximum"], "3")
+            self.assertEqual(target.metadata["quant"], "0.1")
+            self.assertEqual(target.metadata["storeFactor"], "0.1")
+            self.assertEqual(target.metadata["displayFactor"], "0.1")
+            self.assertEqual(
+                {ref["mask"] for ref in target.metadata["menu_refs"]},
+                {
+                    setting.name.replace("Heizkurve", "Heizsystem_Kennlinie"),
+                    setting.name.replace("Heizkurve", "Heizsystem_Raumeinfluss"),
+                },
+            )
+            selector = definitions[setting.installed_by.name]
+            self.assertEqual(selector.index, setting.installed_by.index)
+            self.assertEqual(selector.metadata["value_text"][1]["id"], "Intern")
+            for dependency in setting.dependencies:
+                self.assertEqual(definitions[dependency.name].index, dependency.index)
+            modes = definitions[setting.dependencies[1].name].metadata["value_text"]
+            self.assertEqual([modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"])
         self.assertEqual(definitions["Bedienercode"].excluded, "sensitive")
         self.assertEqual(
             definitions["MesseModus_BedienercodeReset"].excluded, "sensitive"

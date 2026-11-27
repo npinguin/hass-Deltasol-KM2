@@ -186,6 +186,38 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(self.session.write_verified.call_count, 3)
         self.assertEqual(set(controls()), {switch.name})
 
+    def test_heating_curve_checks_live_mode_and_quantization(self):
+        self.session.read.return_value = 0x2734DABC
+        setting = parameters_configuration.BX_PLUS_HEATING_SETTINGS[0]
+        installed = setting.installed_by
+        active, mode = setting.dependencies
+        self.values.update(
+            {
+                installed.name: (installed.index, 1),
+                active.name: (active.index, 1),
+                mode.name: (mode.index, 1),
+                setting.name: (setting.index, 12),
+            }
+        )
+        hints = {
+            installed.name: parameters.ParameterObservation(installed.index, 1, "read")
+        }
+        cap = next(iter(self.api.discover(telemetry(), hints).configuration.values()))
+        self.assertEqual(cap.value, 1.2)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((index, value, save), (setting.index, 15, True))
+            self.values[setting.name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 1.5).value, 1.5)
+        self.values[mode.name] = (mode.index, 2)
+        self.assertFalse(self.api.discover(telemetry(), hints).configuration)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 1.6)
+        self.session.write_verified.assert_called_once()
+
     def test_verified_configuration_save_and_reconnect(self):
         self.session.read.return_value = 0x2734DABC
         self.values["AutoSommerWinterzeit"] = (56, 1)
