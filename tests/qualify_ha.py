@@ -185,6 +185,18 @@ def additional_relays():
             Peer.extra_values[index - 4] = number % 2
 
 
+# Independent fixture: exact BX Plus 2.08 catalogue indices and native SET
+# byte evidence. The peer models the candidate word order, not proof of a
+# physical controller's multiword mapping or persistence.
+TIMER_VALUES = {
+    "Wsu1_Belegt": (18414, 1),
+    "Wsu1_Schaltuhr_Woche_Initialisiert": (18418, 1),
+    "Wsu1_Schaltuhr_Woche_TagMo_Daten": (18419, 0x50482820),
+    "Wsu1_Schaltuhr_Woche_TagDi_Daten": (18420, -48326),
+    "Anlage_Wf1_SchaltuhrNr": (6620, 1),
+}
+
+
 def additional_configuration():
     for name, (index, value) in CONFIG_SELECTORS.items():
         Peer.extra_lookups[semantic_hash(name)] = index
@@ -193,6 +205,9 @@ def additional_configuration():
         Peer.extra_lookups[semantic_hash(name)] = index
     for name, (index, _, _) in {**COMPOUND_ALIASES, **TEMPERATURE_ALIASES}.items():
         Peer.extra_lookups[semantic_hash(name)] = index
+    for name, (index, value) in TIMER_VALUES.items():
+        Peer.extra_lookups[semantic_hash(name)] = index
+        Peer.extra_values[index] = value
 
 
 def datagram(destination, source, command, index=0, value=0):
@@ -303,6 +318,13 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     },
                 }[index]
                 response = datagram(source, ADDRESS, 0x0100, index, value)
+            elif command in (0x0301, 0x0302):
+                assert index in (18419, 18420)
+                subindex = command & 0xFF
+                if index == 18420 and subindex == 2:
+                    response = datagram(source, ADDRESS, 0x4302, index)
+                else:
+                    response = datagram(source, ADDRESS, 0x0100 | subindex, index, -1)
             elif command == 0x0200:
                 if index == RELAY:
                     assert value in (0, 2, 4)
@@ -530,7 +552,30 @@ async def qualify(directory, phase):
         *CONFIG_SETTINGS,
         *COMPOUND_ALIASES,
         *TEMPERATURE_ALIASES,
+        *TIMER_VALUES,
     }
+    def assert_weekly_evidence(diagnostic):
+        weekly = diagnostic["configuration_discovery"]["weekly_programs"]
+        assert weekly["write_access"] == "not_verified"
+        week = weekly["programs"]["Wsu1"]
+        assert week["allocated"] and week["initialized"]
+        monday = week["days"]["Mo"]
+        assert monday["observed_words"] == [0x50482820, -1, -1]
+        assert monday["candidate_status"] == "wire_word_mapping_unverified"
+        assert not monday["payload_verified"]
+        assert monday["candidate_windows"] == [
+            {"start_minute": 480, "end_minute": 600},
+            {"start_minute": 1080, "end_minute": 1200},
+        ]
+        tuesday = week["days"]["Di"]
+        assert tuesday["observed_words"] == [-48326, -1, None]
+        assert "candidate_windows" not in tuesday
+        assert not tuesday["payload_verified"]
+        assert (
+            weekly["references"]["Anlage_Wf1_SchaltuhrNr"]["candidate_program"]
+            == "Wsu1"
+        )
+
     candidate_filter = nullcontext()
     if phase in ("upgrade", "restart"):
         from custom_components.deltasol.discovery import ConfigurationCapture
@@ -811,6 +856,9 @@ async def qualify(directory, phase):
                 assert resumed.offset == expected_config_count
                 assert resumed.catalog.matches(ADDRESS, CHANGESET)
                 assert {d.name for d in resumed.candidates} == qualification_names
+                assert_weekly_evidence(
+                    await async_get_config_entry_diagnostics(hass, entry)
+                )
                 assert float(hass.states.get(percent).state) == 100
                 assert Peer.writes == 0
                 assert Peer.saves == 0
@@ -1245,6 +1293,7 @@ async def qualify(directory, phase):
             diagnostic["configuration_discovery"]["catalogue_source"]["compatibility"]
             == "verified"
         )
+        assert_weekly_evidence(diagnostic)
         bound = entry.runtime_data.relay_coordinator.data.configuration
         assert any(cap.setting.value_definition is not None for cap in bound.values())
 
