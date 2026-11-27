@@ -528,7 +528,9 @@ class DiscoveryTests(unittest.TestCase):
             for dependency in setting.dependencies:
                 self.assertEqual(definitions[dependency.name].index, dependency.index)
             modes = definitions[setting.dependencies[1].name].metadata["value_text"]
-            self.assertEqual([modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"])
+            self.assertEqual(
+                [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
+            )
         self.assertEqual(definitions["Bedienercode"].excluded, "sensitive")
         self.assertEqual(
             definitions["MesseModus_BedienercodeReset"].excluded, "sensitive"
