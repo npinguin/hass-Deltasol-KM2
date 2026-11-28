@@ -296,9 +296,7 @@ def telemetry_evidence(row, device, sources):
     # The native packet/field key contains bus addresses, not gateway serial.
     key = matches[0]
     packet, separator, field = key.partition("__")
-    if not separator or not re.fullmatch(
-        r"[0-9A-Fa-f_]+", packet + field
-    ):
+    if not separator or not re.fullmatch(r"[0-9A-Fa-f_]+", packet + field):
         return {}
     return {"telemetry_packet": packet, "telemetry_field": field}
 

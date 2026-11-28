@@ -371,9 +371,7 @@ class DashboardTests(unittest.TestCase):
             {"telemetry_packet": "00_0010_7112_0100", "telemetry_field": "000_2_0"},
         )
         self.assertEqual(evidence(row, device, {}), {})
-        self.assertEqual(
-            evidence(row, SimpleNamespace(identifiers=set()), sources), {}
-        )
+        self.assertEqual(evidence(row, SimpleNamespace(identifiers=set()), sources), {})
         coordinator.last_update_success = False
         self.assertEqual(self.ns["telemetry_sources"](None, "entry", coordinator), {})
         coordinator.last_update_success = True
