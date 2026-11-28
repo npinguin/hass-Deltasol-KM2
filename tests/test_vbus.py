@@ -150,37 +150,74 @@ class VBusTests(unittest.TestCase):
         self.assertEqual(sent[5].value, 10)
         self.assertEqual(sent[10].value, 10)
 
-    def test_bulk_packed_rejection_rolls_back_without_commit(self):
+    def test_bulk_packed_stage_failure_stops_without_rollback_or_commit(self):
         index, changeset = 18419, 123
-        before, wanted = (-1, -1, -1), (0x50482820, -1, -1)
-        for rollback_status in (0, 1):
-            conn = Mock()
-            conn.recv.return_value = b"".join(
-                (
+        before, wanted = (-1, -1, -1), (0x50482820, 0x10203040, -1)
+        for lost_response in (False, True):
+            with self.subTest(lost_response=lost_response):
+                conn = Mock()
+                # The independent response fixture applies the first word
+                # immediately. The second mutation is refused or its ACK lost.
+                applied = list(before)
+                sent = []
+                replies = [
                     response(0x0100, 0, changeset),
                     *(response(0x0100 | n, index, -1) for n in range(3)),
                     response(0x1301, value=8),
                     response(0x1401),
                     response(0x1600, index),
-                    response(0x1601, index, 1),
-                    response(0x1405, value=rollback_status),
+                    TimeoutError() if lost_response else response(0x1601, index, 1),
+                ]
+
+                def on_send(data):
+                    packet = vbus.Datagram.decode(data)
+                    sent.append(packet.command)
+                    if packet.command == 0x1500 or (
+                        lost_response and packet.command == 0x1501
+                    ):
+                        applied[packet.command & 0xFF] = packet.value
+
+                conn.sendall.side_effect = on_send
+                conn.recv.side_effect = replies
+                with self.assertRaisesRegex(vbus.VBusError, "write outcome uncertain"):
+                    vbus.VBusSession(conn).write_packed_verified(
+                        ADDRESS, index, before, wanted, changeset
+                    )
+                self.assertEqual(sent[-3:], [0x1400, 0x1500, 0x1501])
+                self.assertEqual(applied[0], wanted[0])
+                self.assertEqual(applied[1], wanted[1] if lost_response else before[1])
+                self.assertNotIn(0x1402, sent)
+                self.assertNotIn(0x1404, sent)
+                self.assertNotIn(0x1502, sent)
+
+    def test_bulk_packed_precommit_and_commit_rejections_are_uncertain(self):
+        index, changeset = 18419, 123
+        before, wanted = (-1, -1, -1), (0x50482820, -1, -1)
+        for changed in (False, True):
+            with self.subTest(changed=changed):
+                conn = Mock()
+                conn.recv.return_value = b"".join(
+                    (
+                        response(0x0100, 0, changeset),
+                        *(response(0x0100 | n, index, -1) for n in range(3)),
+                        response(0x1301, value=8),
+                        response(0x1401),
+                        *(response(0x1600 | n, index) for n in range(3)),
+                        response(0x0100, 0, changeset + changed),
+                        response(0x1403, value=1),
+                    )
                 )
-            )
-            expected = (
-                "bulk transaction rejected"
-                if rollback_status == 0
-                else "bulk transaction rollback unconfirmed"
-            )
-            with self.assertRaisesRegex(vbus.VBusError, expected):
-                vbus.VBusSession(conn).write_packed_verified(
-                    ADDRESS, index, before, wanted, changeset
-                )
-            sent = [
-                vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list
-            ]
-            self.assertEqual(
-                [p.command for p in sent[-4:]], [0x1400, 0x1500, 0x1501, 0x1404]
-            )
+                with self.assertRaisesRegex(vbus.VBusError, "write outcome uncertain"):
+                    vbus.VBusSession(conn).write_packed_verified(
+                        ADDRESS, index, before, wanted, changeset
+                    )
+                commands = [
+                    vbus.Datagram.decode(c.args[0]).command
+                    for c in conn.sendall.call_args_list
+                ]
+                self.assertEqual(commands.count(0x1402), 0 if changed else 1)
+                self.assertNotIn(0x1404, commands)
+                self.assertEqual(commands.count(0x1400), 1)
 
     def test_bulk_packed_uncertain_commit_never_retries_or_rolls_back(self):
         index, changeset = 18419, 123
