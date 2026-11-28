@@ -576,7 +576,8 @@ class DiscoveryTests(unittest.TestCase):
         }
         exported = capture.weekly_program_evidence()
         result = exported["programs"]["Wsu1"]["days"]["Mo"]
-        self.assertFalse(result["payload_verified"])
+        self.assertTrue(result["payload_verified"])
+        self.assertEqual(exported["programs"]["Wsu1"]["schedule_status"], "partial_payload")
         self.assertEqual(result["size_bytes"], 12)
         self.assertEqual(result["candidate_windows"][0]["start_minute"], 480)
         for bad_size in (None, 8, 16):
@@ -590,10 +591,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIsNone(fallback["size_bytes"])
         self.assertIsNone(fallback["size_evidence"])
         self.assertNotIn("candidate_windows", fallback)
-        self.assertEqual(result["candidate_status"], "wire_word_mapping_unverified")
+        self.assertEqual(result["candidate_status"], "wire_word_mapping_verified")
         self.assertEqual(
             exported["references"][reference.name]["candidate_program"], "Wsu1"
         )
+        day.metadata["size_bytes"] = 12
         capture.results[day.name] = vbus.ParameterObservation(
             day.index, words[0], "read", (words[0], None, words[2])
         )
@@ -618,6 +620,11 @@ class DiscoveryTests(unittest.TestCase):
         self.assertNotIn(
             "candidate_program",
             capture.weekly_program_evidence()["references"][reference.name],
+        )
+        self.assertFalse(
+            capture.weekly_program_evidence()["programs"]["Wsu1"]["days"]["Mo"][
+                "payload_verified"
+            ]
         )
 
     def test_weekly_program_evidence_never_invents_schedule_payload(self):
