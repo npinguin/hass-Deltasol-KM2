@@ -38,6 +38,11 @@ HQM_SENSOR_UID = "00_0010_7131_0100__004_4_0"
 # Independent wire fixtures: exact 2.08 reference positions, not imported
 # production Setting objects. Persistent state belongs to the protocol peer.
 CONFIG_SELECTORS = {
+    "Anlage_Wf8_Type": (8316, 3),
+    "Anlage_Wf8_Aktiviert_Modus": (8323, 1),
+    "Anlage_Wf8_Relais1_Nr": (8349, 1),
+    "Anlage_Wf8_Sensor1_Nr": (8333, 2),
+    "Anlage_Wf8_Sensor2_Nr": (8337, 3),
     "Heizung_Wf3_Relais1_Nr": (11623, 4),
     "Heizung_Wf3_SensorDurchfluss1_Nr": (11617, 4),
     "Heizung_Wf3_Sensor3_Nr": (11600, 3),
@@ -177,6 +182,7 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
+    "Anlage_Wf8_OSchaltuhr": (8331, 0, 0, 1),
     "Heizung_Wf3_BwVorerwaermung_dTAus": (11704, 40, 5, 495),
     "Heizung_Wf3_BwVorerwaermung_dTEin": (11701, 60, 10, 500),
     "Heizung_Wf3_BwVorerwaermung_ODifferenz": (11700, 1, 0, 1),
@@ -411,6 +417,7 @@ class Peer:
     weekly_words: ClassVar[dict[int, list[int]]] = {
         18419: [0x50482820, -1, -1],
         18420: [-48326, -1, -1],
+        **{index: [-1, -1, -1] for index in range(18432, 18439)},
     }
     bulk_saves = 0
     fail_bulk_subindex = None
@@ -475,6 +482,16 @@ def additional_relays():
 # byte evidence. The peer models the candidate word order, not proof of a
 # physical controller's multiword mapping or persistence.
 TIMER_VALUES = {
+    "Anlage_Wf8_SchaltuhrNr": (8377, 2),
+    "Wsu2_Belegt": (18427, 1),
+    "Wsu2_Schaltuhr_Woche_Initialisiert": (18431, 1),
+    "Wsu2_Schaltuhr_Woche_TagMo_Daten": (18432, -1),
+    "Wsu2_Schaltuhr_Woche_TagDi_Daten": (18433, -1),
+    "Wsu2_Schaltuhr_Woche_TagMi_Daten": (18434, -1),
+    "Wsu2_Schaltuhr_Woche_TagDo_Daten": (18435, -1),
+    "Wsu2_Schaltuhr_Woche_TagFr_Daten": (18436, -1),
+    "Wsu2_Schaltuhr_Woche_TagSa_Daten": (18437, -1),
+    "Wsu2_Schaltuhr_Woche_TagSo_Daten": (18438, -1),
     "Wsu1_Belegt": (18414, 1),
     "Wsu1_Schaltuhr_Woche_Initialisiert": (18418, 1),
     "Wsu1_Schaltuhr_Woche_TagMo_Daten": (18419, 0x50482820),
@@ -1579,6 +1596,7 @@ async def qualify(directory, phase):
                     ("Solar_OPausendrehzahl", "switch", "on"),
                     ("Solar_OPumpenverzoegerung", "switch", "on"),
                     ("Solar_OSpreizladung", "switch", "on"),
+                    ("Anlage_Wf8_OSchaltuhr", "switch", "on"),
                     ("Anlage_Wf5_Funktionsblock_OThermostat1", "switch", "on"),
                     ("Anlage_Wf5_Funktionsblock_OThermostat2", "switch", "on"),
                     ("Anlage_Wf5_Funktionsblock_ODifferenz", "switch", "on"),
@@ -2766,6 +2784,42 @@ async def qualify(directory, phase):
         assert Peer.saves == before + 7 and Peer.settings[14509] == 2
         assert hass.states.get(independent).state == "unavailable"
         assert entity("Heizung_Heizkreis1_Betriebsart", "select") == heating_mode
+
+        timer = entity("Anlage_Wf8_OSchaltuhr", "switch")
+        assert timer and hass.states.get(timer).state == "off"
+        assert hass.states.get(timer).attributes["weekly_program_reference"] == 2
+        before_timer = Peer.saves
+        week_before = {idx: list(Peer.weekly_words[idx]) for idx in range(18432, 18439)}
+
+        async def timer_action(action):
+            await hass.services.async_call(
+                "switch", action, {"entity_id": timer}, blocking=True
+            )
+            await hass.async_block_till_done()
+
+        Peer.extra_values[18427] = 0
+        try:
+            await timer_action("turn_on")
+        except HomeAssistantError:
+            pass
+        else:
+            raise AssertionError("Expired weekly program enabled")
+        assert Peer.saves == before_timer
+        Peer.extra_values[18427] = 1
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        await timer_action("turn_on")
+        assert Peer.settings[8331] == 1 and Peer.saves == before_timer + 1
+        day_two = entity("Wsu2_Schaltuhr_Woche_TagMo_Daten", "text")
+        assert day_two and hass.states.get(day_two).state != "unavailable"
+        await timer_action("turn_on")
+        assert Peer.saves == before_timer + 1
+        await timer_action("turn_off")
+        assert Peer.settings[8331] == 0 and Peer.saves == before_timer + 2
+        assert hass.states.get(day_two).state == "unavailable"
+        assert Peer.extra_values[8377] == 2
+        assert all(Peer.weekly_words[idx] == words for idx, words in week_before.items())
+        await timer_action("turn_on")
+        assert Peer.saves == before_timer + 3
 
         schedule = entity("Wsu1_Schaltuhr_Woche_TagMo_Daten", "text")
         assert (
