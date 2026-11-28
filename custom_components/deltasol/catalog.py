@@ -125,9 +125,7 @@ class Catalog:
             bound, rejected = build(self)
             # Retain the profile identity to avoid object-ID reuse. Concurrent
             # first readers may compile twice but publish one complete result.
-            cached = self._profile_bindings.setdefault(
-                key, (profile, bound, rejected)
-            )
+            cached = self._profile_bindings.setdefault(key, (profile, bound, rejected))
         _, bound, rejected = cached
         return bound, dict(rejected)
 
