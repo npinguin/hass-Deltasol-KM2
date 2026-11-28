@@ -120,6 +120,21 @@ def capability_role(setting, state, depth):
     return "measurement" if depth == "status" else "technical", 20
 
 
+def capability_availability(state, setting, cap, telemetry_current, parameter_current):
+    """Current state is distinct from discovery and static reference evidence."""
+    if not telemetry_current:
+        return "telemetry_unavailable"
+    if setting and not parameter_current:
+        return "parameter_unavailable"
+    if setting and cap is None:
+        return "requirements_not_confirmed"
+    if state is None or state.state == "unknown":
+        return "unknown"
+    if state.state == "unavailable":
+        return "unavailable"
+    return "available"
+
+
 def inherit_object_section(asset):
     """Only inherit a section within the same positively classified function.
 
@@ -207,6 +222,8 @@ def dashboard_objects(hass, user):
         engineering = engineering_enabled(entry, user)
         relay = entry.runtime_data.relay_coordinator
         snapshot = relay.data if relay else None
+        telemetry_current = entry.runtime_data.coordinator.last_update_success
+        parameter_current = bool(relay and relay.last_update_success)
         controls = snapshot.configuration if snapshot else {}
         relays = snapshot.capabilities if snapshot else {}
         static_settings = (
@@ -249,6 +266,14 @@ def dashboard_objects(hass, user):
             if access is None:
                 continue
             depth, control = access
+            availability = capability_availability(
+                state, setting, cap, telemetry_current, parameter_current
+            )
+            if availability != "available" and not (
+                row.entity_id.startswith("button.")
+                and availability == "unknown"
+            ):
+                control = False
             section = capability_section(setting, state)
             role, priority = capability_role(setting, state, depth)
             asset = objects.setdefault(
@@ -264,7 +289,7 @@ def dashboard_objects(hass, user):
                 },
             )
             kind = object_kind(setting)
-            confirmed = bool(cap and state and state.state != "unavailable")
+            confirmed = bool(cap and availability == "available")
             if kind and (
                 not asset["object_kind"]
                 or (confirmed and not asset["object_confirmed"])
@@ -282,15 +307,29 @@ def dashboard_objects(hass, user):
                     "depth": depth,
                     "role": role,
                     "priority": priority,
-                    "linked_program": cap.program_reference if cap else None,
-                    "availability": (
-                        "available"
-                        if state and state.state not in ("unknown", "unavailable")
-                        else "not_confirmed"
+                    "linked_program": (
+                        cap.program_reference
+                        if cap and availability == "available"
+                        else None
                     ),
+                    "availability": availability,
                     "native_label": setting.label if setting else None,
                     **(
-                        {"parameter": setting.name, "reference_index": setting.index}
+                        {
+                            "parameter": setting.name,
+                            "reference_index": setting.index,
+                            "source_address": (
+                                f"0x{cap.device.address:04X}" if cap else None
+                            ),
+                            "controller_address": (
+                                f"0x{cap.controller.address:04X}" if cap else None
+                            ),
+                            "live_reference_context": (
+                                dict(cap.reference_context)
+                                if cap and availability == "available"
+                                else {}
+                            ),
+                        }
                         if engineering and setting
                         else {}
                     ),
@@ -330,6 +369,12 @@ def dashboard_objects(hass, user):
                             entry.runtime_data.coordinator.last_update_success
                         ),
                         "parameter_access": bool(relay),
+                        "parameter_current": parameter_current,
+                        "parameter_observed_at": (
+                            snapshot.observed_at.isoformat()
+                            if snapshot and snapshot.observed_at
+                            else None
+                        ),
                         "catalogue": bool(
                             relay and relay._configuration_catalog() is not None
                         ),

@@ -12,6 +12,7 @@ const STATUS_COPY = {
 const ENGINEERING_COPY={en:{live:"Live",capture:"Historical capture",comparison:"Comparison",changes:"changes",transport:"Transport and source evidence",filter:"Filter parameters",readonly:"Not verified writable",object:"Selected object",next:"Next"},nl:{live:"Actueel",capture:"Historische snapshot",comparison:"Vergelijking",changes:"wijzigingen",transport:"Transport en bronbewijs",filter:"Parameters filteren",readonly:"Niet bevestigd schrijfbaar",object:"Geselecteerd object",next:"Volgende"},fr:{live:"En direct",capture:"Capture historique",comparison:"Comparaison",changes:"modifications",transport:"Transport et preuves source",filter:"Filtrer les paramètres",readonly:"Écriture non confirmée",object:"Objet sélectionné",next:"Suivant"}};
 const WEEK_COPY={en:{program:"Weekly program",Mo:"Monday",Di:"Tuesday",Mi:"Wednesday",Do:"Thursday",Fr:"Friday",Sa:"Saturday",So:"Sunday",unsupported:"Structural commissioning and SET/JobParam import are not supported.",no_intervals:"No active intervals",reference:"Known references; full ownership is checked on save."},nl:{program:"Weekprogramma",Mo:"Maandag",Di:"Dinsdag",Mi:"Woensdag",Do:"Donderdag",Fr:"Vrijdag",Sa:"Zaterdag",So:"Zondag",unsupported:"Structurele inbedrijfstelling en SET/JobParam-import worden niet ondersteund.",no_intervals:"Geen actieve intervallen",reference:"Bekende verwijzingen; volledig eigenaarschap wordt bij opslaan gecontroleerd."},fr:{program:"Programme hebdomadaire",Mo:"Lundi",Di:"Mardi",Mi:"Mercredi",Do:"Jeudi",Fr:"Vendredi",Sa:"Samedi",So:"Dimanche",unsupported:"La mise en service structurelle et l’import SET/JobParam ne sont pas pris en charge.",no_intervals:"Aucun intervalle actif",reference:"Références connues ; les liens sont vérifiés lors de l’enregistrement."}};
 const OBJECT_COPY={en:{mode:"Operating mode",target:"Target",configured_activity:"Configured activity",attention:"Needs attention",measurements:"Measurements",controls:"Controls",preferences:"Operating preferences",linked:"Linked weekly programs",unconfirmed:"No confirmed measurement for this object",status:"Status",history:"History",settings:"Settings",engineering:"Engineering"},nl:{mode:"Bedrijfsmodus",target:"Doelwaarde",configured_activity:"Ingestelde activiteit",attention:"Aandacht nodig",measurements:"Metingen",controls:"Bediening",preferences:"Bedrijfsinstellingen",linked:"Gekoppelde weekprogramma’s",unconfirmed:"Geen bevestigde meting voor dit object",status:"Status",history:"Historiek",settings:"Instellingen",engineering:"Engineering"},fr:{mode:"Mode de fonctionnement",target:"Consigne",configured_activity:"Activité configurée",attention:"Attention requise",measurements:"Mesures",controls:"Commandes",preferences:"Préférences de fonctionnement",linked:"Programmes hebdomadaires liés",unconfirmed:"Aucune mesure confirmée pour cet objet",status:"État",history:"Historique",settings:"Paramètres",engineering:"Ingénierie"}};
+const LIVE_COPY={en:{telemetry_unavailable:"Telemetry connection unavailable",parameter_unavailable:"Parameter connection unavailable",requirements_not_confirmed:"Installed function or dependencies not confirmed",last_observed:"Last observed",parameter_pending:"Parameter access not confirmed",range:"Period",day:"24 hours",week:"7 days",month:"30 days",history_error:"History could not be loaded",recorded_values:"Recorded values",source:"Source and references"},nl:{telemetry_unavailable:"Telemetrieverbinding niet beschikbaar",parameter_unavailable:"Parameterverbinding niet beschikbaar",requirements_not_confirmed:"Geïnstalleerde functie of afhankelijkheden niet bevestigd",last_observed:"Laatst waargenomen",parameter_pending:"Parametertoegang niet bevestigd",range:"Periode",day:"24 uur",week:"7 dagen",month:"30 dagen",history_error:"Historiek kon niet worden geladen",recorded_values:"Geregistreerde waarden",source:"Bron en verwijzingen"},fr:{telemetry_unavailable:"Connexion télémétrique indisponible",parameter_unavailable:"Connexion paramètres indisponible",requirements_not_confirmed:"Fonction installée ou dépendances non confirmées",last_observed:"Dernière observation",parameter_pending:"Accès aux paramètres non confirmé",range:"Période",day:"24 heures",week:"7 jours",month:"30 jours",history_error:"Impossible de charger l’historique",recorded_values:"Valeurs enregistrées",source:"Source et références"}};
 const DAYS=["Mo","Di","Mi","Do","Fr","Sa","So"];
 const SECTIONS = ["overview","solar","heating","hot_water","energy","settings","engineering"];
 const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -67,7 +68,7 @@ class ResolDashboard extends HTMLElement {
       this.render();
     }
   }
-  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||(ENGINEERING_COPY[lang]||ENGINEERING_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||ENGINEERING_COPY.en[key]||(WEEK_COPY[lang]||WEEK_COPY.en)[key]||WEEK_COPY.en[key]||(OBJECT_COPY[lang]||OBJECT_COPY.en)[key]||OBJECT_COPY.en[key]||key;}
+  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||(ENGINEERING_COPY[lang]||ENGINEERING_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||ENGINEERING_COPY.en[key]||(WEEK_COPY[lang]||WEEK_COPY.en)[key]||WEEK_COPY.en[key]||(OBJECT_COPY[lang]||OBJECT_COPY.en)[key]||OBJECT_COPY.en[key]||(LIVE_COPY[lang]||LIVE_COPY.en)[key]||LIVE_COPY.en[key]||key;}
   current(){return this.installations.find(item=>item.id===this.context);}
   rows(){return this.current()?.objects.flatMap(asset=>asset.capabilities)||[];}
   row(id){return this.rows().find(row=>row.entity_id===id);}
@@ -115,11 +116,11 @@ class ResolDashboard extends HTMLElement {
   }
   value(row){
     const state=this.state(row);
-    if(!state||state.state==="unknown"||state.state==="unavailable")return this.t(state?.state==="unavailable"?"unavailable":"unknown");
+    if(!state||state.state==="unknown"||state.state==="unavailable"||row.availability&&row.availability!=="available")return this.t(state?.state==="unavailable"||row.availability&&row.availability!=="available"?"unavailable":"unknown");
     const unit=state.attributes.unit_of_measurement;
     return (row.kind==="select"||row.kind==="switch"?this.optionLabel(row.kind==="switch"?(state.state==="on"?"On":"Off"):state.state):state.state)+(unit?" "+unit:"");
   }
-  valid(row){const state=this.state(row);return Boolean(state&&state.state!=="unknown"&&state.state!=="unavailable");}
+  valid(row){const state=this.state(row);return Boolean(state&&state.state!=="unknown"&&state.state!=="unavailable"&&(!row.availability||row.availability==="available"));}
   allowed(row){return row.control&&(this.valid(row)||row.kind==="button"&&this.state(row)?.state==="unknown")&&!this.pending;}
   control(row){
     const id=escape(row.entity_id), state=this.state(row), attrs=state?.attributes||{},disabled=this.allowed(row)?"":"disabled";
@@ -136,8 +137,11 @@ class ResolDashboard extends HTMLElement {
     return "";
   }
   detail(row,control){
-    const state=this.state(row),updated=state?.last_updated?new Date(state.last_updated).toLocaleString(this._hass?.language):"";
-    return '<div class="line"><div class="grow"><div>'+escape(this.capabilityLabel(row))+'</div><div class="value'+(this.valid(row)?"":" warning")+'">'+escape(this.value(row))+'</div>'+(updated?'<small title="'+escape(this.t("time"))+'">'+escape(updated)+'</small>':"")+'</div><div class="actions">'+(control?this.control(row):"")+'<button data-history="'+escape(row.entity_id)+'" aria-label="'+escape(this.t("history")+' '+this.capabilityLabel(row))+'">'+escape(this.t("history"))+'</button></div></div>';
+    const state=this.state(row),observed=state?.attributes?.["Last Updated"]||(row.depth!=="status"?this.current()?.health?.parameter_observed_at:null);
+    const updated=observed?new Date(observed).toLocaleString(this._hass?.language):"";
+    const reason=row.availability&&row.availability!=="available"?this.t(row.availability):"";
+    const evidence=this.tab==="engineering"&&row.parameter?'<details><summary>'+escape(this.t("source"))+'</summary><pre>'+escape(JSON.stringify({entity_id:row.entity_id,parameter:row.parameter,index:row.reference_index,source_address:row.source_address,controller_address:row.controller_address,references:row.live_reference_context},null,2))+'</pre></details>':"";
+    return '<div class="line"><div class="grow"><div>'+escape(this.capabilityLabel(row))+'</div><div class="value'+(this.valid(row)?"":" warning")+'">'+escape(this.value(row))+'</div>'+(reason?'<small class="warning">'+escape(reason)+'</small>':"")+(updated?'<small style="display:block">'+escape(this.t("last_observed"))+': '+escape(updated)+'</small>':"")+evidence+'</div><div class="actions">'+(control?this.control(row):"")+'<button data-history="'+escape(row.entity_id)+'" aria-label="'+escape(this.t("history")+' '+this.capabilityLabel(row))+'">'+escape(this.t("history"))+'</button></div></div>';
   }
   visibleRows(asset){
     const rows=asset.capabilities;
@@ -158,7 +162,7 @@ class ResolDashboard extends HTMLElement {
     if(!h)return "";
     const rows=this.rows().filter(row=>row.depth!=="engineering");
     const available=rows.filter(row=>this.valid(row)).length;
-    return '<section class="card" aria-label="'+escape(this.t("summary"))+'"><h2>'+escape(this.t("summary"))+'</h2><div class="grid"><div><strong class="'+(h.telemetry?"":"warning")+'">'+escape(this.t(h.telemetry?"telemetry_ok":"telemetry_bad"))+'</strong><p class="muted">'+available+' / '+rows.length+' '+escape(this.t("available"))+'</p></div>'+(h.parameter_access?'<div><strong>'+escape(this.t("selectors"))+'</strong><p>'+h.selectors_observed+' / '+h.selectors_total+'</p>'+(!h.catalogue?'<p class="warning">'+escape(this.t("catalogue_pending"))+'</p>':"")+(h.selectors_total?'<progress max="'+h.selectors_total+'" value="'+h.selectors_observed+'"></progress>':"")+'</div>':"")+'</div>'+(h.checkpoint?'<p class="warning">'+escape(this.t("checkpoint"))+'</p>':"")+'</section>';
+    return '<section class="card" aria-label="'+escape(this.t("summary"))+'"><h2>'+escape(this.t("summary"))+'</h2><div class="grid"><div><strong class="'+(h.telemetry?"":"warning")+'">'+escape(this.t(h.telemetry?"telemetry_ok":"telemetry_bad"))+'</strong><p class="muted">'+available+' / '+rows.length+' '+escape(this.t("available"))+'</p></div>'+(h.parameter_access?'<div><strong>'+escape(this.t("selectors"))+'</strong><p>'+h.selectors_observed+' / '+h.selectors_total+'</p>'+(!h.catalogue?'<p class="warning">'+escape(this.t("catalogue_pending"))+'</p>':"")+(h.selectors_total?'<progress max="'+h.selectors_total+'" value="'+h.selectors_observed+'"></progress>':"")+(h.parameter_current===false?'<p class="warning">'+escape(this.t("parameter_pending"))+'</p>':"")+'</div>':"")+'</div>'+(h.checkpoint?'<p class="warning">'+escape(this.t("checkpoint"))+'</p>':"")+'</section>';
   }
   weekPrograms(){
     const assets=this.current()?.objects||[];
@@ -300,21 +304,47 @@ class ResolDashboard extends HTMLElement {
     }catch{this.notice=this.t("error");if(this.editor)this.editor.review=null;}
     finally{this.pending=false;this.render();}
   }
-  async openHistory(row){
+  async openHistory(row,days=1){
     if(!row)return;
-    const history={id:row.entity_id,name:row.name,items:null};
+    const history={id:row.entity_id,name:this.capabilityLabel(row),items:null,days,unit:this.state(row)?.attributes?.unit_of_measurement||"",error:false};
     this.history=history;
     this.render();
     try{
-      const end=new Date(), start=new Date(end.getTime()-86400000);
+      const end=new Date(), start=new Date(end.getTime()-days*86400000);
       const result=await this._hass.callWS({type:"history/history_during_period",start_time:start.toISOString(),end_time:end.toISOString(),entity_ids:[row.entity_id],minimal_response:true,no_attributes:true,significant_changes_only:false});
       if(this.history===history)history.items=result[row.entity_id]||[];
-    }catch{if(this.history===history){this.notice=this.t("error");history.items=[];}}
+    }catch{if(this.history===history){history.error=true;history.items=[];}}
     this.render();
+  }
+  historyPoints(items){
+    return items.map(item=>{
+      const stamp=item.lu??item.last_updated??item.last_changed;
+      const time=typeof stamp==="number"?stamp*1000:Date.parse(stamp);
+      const raw=item.s??item.state;
+      const value=raw==null||String(raw).trim()===""?NaN:Number(raw);
+      return {time,value,raw};
+    }).filter(point=>Number.isFinite(point.time)).sort((a,b)=>a.time-b.time);
+  }
+  historyChart(items,unit){
+    const points=this.historyPoints(items);
+    const observed=points.filter(point=>Number.isFinite(point.value));
+    if(!observed.length)return "";
+    const first=points[0].time,last=points[points.length-1].time;
+    const min=observed.reduce((a,p)=>Math.min(a,p.value),Infinity),max=observed.reduce((a,p)=>Math.max(a,p.value),-Infinity);
+    const x=p=>48+(p.time-first)/Math.max(1,last-first)*540;
+    const y=p=>18+(max-p.value)/Math.max(max-min,0.000001)*142;
+    let segments=[],current=[];
+    for(const p of points){
+      if(!Number.isFinite(p.value)){if(current.length)segments.push(current);current=[];continue;}
+      current.push(p);
+    }
+    if(current.length)segments.push(current);
+    const lines=segments.map(segment=>'<polyline fill="none" stroke="var(--primary-color)" stroke-width="2" points="'+segment.map(p=>x(p).toFixed(2)+","+y(p).toFixed(2)).join(" ")+'"/>'+(segment.length===1?'<circle cx="'+x(segment[0]).toFixed(2)+'" cy="'+y(segment[0]).toFixed(2)+'" r="3" fill="var(--primary-color)"/>':"")).join("");
+    return '<svg role="img" aria-label="'+escape(this.t("recorded_values")+" "+unit)+'" viewBox="0 0 610 190" width="100%" style="max-height:280px"><line x1="48" x2="588" y1="18" y2="18" stroke="var(--divider-color)"/><line x1="48" x2="588" y1="160" y2="160" stroke="var(--divider-color)"/><text x="44" y="22" text-anchor="end" fill="currentColor" font-size="11">'+escape(String(max))+'</text><text x="44" y="164" text-anchor="end" fill="currentColor" font-size="11">'+escape(String(min))+'</text>'+lines+'<text x="48" y="180" font-size="10" fill="currentColor">'+escape(new Date(first).toLocaleDateString(this._hass?.language))+'</text><text x="588" y="180" text-anchor="end" font-size="10" fill="currentColor">'+escape(new Date(last).toLocaleDateString(this._hass?.language))+'</text></svg>';
   }
   historyView(){
     const h=this.history;
-    return '<section class="card"><div class="toolbar"><h2 class="grow">'+escape(this.t("history")+' — '+h.name)+'</h2><button data-close-history>'+escape(this.t("close"))+'</button></div>'+(h.items===null?'<p>'+escape(this.t("loading"))+'</p>':h.items.length?'<div class="technical"><table><tbody>'+h.items.slice(-200).reverse().map(item=>{const ts=item.lu??item.last_updated??item.last_changed;const date=typeof ts==="number"?new Date(ts*1000):new Date(ts);return '<tr><td>'+escape(Number.isNaN(date.getTime())?"":date.toLocaleString(this._hass?.language))+'</td><td>'+escape(item.s??item.state)+'</td></tr>';}).join("")+'</tbody></table></div>':'<p>'+escape(this.t("no_history"))+'</p>')+'</section>';
+    return '<section class="card"><div class="toolbar"><h2 class="grow">'+escape(this.t("history")+' — '+h.name)+'</h2><select id="history-range" aria-label="'+escape(this.t("range"))+'">'+[[1,"day"],[7,"week"],[30,"month"]].map(([days,key])=>'<option value="'+days+'" '+(h.days===days?"selected":"")+'>'+escape(this.t(key))+'</option>').join("")+'</select><button data-close-history>'+escape(this.t("close"))+'</button></div>'+(h.items===null?'<p>'+escape(this.t("loading"))+'</p>':h.error?'<p class="warning">'+escape(this.t("history_error"))+'</p>':h.items.length?this.historyChart(h.items,h.unit)+'<details><summary>'+escape(this.t("recorded_values"))+'</summary><div class="technical"><table><tbody>'+h.items.slice(-200).reverse().map(item=>{const ts=item.lu??item.last_updated??item.last_changed;const date=typeof ts==="number"?new Date(ts*1000):new Date(ts);return '<tr><td>'+escape(Number.isNaN(date.getTime())?"":date.toLocaleString(this._hass?.language))+'</td><td>'+escape(item.s??item.state)+'</td></tr>';}).join("")+'</tbody></table></div></details>':'<p>'+escape(this.t("no_history"))+'</p>')+'</section>';
   }
   change(event){
     const target=event.target;
@@ -322,6 +352,7 @@ class ResolDashboard extends HTMLElement {
     if(target.id==="installation"){this.context=target.value;this.object="";this.editor=null;this.history=null;this.report=null;if(!this.tabs().includes(this.tab))this.tab="overview";this.render();if(this.tab==="engineering")this.engineering();}
     if(target.id==="object"){this.object=target.value;this.page=0;this.render();}
     if(target.id==="technical-filter"){this.filter=target.value;this.page=0;this.renderInventory();}
+    if(target.id==="history-range"&&this.history)this.openHistory(this.row(this.history.id),Number(target.value));
     if(target.dataset.window!==undefined&&this.editor){this.editor.windows[Number(target.dataset.window)][Number(target.dataset.edge)]=target.value;this.editor.review=null;this.render();}
   }
   click(event){

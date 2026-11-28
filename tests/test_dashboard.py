@@ -26,6 +26,7 @@ class DashboardTests(unittest.TestCase):
             "capability_access",
             "capability_section",
             "capability_role",
+            "capability_availability",
             "inherit_object_section",
             "object_kind",
             "observed_result",
@@ -173,3 +174,23 @@ class DashboardTests(unittest.TestCase):
         asset["capabilities"].append({"section": "solar"})
         inherit(asset)
         self.assertEqual(asset["capabilities"][1]["section"], "overview")
+
+    def test_availability_is_not_inferred_from_cached_entity_state(self):
+        availability = self.ns["capability_availability"]
+        state = SimpleNamespace(state="42")
+        setting = object()
+        self.assertEqual(
+            availability(state, setting, object(), False, True),
+            "telemetry_unavailable",
+        )
+        self.assertEqual(
+            availability(state, setting, object(), True, False),
+            "parameter_unavailable",
+        )
+        self.assertEqual(
+            availability(state, setting, None, True, True),
+            "requirements_not_confirmed",
+        )
+        self.assertEqual(
+            availability(state, None, None, True, False), "available"
+        )

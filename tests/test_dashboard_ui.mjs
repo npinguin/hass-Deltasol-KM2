@@ -125,3 +125,18 @@ test("function detail follows a positively observed shared program without dupli
   asset.capabilities[0].linked_program=null;
   assert.equal(p.weekPrograms().length,0);
 });
+
+test("cached values are not presented as current when native availability is lost",()=>{
+  const p=model(true,true),row=p.row("sensor.temperature");
+  row.availability="telemetry_unavailable";
+  assert.equal(p.valid(row),false);
+  assert.equal(p.value(row),"Niet beschikbaar");
+  row.availability="available";assert.equal(p.value(row),"42 °C");
+});
+test("recorded numeric trends preserve gaps and do not invent readings",()=>{
+  const p=model(true,true),items=[{lu:1,s:"42"},{lu:2,s:"unavailable"},{lu:3,s:"44"},{lu:4,s:"45"}];
+  assert.equal(p.historyPoints(items).filter(x=>Number.isFinite(x.value)).length,3);
+  const chart=p.historyChart(items,"°C");
+  assert.equal((chart.match(/<polyline/g)||[]).length,2);
+  assert.equal(p.historyChart([{lu:1,s:"Auto"},{lu:2,s:"Off"}],""),"");
+});
