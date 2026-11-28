@@ -78,9 +78,21 @@ class ParameterTests(unittest.TestCase):
         RelativeConstraint = parameters_configuration.RelativeConstraint
 
         values = {"Solar_SystemId": 20201}
-        self.assertTrue(RelativeConstraint("Solar_SystemId", 3416, "solar_cooling_priority").matches(0, values))
-        self.assertFalse(RelativeConstraint("Solar_SystemId", 3416, "solar_cooling_priority").matches(5, values))
-        self.assertFalse(RelativeConstraint("Solar_SystemId", 3416, "solar_store_priority").matches(0, values))
+        self.assertTrue(
+            RelativeConstraint(
+                "Solar_SystemId", 3416, "solar_cooling_priority"
+            ).matches(0, values)
+        )
+        self.assertFalse(
+            RelativeConstraint(
+                "Solar_SystemId", 3416, "solar_cooling_priority"
+            ).matches(5, values)
+        )
+        self.assertFalse(
+            RelativeConstraint("Solar_SystemId", 3416, "solar_store_priority").matches(
+                0, values
+            )
+        )
 
     def test_function_selection_uses_native_number_not_slot(self):
         c = parameters_configuration
