@@ -559,6 +559,12 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         if index == 4121:
                             assert Peer.extra_values[4091] == 1
                             assert Peer.extra_values[4098] > 0
+                    elif index == 13830:
+                        assert Peer.extra_values[13819] == 1
+                        assert Peer.extra_values[13820] == 1
+                        assert Peer.extra_values[13821] == 1
+                        assert Peer.extra_values[13823] == 0
+                        assert Peer.extra_values[13834] > 0
                     elif index == 4347:
                         assert Peer.extra_values[4335] == 1
                         assert Peer.extra_values[4341] > 0
@@ -574,6 +580,10 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[11266] == 4
                         assert Peer.extra_values[11273] == 1
                         assert Peer.extra_values[11405] == 0
+                    elif index in (13741, 13744):
+                        assert Peer.extra_values[13739] == 1
+                        assert Peer.extra_values[13740] in ((0, 1) if index == 13741 else (1,))
+                        assert Peer.extra_values[13800] > 0
                     elif index == 4109:
                         assert Peer.extra_values[4091] == 1
                         assert Peer.extra_values[4098] > 0
@@ -598,6 +608,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index in (13700, 13701):
+                    assert Peer.extra_values[13739] == Peer.extra_values[13740] == 1
+                    assert Peer.extra_values[13800] > 0 and value % 15 == 0
                 if index == 19063:
                     assert Peer.extra_values[68] == 1
                 if index in (14014, 14509):
@@ -1171,8 +1184,8 @@ async def qualify(directory, phase):
                     ("Anlage_Wf1_Mischer_dtIntervall", "number", 5),
                     ("Heizung_Heizkreis1_Heizkurve", "number", 1.5),
                     ("Heizung_Heizkreis1_Betriebsart", "select", "Day"),
-                    ("Heizung_Heizkreis1_TSommerTag", "number", 70),
-                    ("Heizung_Heizkreis1_TSommerNacht", "number", 60),
+                    ("Heizung_Heizkreis1_TSommerTag", "number", 86),
+                    ("Heizung_Heizkreis1_TSommerNacht", "number", 50),
                     ("Heizung_Heizkreis1_tSommerTagEin", "number", 555),
                     ("Heizung_Heizkreis1_tSommerTagAus", "number", 1275),
                     ("Heizung_Heizkreis1_Raumthermostat1_dTAbsenkung", "number", 12),
@@ -1920,7 +1933,7 @@ async def qualify(directory, phase):
 
         before_comfort = Peer.saves
         for suffix, value in (
-            ("TSommerTag", 70), ("TSommerNacht", 60),
+            ("TSommerTag", 86), ("TSommerNacht", 50),
             ("tSommerTagEin", 555), ("tSommerTagAus", 1275),
             ("Raumthermostat1_dTAbsenkung", 12),
         ):
