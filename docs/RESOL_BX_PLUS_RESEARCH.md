@@ -509,6 +509,32 @@ Reference-output research: 0x258fc decodes the reference kind and number; 0x231f
 
 Exact archive and targeted source regression tests corroborate the bindings. Independent HA peer cases have been extended; actual HA lifecycle and physical acceptance remain NOT_RUN. General activation, RTH mode 2/Option, cooling-only room applicability, reference-output/flow predicates, weekly allocation and remaining hydraulic/override semantics stay in the full 1.2.17 scope.
 
+## 4.31 Callback-first reverse engineering of remaining native families
+
+On 2026-11-28, rejoined the complete pending semantic review from successful exact-head source run [46151243087](https://github.com/npinguin/hass-Deltasol-KM2/actions/runs/46151243087), commit f1b4e605, to the owner-supplied 2.08 ZIP (SHA256 385c12e6646c3aeb2efe45c24dd6b7b6f46fb179724408f24090bc44765f5b9e). Used the existing XML menu preference/proxy inventory, the same normalization rule (digits following a nondigit become X), and the native sorted-index and descriptor tables in §4.11. Excluded compound children; matched the exact pending list count, 388 names in 64 families. No vendor bytes or private SET values are committed.
+
+| Supplied-build native callback pair (RVA) | Parameters | Review implication |
+| --- | ---: | --- |
+| 0x4f2e8 / 0x4f3aa | 235 | Generic Boolean editor, 24 families; classify semantic context separately |
+| 0x4e2cc / 0x4e3a2 | 85 | Generic ActivityMode editor, 14 families; installation and transition semantics |
+| 0x5e9fb / 0x5eae5 | 16 | Function-block reference logic |
+| 0x55c17 / 0x55c7a | 10 | Solar standby/holiday priority |
+| 0x53f9b / 0x5402a | 7 | Solar standby/holiday temperature parents |
+| 0x66e63 / 0x66f39 | 7 | Heating remote-access mode |
+| 0x50817 / 0x508a6 | 4 | Solar standby/holiday cooling differential parents |
+| 0x252ba, 0x25333, 0x25367, 0x2539b / 0x4f78c | 10 | Four manual override owner classes |
+| Six activity wrappers / 0x4e3a2 | 6 | Demand/pump/valve instance-specific editor and change callbacks |
+| Eight other single-instance pairs | 8 | Loading, holiday mode and DrainBack |
+| **Total** | **388** | **25 distinct pairs; 61/64 families (382 parameters) share a single exact pair within each family** |
+
+The two generic pairs cover 320/388 (82.5%). This is editor-code compression, not proof of equivalent runtime behavior, access rights or completed scope. The six activity exceptions are important: demand wrappers 0xa0adf/0xa0e65 call 0x63e29, pump wrappers 0xa11eb/0xa12b3 call 0x64e1d, valve wrappers 0xa137b/0xa13af call 0x6527e. Each helper calls generic ActivityMode editor 0x4e2cc then passes 1 to upper-bound helper 0x10cdbe (writes context +0x20 and +0x10). Thus these six editor contexts restrict the upper bound to 1, despite their shared ActivityMode type. Each wrapper also installs a different change callback in editor context +0x5c (0x7259, 0x7287, 0x76e3, 0x7711, 0x780a, 0x7838). These compare old/new and call the respective demand/pump/valve-specific routines with the instance number and new value. Do not assume raw VBus writes invoke these UI change callbacks or reproduce their effects. Investigate runtime/write path before permission; common encoding alone does not authorize mode 2 or hardware allocation.
+
+Native index stride and storage pointer stride are independent, but both are repetitive. Spot-checked first two instance activity descriptors: arrangement index +251 / pointer +204 bytes; solar optional +120 / +60 bytes; heating optional +151 / +88 bytes; heating circuit +495 / +314 bytes; HQM +133 / +28 bytes. Room thermostat Option uses index +32 within a circuit and +495 between corresponding rooms in successive circuits, first two pointers +20 bytes. Same callback can also use different descriptor flag words (room Option 0xffff versus parallel relay ONachlauf 0xfffd). Never derive bit layout or physical actor identity from index stride alone.
+
+Next investigation should operate on the existing evidence at three levels: (1) shared editor/encoding/limits by callback pair and type; (2) instance layout by exact indices, pointer/flags, menu membership and actual owning Type; (3) semantic runtime paths: read/write cross-references to the target storage byte/bit, transition callbacks and referenced actor/sensor/program registries. Normalize relocated code references for comparison across supplied and registered builds, but preserve callback wrappers, bound instance constants, descriptor flags and dependency identities. For each proven mechanism expand all exact instances using existing Setting, Dependency, AnyDependencies, PeerComparison, WeeklyProgram and requested-condition helpers; exact archive binding and developer tests for all instances, representative positive/negative transitions in independent HA peer. Do not add a second runtime catalogue, generic raw writer or new governance. An offline audit can be incorporated into the existing exact archive test if needed, rather than a separate production parser.
+
+Prioritize common dependency bottlenecks: ActivityMode runtime transitions (91 including six special wrappers, one belongs to DrainBack); reference actor resolution (32 parallel relay timing flags + 32 function-block reference enable/mode flags); allocated room/option lifecycle (35 room flags); solid fuel and hydraulic/assignment-dependent option groups; then standby/holiday and isolated overrides. These are research surfaces, not commitments to grant write permission to every member. Existing numeric contracts and all 388 pending reviews remain unchanged by this analysis. Actual HA qualification remains pending until complete agreed V1 scope.
+
 ## 5. Architecture: a single native Home Assistant integration
 
 The proposed implementation direction builds on the existing Python components instead of importing RPT into Home Assistant. The native controller remains the authority for actual configuration, telemetry and physical control. RPT and other verified sources provide evidence for how to interpret those capabilities.
