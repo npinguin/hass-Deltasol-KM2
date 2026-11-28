@@ -1767,49 +1767,41 @@ class DiscoveryTests(unittest.TestCase):
                 ]
                 print("Batch70 window:", label, rows)
 
-            # Cover all absolute storage references of the remaining families,
-            # excluding editor/menu construction references and duplicate bytes.
-            seen = set()
-            for names in remaining.values():
-                first = min(names, key=values.get)
-                pointer = descriptor(first)[0]
-                if pointer in seen:
+            # Complete the remaining native links: remote sensor modes,
+            # shared demand output selection, and descriptor initialization.
+            for row in instructions:
+                address, opcode, operands = row
+                if target(row) == 0x1454:
+                    window("registry initializer caller", address - 40, address + 8)
+                if not 0x16000 <= address < 0x2C100:
                     continue
-                seen.add(pointer)
-                for ref in references.get(pointer, []):
+                if opcode not in ("lea", "movzx", "add"):
+                    continue
+                if not re.search(r"\+0x(?:85|86|126|138)\]", operands):
+                    continue
+                if address > 0x19500:
+                    continue
+                window("remote reference " + hex(address), address - 40, address + 90)
+            for start, end, label in (
+                (0x2FF45, 0x2FFB0, "drainback booster setup"),
+                (0x17E10, 0x17FF0, "room and supplementary setup"),
+                (0xF6273, 0xF6480, "registry initialization"),
+                (0x37150, 0x37320, "shared demand flags"),
+                (0x34E20, 0x34E90, "runtime dispatch"),
+            ):
+                window(label, start, end)
+            # All direct references to the two shared demand flags and the
+            # companion physical/actor numbers (not just the menu editor).
+            for name in (
+                "Heizung_RelaisAnforderung1_ORelais1",
+                "Heizung_RelaisAnforderung1_Relais1_Nr",
+                "Heizung_RelaisAnforderung1_Ausgang1_Nr",
+                "Heizung_RelaisAnforderung1_ARelais1_Nr",
+                "Heizung_RelaisAnforderung1_AAusgang1_Nr",
+            ):
+                for ref in references.get(descriptor(name)[0], []):
                     if ref < 0x49000:
-                        window(first + " xref " + hex(ref), ref - 18, ref + 75)
-            # Shared helper invocations in room/heating/solar setup regions.
-            for i, row in enumerate(instructions):
-                if not 0x16000 <= row[0] < 0x35263:
-                    continue
-                if target(row) not in (0xFF84, 0x10082, 0x10117, 0x108B3):
-                    continue
-                prev = instructions[max(0, i - 18):i]
-                bit = [
-                    (hex(addr), op, args)
-                    for addr, op, args in prev
-                    if op in ("shr", "sar", "and") and (
-                        "al," in args or "eax," in args
-                    )
-                ]
-                if bit:
-                    print(
-                        "Batch70 setup site:", hex(row[0]), hex(target(row)),
-                        [(hex(a), op, args.split(" <")[0])
-                         for a, op, args in prev if op in ("lea", "movzx", "shr", "and")],
-                    )
-            # Locate descriptor initializer code through the established
-            # registry owner address, and inspect the group-4 type records.
-            owner = base + 0x31A020
-            for ref in references.get(owner, []):
-                if ref < 0x40000:
-                    window("registry owner reference " + hex(ref), ref - 24, ref + 70)
-            # Registry descriptor structures in static data: look for
-            # relocated code pointers referenced by the group-4 initializer.
-            window("registration initialization", 0x1453, 0x1500)
-            window("hidden circulation runtime", 0x11B90, 0x11C50)
-            window("remote mode editor", 0x6619F, 0x66275)
+                        window(name + " " + hex(ref), ref - 20, ref + 60)
 
         # Keep the prior startup-duration editor evidence as an assertion.
         self.assertEqual(descriptor("Solar_Losreissimpuls")[2] - base, 0x6B972)
