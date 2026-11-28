@@ -126,7 +126,6 @@ CONFIG_SELECTORS = {
     "Heizung_RelaisAnforderung1_Ausgang_OVorlauf": (10773, 1),
     "Heizung_RelaisAnforderung1_Ausgang_Vorlauf_Sensor1_Nr": (10775, 2),
     "Heizung_RelaisAnforderung1_Aktiviert_Modus": (10727, 1),
-    "Heizung_RelaisAnforderung1_OMindestlaufzeit": (10798, 1),
     "Heizung_RelaisAnforderung1_ORelais1": (10734, 1),
     "Heizung_RelaisAnforderung1_Relais1_Nr": (10735, 2),
     "Anlage_Wf6_Type": (7814, 5),
@@ -149,7 +148,7 @@ CONFIG_SELECTORS = {
     "Anlage_Wf5_Funktionsblock_Bezugsrelais4_Nr": (7744, 0),
     "Anlage_Wf5_Funktionsblock_Bezugsrelais5_Nr": (7745, 0),
     "Anlage_Wf9_Type": (8567, 1),
-    "Anlage_Wf9_Aktiviert_Modus": (8574, 1),
+    "Anlage_Wf9_Aktiviert_SensorSchalter_Nr": (8576, 4),
     "Anlage_Wf9_Relais1_Nr": (8600, 71),
     "Anlage_Wf9_Relais1_Funktion": (8601, 2323),
     "Anlage_Wf9_Bezugsrelais1_Nr": (8624, 257),
@@ -233,6 +232,8 @@ CONFIG_SETTINGS = {
     "Solar_Wf1_Roehrenkollektor_Aktiviert_Modus": (3834, 1, 0, 2),
     "Anlage_Wf5_Funktionsblock_OMindestausschaltzeit": (7747, 1, 0, 1),
     "Anlage_Wf1_Aktiviert_Modus": (6566, 1, 0, 2),
+    "Anlage_Wf9_Aktiviert_Modus": (8574, 1, 0, 2),
+    "Heizung_RelaisAnforderung1_OMindestlaufzeit": (10798, 1, 0, 1),
     "Heizung_Wf1_Aktiviert_Modus": (11273, 1, 0, 2),
     "Heizung_Heizkreis1_Nachheizung_Modus": (13706, 0, 0, 2),
     "Heizung_RelaisPumpe1_Anlauf_Modus": (11178, 2, 0, 2),
@@ -1020,7 +1021,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 if index == 10799:
                     assert Peer.extra_values[10724] == 1
                     assert Peer.extra_values[10727] == 1
-                    assert Peer.extra_values[10798] == 1
+                    assert Peer.settings[10798] == 1
                     assert Peer.extra_values[10734] == 1
                     assert Peer.extra_values[10735] > 0
                     assert value % 5 == 0
@@ -3044,6 +3045,35 @@ async def qualify(directory, phase):
         await set_mode(logic, "OR")
         assert Peer.settings[7740] == 0
         assert Peer.extra_values[7596] == 4 and Peer.extra_values[7741] == 257
+
+        parallel_activity = entity("Anlage_Wf9_Aktiviert_Modus", "select")
+        assert parallel_activity
+        before = Peer.saves
+        await set_mode(parallel_activity, "Deactivated")
+        assert Peer.settings[8574] == 0
+        await set_mode(parallel_activity, "External switch")
+        assert Peer.settings[8574] == 2
+        await set_mode(parallel_activity, "Activated")
+        assert Peer.settings[8574] == 1 and Peer.saves == before + 3
+        assert Peer.extra_values[8600] == 71 and Peer.extra_values[8624] == 257
+        assert Peer.settings[8629] == Peer.settings[8631] == 1
+
+        runtime = entity("Heizung_RelaisAnforderung1_OMindestlaufzeit", "switch")
+        duration = entity("Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin", "number")
+        assert runtime and duration
+        before = Peer.saves
+        original_duration = Peer.settings[10799]
+        for action, expected in (("turn_off", 0), ("turn_on", 1)):
+            await hass.services.async_call(
+                "switch", action, {"entity_id": runtime}, blocking=True
+            )
+            await hass.async_block_till_done()
+            assert Peer.settings[10798] == expected
+            assert (
+                hass.states.get(duration).state == "unavailable"
+            ) == (expected == 0)
+            assert Peer.settings[10799] == original_duration
+        assert Peer.saves == before + 2
 
         room_activation = entity(
             "Heizung_Heizkreis1_Raumthermostat1_Aktiviert", "select"
