@@ -1740,6 +1740,57 @@ def _heating_operating_settings():
     by configured flow limits; energy saving needs an assigned return
     sensor. Exact 2.08 catalogue validates every slot and selected unit.
     """
+    for slot in range(1, 3):
+        offset = (slot - 1) * 29
+        root = f"Heizung_RelaisPumpe{slot}"
+        installed = Dependency(f"{root}_Type", 11166 + offset, (2,))
+        common = (
+            Dependency(f"{root}_Aktiviert_Modus", 11169 + offset, (1,)),
+            RangeDependency(f"{root}_Relais1_Nr", 11171 + offset, 1, 100),
+        )
+        for phase, mode, temperature, duration, label in (
+            ("Anlauf", 11178, 11179, 11182, "start"),
+            ("Nachlauf", 11183, 11184, 11187, "overrun"),
+        ):
+            yield Setting(
+                f"{root}_{phase}_dt{phase}",
+                duration + offset,
+                f"Heating pump {slot} {label} duration",
+                "number",
+                True,
+                limits=("0", "300", "1", "1"),
+                unit="s",
+                installed_by=installed,
+                dependencies=(
+                    *common,
+                    Dependency(f"{root}_{phase}_Modus", mode + offset, (2,)),
+                ),
+            )
+            name = f"{root}_{phase}_T{phase}"
+            index = temperature + offset
+            for selector, alias, unit, limits in (
+                (0, "_C", "°C", ("10", "90", "1", "0.1")),
+                (1, "_F", "°F", ("50", "194", "2", "0.1")),
+            ):
+                yield Setting(
+                    name,
+                    index,
+                    f"Heating pump {slot} {label} temperature",
+                    "number",
+                    True,
+                    limits=limits,
+                    unit=unit,
+                    installed_by=installed,
+                    dependencies=(
+                        *common,
+                        Dependency(f"{root}_{phase}_Modus", mode + offset, (1,)),
+                        RangeDependency(
+                            f"{root}_AnlaufNachlauf_Sensor1_Nr", 11189 + offset, 1, 65
+                        ),
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    compound_mirrors=((name, index, name + alias, index + selector + 1),),
+                )
     for circuit in range(1, 8):
         offset = (circuit - 1) * 495
         root = f"Heizung_Heizkreis{circuit}"
