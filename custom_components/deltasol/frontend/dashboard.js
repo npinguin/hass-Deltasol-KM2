@@ -14,6 +14,7 @@ const WEEK_COPY={en:{program:"Weekly program",Mo:"Monday",Di:"Tuesday",Mi:"Wedne
 const OBJECT_COPY={en:{mode:"Operating mode",target:"Target",configured_activity:"Configured activity",attention:"Needs attention",measurements:"Measurements",controls:"Controls",preferences:"Operating preferences",linked:"Linked weekly programs",unconfirmed:"No confirmed measurement for this object",status:"Status",history:"History",settings:"Settings",engineering:"Engineering"},nl:{mode:"Bedrijfsmodus",target:"Doelwaarde",configured_activity:"Ingestelde activiteit",attention:"Aandacht nodig",measurements:"Metingen",controls:"Bediening",preferences:"Bedrijfsinstellingen",linked:"Gekoppelde weekprogramma’s",unconfirmed:"Geen bevestigde meting voor dit object",status:"Status",history:"Historiek",settings:"Instellingen",engineering:"Engineering"},fr:{mode:"Mode de fonctionnement",target:"Consigne",configured_activity:"Activité configurée",attention:"Attention requise",measurements:"Mesures",controls:"Commandes",preferences:"Préférences de fonctionnement",linked:"Programmes hebdomadaires liés",unconfirmed:"Aucune mesure confirmée pour cet objet",status:"État",history:"Historique",settings:"Paramètres",engineering:"Ingénierie"}};
 const LIVE_COPY={en:{telemetry_unavailable:"Telemetry connection unavailable",parameter_unavailable:"Parameter connection unavailable",requirements_not_confirmed:"Installed function or dependencies not confirmed",last_observed:"Last observed",parameter_pending:"Parameter access not confirmed",range:"Period",day:"24 hours",week:"7 days",month:"30 days",history_error:"History could not be loaded",recorded_values:"Recorded values",source:"Source and references"},nl:{telemetry_unavailable:"Telemetrieverbinding niet beschikbaar",parameter_unavailable:"Parameterverbinding niet beschikbaar",requirements_not_confirmed:"Geïnstalleerde functie of afhankelijkheden niet bevestigd",last_observed:"Laatst waargenomen",parameter_pending:"Parametertoegang niet bevestigd",range:"Periode",day:"24 uur",week:"7 dagen",month:"30 dagen",history_error:"Historiek kon niet worden geladen",recorded_values:"Geregistreerde waarden",source:"Bron en verwijzingen"},fr:{telemetry_unavailable:"Connexion télémétrique indisponible",parameter_unavailable:"Connexion paramètres indisponible",requirements_not_confirmed:"Fonction installée ou dépendances non confirmées",last_observed:"Dernière observation",parameter_pending:"Accès aux paramètres non confirmé",range:"Période",day:"24 heures",week:"7 jours",month:"30 jours",history_error:"Impossible de charger l’historique",recorded_values:"Valeurs enregistrées",source:"Source et références"}};
 const RELATION_COPY={en:{relations:"Native assignments",sensor_reference:"Sensor reference",relay_assignment:"Assigned relay",relay_dependency:"Referenced relay",analog_assignment:"Assigned analogue output",analog_dependency:"Referenced analogue output",native_reference_only:"Native reference; source measurement not confirmed",open_source:"Open source device",assignment_help:"Configured relationships, not proof of an active pump or heat flow."},nl:{relations:"Native toewijzingen",sensor_reference:"Sensorreferentie",relay_assignment:"Toegewezen relais",relay_dependency:"Gerefereerd relais",analog_assignment:"Toegewezen analoge uitgang",analog_dependency:"Gerefereerde analoge uitgang",native_reference_only:"Native referentie; bronmeting niet bevestigd",open_source:"Open bronapparaat",assignment_help:"Ingestelde relaties, geen bewijs van een actieve pomp of warmtestroom."},fr:{relations:"Affectations natives",sensor_reference:"Référence capteur",relay_assignment:"Relais affecté",relay_dependency:"Relais référencé",analog_assignment:"Sortie analogique affectée",analog_dependency:"Sortie analogique référencée",native_reference_only:"Référence native ; mesure source non confirmée",open_source:"Ouvrir l’appareil source",assignment_help:"Relations configurées, sans preuve de pompe active ou de flux thermique."}};
+const TASK_COPY={en:{attention_title:"Needs attention",connection_action:"Check gateway connection and integration settings.",parameter_action:"Check parameter access and allow discovery to recover.",requirements_action:"Check installed function and its prerequisites in Settings or Engineering.",unknown_action:"Check the native source device.",alarm_action:"Inspect the reported condition before changing settings.",view_object:"View object",all_clear:"No current attention items among the visible operational capabilities.",routine_controls:"Daily controls",no_routine_controls:"No confirmed daily control available for this selection.",range_limits:"Allowed range",increment:"Step",not_writable:"Read only or not permitted",back_overview:"All objects",more_preferences:"View all operating preferences"},nl:{attention_title:"Aandacht nodig",connection_action:"Controleer de gatewayverbinding en integratie-instellingen.",parameter_action:"Controleer parametertoegang en laat functiedetectie herstellen.",requirements_action:"Controleer de geïnstalleerde functie en voorwaarden in Instellingen of Engineering.",unknown_action:"Controleer het native bronapparaat.",alarm_action:"Controleer de gemelde toestand voordat je instellingen wijzigt.",view_object:"Bekijk object",all_clear:"Geen actuele aandachtspunten bij de zichtbare operationele functies.",routine_controls:"Dagelijkse bediening",no_routine_controls:"Geen bevestigde dagelijkse bediening voor deze selectie.",range_limits:"Toegestaan bereik",increment:"Stap",not_writable:"Alleen lezen of geen toestemming",back_overview:"Alle objecten",more_preferences:"Bekijk alle bedrijfsinstellingen"},fr:{attention_title:"Attention requise",connection_action:"Vérifiez la connexion à la passerelle et les paramètres de l’intégration.",parameter_action:"Vérifiez l’accès aux paramètres et laissez la détection se rétablir.",requirements_action:"Vérifiez la fonction installée et ses prérequis dans les paramètres ou l’ingénierie.",unknown_action:"Vérifiez l’appareil source natif.",alarm_action:"Examinez la condition signalée avant de modifier les paramètres.",view_object:"Voir l’objet",all_clear:"Aucun point d’attention actuel parmi les fonctions opérationnelles visibles.",routine_controls:"Commandes quotidiennes",no_routine_controls:"Aucune commande quotidienne confirmée pour cette sélection.",range_limits:"Plage autorisée",increment:"Pas",not_writable:"Lecture seule ou accès non autorisé",back_overview:"Tous les objets",more_preferences:"Voir toutes les préférences"}};
 const DAYS=["Mo","Di","Mi","Do","Fr","Sa","So"];
 const SECTIONS = ["overview","solar","heating","hot_water","energy","settings","engineering"];
 const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -69,7 +70,7 @@ class ResolDashboard extends HTMLElement {
       this.render();
     }
   }
-  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||(ENGINEERING_COPY[lang]||ENGINEERING_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||ENGINEERING_COPY.en[key]||(WEEK_COPY[lang]||WEEK_COPY.en)[key]||WEEK_COPY.en[key]||(OBJECT_COPY[lang]||OBJECT_COPY.en)[key]||OBJECT_COPY.en[key]||(LIVE_COPY[lang]||LIVE_COPY.en)[key]||LIVE_COPY.en[key]||(RELATION_COPY[lang]||RELATION_COPY.en)[key]||RELATION_COPY.en[key]||key;}
+  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||(ENGINEERING_COPY[lang]||ENGINEERING_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||ENGINEERING_COPY.en[key]||(WEEK_COPY[lang]||WEEK_COPY.en)[key]||WEEK_COPY.en[key]||(OBJECT_COPY[lang]||OBJECT_COPY.en)[key]||OBJECT_COPY.en[key]||(LIVE_COPY[lang]||LIVE_COPY.en)[key]||LIVE_COPY.en[key]||(RELATION_COPY[lang]||RELATION_COPY.en)[key]||RELATION_COPY.en[key]||(TASK_COPY[lang]||TASK_COPY.en)[key]||TASK_COPY.en[key]||key;}
   current(){return this.installations.find(item=>item.id===this.context);}
   rows(){return this.current()?.objects.flatMap(asset=>asset.capabilities)||[];}
   row(id){return this.rows().find(row=>row.entity_id===id);}
@@ -141,8 +142,11 @@ class ResolDashboard extends HTMLElement {
     const state=this.state(row),observed=state?.attributes?.["Last Updated"]||(row.depth!=="status"?this.current()?.health?.parameter_observed_at:null);
     const updated=observed?new Date(observed).toLocaleString(this._hass?.language):"";
     const reason=row.availability&&row.availability!=="available"?this.t(row.availability):"";
+    const attrs=state?.attributes||{};
+    const limits=control&&row.kind==="number"&&Number.isFinite(attrs.min)&&Number.isFinite(attrs.max)?'<small style="display:block">'+escape(this.t("range_limits")+": "+attrs.min+" – "+attrs.max+(attrs.unit_of_measurement?" "+attrs.unit_of_measurement:"")+(Number.isFinite(attrs.step)?" · "+this.t("increment")+" "+attrs.step:""))+'</small>':"";
+    const access=control&&["number","select","switch","text"].includes(row.kind)&&!row.control&&this.valid(row)?'<small>'+escape(this.t("not_writable"))+'</small>':"";
     const evidence=this.tab==="engineering"&&row.parameter?'<details><summary>'+escape(this.t("source"))+'</summary><pre>'+escape(JSON.stringify({entity_id:row.entity_id,parameter:row.parameter,index:row.reference_index,source_address:row.source_address,controller_address:row.controller_address,references:row.live_reference_context},null,2))+'</pre></details>':"";
-    return '<div class="line"><div class="grow"><div>'+escape(this.capabilityLabel(row))+'</div><div class="value'+(this.valid(row)?"":" warning")+'">'+escape(this.value(row))+'</div>'+(reason?'<small class="warning">'+escape(reason)+'</small>':"")+(updated?'<small style="display:block">'+escape(this.t("last_observed"))+': '+escape(updated)+'</small>':"")+evidence+'</div><div class="actions">'+(control?this.control(row):"")+'<button data-history="'+escape(row.entity_id)+'" aria-label="'+escape(this.t("history")+' '+this.capabilityLabel(row))+'">'+escape(this.t("history"))+'</button></div></div>';
+    return '<div class="line"><div class="grow"><div>'+escape(this.capabilityLabel(row))+'</div><div class="value'+(this.valid(row)?"":" warning")+'">'+escape(this.value(row))+'</div>'+(reason?'<small class="warning">'+escape(reason)+'</small>':"")+(updated?'<small style="display:block">'+escape(this.t("last_observed"))+': '+escape(updated)+'</small>':"")+limits+access+evidence+'</div><div class="actions">'+(control?this.control(row):"")+'<button data-history="'+escape(row.entity_id)+'" aria-label="'+escape(this.t("history")+' '+this.capabilityLabel(row))+'">'+escape(this.t("history"))+'</button></div></div>';
   }
   visibleRows(asset){
     const rows=asset.capabilities;
@@ -157,6 +161,47 @@ class ResolDashboard extends HTMLElement {
   objectTitle(asset){
     const type=asset.object_kind?this.t(asset.object_kind)+" "+asset.object_number:"";
     return type&&!asset.renamed&&asset.name.startsWith("RESOL ")?type:asset.name;
+  }
+  attentionItems(){
+    const current=this.current(),items=[];
+    if(!current)return items;
+    const h=current.health;
+    if(h?.telemetry===false)return [{reason:"telemetry_unavailable",action:"connection_action",asset:null,rows:[]}];
+    if(h?.parameter_access&&h.parameter_current===false)items.push({reason:"parameter_unavailable",action:"parameter_action",asset:null,rows:[]});
+    for(const asset of current.objects){
+      if(this.object&&asset.id!==this.object)continue;
+      const groups=new Map();
+      for(const row of asset.capabilities){
+        if(row.depth!=="status"&&row.depth!=="controls"&&row.role!=="configured_activity")continue;
+        let reason;
+        if(row.role==="attention"&&this.valid(row)&&this.state(row)?.state==="on")reason="alarm_action";
+        else if(!this.valid(row))reason=row.availability&&row.availability!=="available"?row.availability:"unknown";
+        else continue;
+        if(reason==="parameter_unavailable"&&h?.parameter_current===false)continue;
+        if(!groups.has(reason))groups.set(reason,[]);
+        groups.get(reason).push(row);
+      }
+      for(const [reason,rows] of groups){
+        const action=reason==="alarm_action"?"alarm_action":reason==="requirements_not_confirmed"?"requirements_action":reason==="telemetry_unavailable"?"connection_action":reason==="parameter_unavailable"?"parameter_action":"unknown_action";
+        items.push({reason,action,asset,rows});
+      }
+    }
+    return items;
+  }
+  attentionView(){
+    const items=this.attentionItems();
+    if(!items.length)return '<section class="card"><h2>'+escape(this.t("attention_title"))+'</h2><p class="muted">'+escape(this.t("all_clear"))+'</p></section>';
+    return '<section class="card"><h2>'+escape(this.t("attention_title"))+'</h2>'+items.map(item=>'<div class="line"><div class="grow"><strong class="warning">'+escape(item.asset?this.objectTitle(item.asset):this.t(item.reason))+'</strong>'+(item.rows.length?'<div>'+escape(item.rows.map(row=>this.capabilityLabel(row)).join(", "))+'</div>':"")+'<p class="muted">'+escape(this.t(item.action))+'</p></div>'+(item.asset&&this.object!==item.asset.id?'<button data-source-object="'+escape(item.asset.id)+'">'+escape(this.t("view_object"))+'</button>':"")+'</div>').join("")+'</section>';
+  }
+  routineControls(){
+    const assets=(this.current()?.objects||[]).filter(asset=>!this.object||asset.id===this.object);
+    const rows=assets.flatMap(asset=>asset.capabilities.filter(row=>row.depth==="controls"&&this.allowed(row)&&(this.tab==="overview"||row.section===this.tab)).map(row=>({asset,row})));
+    return rows.sort((a,b)=>(b.row.priority||0)-(a.row.priority||0)||String(a.asset.name).localeCompare(String(b.asset.name)));
+  }
+  routineView(){
+    const items=this.routineControls();
+    if(!items.length)return "";
+    return '<section class="card"><h2>'+escape(this.t("routine_controls"))+'</h2>'+items.map(({asset,row})=>'<div><small>'+escape(this.objectTitle(asset))+'</small>'+this.detail(row,true)+'</div>').join("")+'</section>';
   }
   summary(){
     const h=this.current()?.health;
@@ -219,7 +264,7 @@ class ResolDashboard extends HTMLElement {
       ["controls",rows.filter(row=>row.depth==="controls")],
       ["preferences",rows.filter(row=>row.depth==="settings"&&!row.schedule)]
     ];
-    return groups.filter(([,items])=>items.length).map(([key,items])=>'<h3 style="margin-top:18px">'+escape(this.t(key))+'</h3>'+items.map(row=>this.detail(row,key==="controls")).join("")).join("");
+    return groups.filter(([,items])=>items.length).map(([key,items])=>key==="preferences"?'<details><summary>'+escape(this.t("preferences"))+' ('+items.length+')</summary>'+items.map(row=>this.detail(row,false)).join("")+'</details>':'<h3 style="margin-top:18px">'+escape(this.t(key))+'</h3>'+items.map(row=>this.detail(row,key==="controls")).join("")).join("");
   }
   cards(){
     const assets=(this.current()?.objects||[]).filter(asset=>!this.object||asset.id===this.object);
@@ -230,20 +275,20 @@ class ResolDashboard extends HTMLElement {
       const header='<div class="toolbar"><div class="grow"><h2>'+escape(this.objectTitle(asset))+'</h2><small>'+available+' / '+rows.length+' '+escape(this.t("available"))+'</small></div>'+(this.object?"":'<button data-object="'+escape(asset.id)+'">'+escape(this.t("details"))+'</button>')+'</div>';
       if(this.tab==="overview"&&!this.object){
         const prominent=this.prominentRows(rows);
-        return '<article class="card">'+header+prominent.map(row=>this.detail(row,row.depth==="controls")).join("")+(!prominent.length?'<p class="muted">'+escape(this.t("unconfirmed"))+'</p>':"")+(available!==rows.length?'<p class="warning">'+(rows.length-available)+' '+escape(this.t("not_confirmed"))+'</p>':"")+'</article>';
+        return '<article class="card">'+header+prominent.map(row=>this.detail(row,false)).join("")+(!prominent.length?'<p class="muted">'+escape(this.t("unconfirmed"))+'</p>':"")+(available!==rows.length?'<p class="warning">'+(rows.length-available)+' '+escape(this.t("not_confirmed"))+'</p>':"")+'</article>';
       }
       const ordinary=this.tab!=="settings"&&this.tab!=="engineering";
-      return '<article class="card">'+header+(ordinary?this.objectDetail(rows):rows.map(row=>this.detail(row,true)).join(""))+(this.object?this.relationView(asset):"")+((this.tab!=="settings"&&this.tab!=="engineering"&&this.object&&this.current()?.settings&&rows.some(row=>row.depth==="settings"))?'<button data-tab="settings">'+escape(this.t("settings"))+'</button>':"")+'</article>';
+      return '<article class="card">'+header+(ordinary?this.objectDetail(rows):rows.map(row=>this.detail(row,true)).join(""))+(this.object?this.relationView(asset):"")+((this.tab!=="settings"&&this.tab!=="engineering"&&this.object&&this.current()?.settings&&rows.some(row=>row.depth==="settings"))?'<button data-tab="settings">'+escape(this.t("more_preferences"))+'</button>':"")+'</article>';
     }).filter(Boolean);
     return cards.length?'<div class="grid">'+cards.join("")+'</div>':this.tab==="settings"&&this.weekPrograms().length?"":'<p class="muted">'+escape(this.t("empty"))+'</p>';
   }
   render(){
     if(!this.shadowRoot)return;
     const installation=this.current(), tabs=this.tabs(), assets=installation?.objects||[];
-    const count=this.rows().filter(row=>row.depth==="status"&&!this.valid(row)).length;
+    const count=this.attentionItems().length;
     const options=this.installations.map(item=>'<option value="'+escape(item.id)+'" '+(item.id===this.context?"selected":"")+'>'+escape(item.name)+'</option>').join("");
     const objects=assets.map(asset=>'<option value="'+escape(asset.id)+'" '+(asset.id===this.object?"selected":"")+'>'+escape(this.objectTitle(asset))+'</option>').join("");
-    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="RESOL">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("status"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><p class="muted">'+escape(this.t("unsupported"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.engineeringView():"")+(this.tab==="overview"?this.summary():"")+this.cards()+(this.tab==="settings"?this.weekView():this.object&&this.tab!=="engineering"?this.weekView(false):""))+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
+    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="RESOL">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("status"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><p class="muted">'+escape(this.t("unsupported"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.engineeringView():"")+(this.tab==="overview"?this.summary()+this.attentionView()+(!this.object?this.routineView():""):"")+this.cards()+(this.tab==="settings"?this.weekView():this.object&&this.tab!=="engineering"?this.weekView(false):""))+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
     if(this.tab==="engineering")this.renderInventory();
   }
   async engineering(){

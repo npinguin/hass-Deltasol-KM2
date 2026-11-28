@@ -151,3 +151,21 @@ test("object relations use a readable source object and do not fabricate sensor 
   assert.ok(html.includes("bronmeting niet bevestigd"));
   assert.ok(!html.includes("42 °C"));
 });
+
+test("attention is grouped by observed condition and gateway failure is not repeated per entity",()=>{
+  const p=model(true,true),asset=p.current().objects[0];asset.name="Heating";
+  p.current().health={telemetry:true,parameter_access:true,parameter_current:true};
+  const row=p.row("sensor.temperature");row.availability="requirements_not_confirmed";
+  assert.equal(p.attentionItems().length,1);
+  assert.equal(p.attentionItems()[0].reason,"requirements_not_confirmed");
+  assert.ok(p.attentionView().includes("Controleer de geïnstalleerde functie"));
+  p.current().health.telemetry=false;
+  assert.equal(p.attentionItems().length,1);assert.equal(p.attentionItems()[0].reason,"telemetry_unavailable");
+});
+test("daily controls only use currently permitted native capabilities",()=>{
+  const p=model(true,true),asset=p.current().objects[0];asset.name="Heating";
+  assert.equal(p.routineControls().length,1);
+  assert.equal(p.routineControls()[0].row.entity_id,"select.heating");
+  p.row("select.heating").control=false;assert.equal(p.routineControls().length,0);
+  p.row("select.heating").control=true;p.row("select.heating").availability="parameter_unavailable";assert.equal(p.routineControls().length,0);
+});

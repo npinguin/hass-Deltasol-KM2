@@ -359,6 +359,11 @@ def dashboard_objects(hass, user):
                     "depth": depth,
                     "role": role,
                     "priority": priority,
+                    "attention_active": bool(
+                        role == "attention"
+                        and availability == "available"
+                        and state.state == "on"
+                    ),
                     "linked_program": (
                         cap.program_reference
                         if cap and availability == "available"
