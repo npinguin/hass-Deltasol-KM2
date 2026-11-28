@@ -195,7 +195,7 @@ class PeerComparison:
 
     def matches(self, values):
         left, right = values.get(self.name), values.get(self.other)
-        compare = {"eq": eq, "gt": gt, "ne": ne}.get(self.operation)
+        compare = {"eq": eq, "gt": gt, "le": le, "ne": ne}.get(self.operation)
         return (
             compare is not None
             and type(left) is int
@@ -248,7 +248,7 @@ class WeeklyProgram:
 def _dependency_layout(dependencies):
     result = {}
     for dep in dependencies:
-        if isinstance(dep, (PeerComparison, AnyDependencies)):
+        if isinstance(dep, (PeerComparison, AnyDependencies, SolarSelection)):
             result.update(dep.expected)
         else:
             result[dep.name] = dep.index
@@ -276,6 +276,7 @@ class SolarSelection:
     name: str
     index: int
     stores: bool = False
+    target_unit: int | None = None
 
     @property
     def assignments(self):
@@ -288,6 +289,7 @@ class SolarSelection:
                     Dependency(
                         f"Solar_Sp{n}_Aktiviert_Modus", 3604 + 36 * (n - 1), (1, 2)
                     ),
+                    *self.target_dependencies(n),
                 )
                 for n in range(1, 5)
             )
@@ -296,12 +298,31 @@ class SolarSelection:
             for n in range(1, 4)
         )
 
+    def target_dependencies(self, slot):
+        if self.target_unit is None:
+            return ()
+        offset = (slot - 1) * 36
+        root = f"Solar_Sp{slot}"
+        alias, lo, hi, step = (
+            ("_C", 40, 950, 10) if self.target_unit == 0 else ("_F", 400, 2040, 20)
+        )
+        target, maximum = root + "_Tsoll", root + "_Tmax"
+        ti, mi = 3588 + offset, 3591 + offset
+        return (
+            Dependency("TemperatureHysteresisSelector", 60, (self.target_unit,)),
+            _raw_steps(target, ti, lo, hi, step),
+            _raw_steps(maximum, mi, lo, hi, step),
+            PeerComparison(target, ti, target + alias, ti + self.target_unit + 1, "eq"),
+            PeerComparison(maximum, mi, maximum + alias, mi + self.target_unit + 1, "eq"),
+            PeerComparison(target, ti, maximum, mi, "le"),
+        )
+
     @property
     def expected(self):
         return {
             "Solar_SystemId": 3416,
             self.name: self.index,
-            **{dep.name: dep.index for group in self.assignments for dep in group},
+            **_dependency_layout(dep for group in self.assignments for dep in group),
         }
 
     def matches(self, values):
@@ -2730,6 +2751,203 @@ def _weekly_timer_options():
 
 
 BX_PLUS_WEEKLY_TIMER_OPTIONS = tuple(_weekly_timer_options())
+
+
+def _coordination_options():
+    """Existing operational heating, cooling and solar suppression preferences."""
+    def solar_options(installed, common, flag, target_flag, mask, label):
+        selection = SolarSelection(mask[0], mask[1], stores=True)
+        targets = tuple(
+            replace(selection, target_unit=unit) for unit in (0, 1)
+        )
+        solar = (
+            RangeDependency("Solar_Kol1_Sensor1_Nr", 3536, 1, 65),
+            RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
+            selection,
+        )
+        # An already configured Tset condition must be valid before Solar off
+        # can be enabled; the user can also choose ordinary solar suppression.
+        yield Setting(
+            flag[0],
+            flag[1],
+            label + " solar off enabled",
+            "switch",
+            True,
+            installed_by=installed,
+            dependencies=(*common, *solar),
+            requested_conditions=(
+                RequestedCondition(
+                    1,
+                    (
+                        Dependency(target_flag[0], target_flag[1], (0,)),
+                        AnyDependencies(
+                            tuple(
+                                (Dependency(target_flag[0], target_flag[1], (1,)), target)
+                                for target in targets
+                            )
+                        ),
+                    ),
+                ),
+            ),
+        )
+        yield Setting(
+            target_flag[0],
+            target_flag[1],
+            label + " solar off set-temperature condition",
+            "switch",
+            True,
+            installed_by=installed,
+            dependencies=(
+                *common,
+                *solar,
+                Dependency(flag[0], flag[1], (1,)),
+            ),
+            requested_conditions=(RequestedCondition(1, targets),),
+        )
+
+    for slot in range(1, 17):
+        ho = (slot - 1) * 151
+        root = f"Heizung_Wf{slot}"
+        installed = Dependency(root + "_Type", 11266 + ho, (2,))
+        common = (
+            _installed_activity(root, 11273 + ho, 11275 + ho),
+            RangeDependency(root + "_NhRelais1_Nr", 11337 + ho, 1, 100),
+            RangeDependency(root + "_Sensor1_Nr", 11290 + ho, 1, 65),
+            AnyDependencies(
+                (
+                    (Dependency(root + "_ThBwErwaermung_Modus", 11378 + ho, (0,)),),
+                    (
+                        Dependency(root + "_ThBwErwaermung_Modus", 11378 + ho, (1,)),
+                        RangeDependency(root + "_Sensor2_Nr", 11294 + ho, 1, 65),
+                    ),
+                )
+            ),
+        )
+        yield Setting(
+            root + "_OUrlaubAus",
+            11281 + ho,
+            f"Heating function {slot} DHW off during holiday",
+            "switch",
+            True,
+            installed_by=installed,
+            dependencies=(
+                *common,
+                Dependency("InbetriebnahmeAbgeschlossen", 68, (1,)),
+                RangeDependency("Urlaubsfunktion_Tage", 19063, 0, 200),
+            ),
+        )
+        yield from solar_options(
+            installed, common,
+            (root + "_OSolarAus", 11282 + ho),
+            (root + "_SolarAus_OTSoll", 11284 + ho),
+            (root + "_SolarAus_SpeicherMaske", 11283 + ho),
+            f"Heating function {slot} DHW",
+        )
+        so = (slot - 1) * 120
+        root = f"Solar_Wf{slot}"
+        selection = SolarSelection(
+            root + "_NhUnterdrueckung_SpeicherMaske", 4461 + so, stores=True
+        )
+        yield Setting(
+            root + "_NhUnterdrueckung_OSpSoll",
+            4462 + so,
+            f"Solar function {slot} backup suppression set-temperature condition",
+            "switch",
+            True,
+            installed_by=Dependency(root + "_Type", 4409 + so, (6,)),
+            dependencies=(
+                _installed_activity(root, 4415 + so, 4417 + so),
+                RangeDependency(root + "_Relais1_Nr", 4436 + so, 1, 100),
+                RangeDependency("Solar_Kol1_Sensor1_Nr", 3536, 1, 65),
+                RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
+                selection,
+            ),
+            requested_conditions=(
+                RequestedCondition(
+                    1, tuple(replace(selection, target_unit=unit) for unit in (0, 1))
+                ),
+            ),
+        )
+
+    for circuit in range(1, 8):
+        offset = (circuit - 1) * 495
+        root = f"Heizung_Heizkreis{circuit}"
+        prefix = root + "_Nachheizung"
+        installed = Dependency(root + "_Type", 13684 + offset, (1,))
+        activity = _installed_activity(root, 13689 + offset, 13691 + offset)
+        common = (
+            activity,
+            Dependency(root + "_System", 13697 + offset, (0, 2)),
+            Dependency(root + "_ONachheizung", 13705 + offset, (1,)),
+            _installed_activity(prefix, 13708 + offset, 13710 + offset),
+            RangeDependency(root + "_Relais6_Nr", 14003 + offset, 1, 100),
+        )
+        thermal = AnyDependencies(
+            (
+                (
+                    Dependency(prefix + "_Modus", 13706 + offset, (0,)),
+                    RangeDependency(root + "_Sensor4_Nr", 13804 + offset, 1, 65),
+                ),
+                (
+                    Dependency(prefix + "_Modus", 13706 + offset, (1,)),
+                    RangeDependency(root + "_Sensor4_Nr", 13804 + offset, 1, 65),
+                    RangeDependency(root + "_Sensor5_Nr", 13808 + offset, 1, 65),
+                ),
+            )
+        )
+        for suffix, index, companion, companion_index, label in (
+            ("OFruehstart", 13714, "tFruehstart", 13715, "start optimization"),
+            ("OBlockierung", 13716, "tBlockierung", 13717, "stop optimization"),
+        ):
+            yield Setting(
+                prefix + "_" + suffix,
+                index + offset,
+                f"Heating circuit {circuit} {label} enabled",
+                "switch",
+                True,
+                installed_by=installed,
+                dependencies=(*common, thermal),
+                requested_conditions=(
+                    RequestedCondition(
+                        1,
+                        (RangeDependency(prefix + "_" + companion, companion_index + offset, 0, 300),),
+                    ),
+                ),
+            )
+        yield from solar_options(
+            installed,
+            (*common, AnyDependencies((*thermal.groups, (
+                Dependency(prefix + "_Modus", 13706 + offset, (2,)),
+            )))),
+            (prefix + "_OSolarAus", 14141 + offset),
+            (prefix + "_SolarAus_OTSoll", 14143 + offset),
+            (prefix + "_SolarAus_SpeicherMaske", 14142 + offset),
+            f"Heating circuit {circuit} supplementary heating",
+        )
+        cooling = root + "_Kuehlung"
+        yield Setting(
+            cooling + "_OTimer",
+            14098 + offset,
+            f"Heating circuit {circuit} cooling daily timer enabled",
+            "switch",
+            True,
+            installed_by=installed,
+            dependencies=(
+                activity,
+                Dependency(root + "_System", 13697 + offset, (1, 2)),
+                RangeDependency(cooling + "_Relais1_Nr", 14059 + offset, 1, 100),
+            ),
+            requested_conditions=tuple(
+                RequestedCondition(
+                    1,
+                    (_raw_steps(cooling + "_Timer_" + suffix, index + offset, 0, 1425, 15),),
+                )
+                for suffix, index in (("tEin", 14099), ("tAus", 14100))
+            ),
+        )
+
+
+BX_PLUS_COORDINATION_OPTIONS = tuple(_coordination_options())
 
 
 def _heating_operating_settings():
