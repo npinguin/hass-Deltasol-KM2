@@ -473,9 +473,7 @@ def _read_weekly_settings(
             for owner in owners
             if not owner.active(values)
         )
-        if any(
-            not owner.inactive(values) for owner in (*unknown, *unresolved_links)
-        ):
+        if any(not owner.inactive(values) for owner in (*unknown, *unresolved_links)):
             raise VBusError("Configuration parameter is no longer supported")
         if any(row.status == "layout_mismatch" for row in observations.values()):
             raise VBusError("Configuration parameter is no longer supported")
@@ -827,9 +825,8 @@ class RelayParameters:
                 if (
                     error.phase != "response"
                     or session.release_failed is not False
-                    or session.release_confirmation not in (
-                        "controller_offer", "controller_live_packet"
-                    )
+                    or session.release_confirmation
+                    not in ("controller_offer", "controller_live_packet")
                 ):
                     raise
                 session.read_resync_attempts += 1
@@ -847,6 +844,7 @@ class RelayParameters:
         profile, controller = find_profile(inventory)
         if profile is None:
             return RelayDiscovery(None, {}, {})
+
         def read(session):
             capabilities = {}
             status = {}
