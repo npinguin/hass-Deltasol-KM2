@@ -95,6 +95,16 @@ CONFIG_SELECTORS = {
     "Anlage_Wf1_Type": (6559, 2),
     "Anlage_Wf1_Aktiviert_SensorSchalter_Nr": (6568, 4),
     "Anlage_Wf2_Type": (6810, 6),
+    "Anlage_Wf2_Nr": (6811, 1),
+    "Heizung_Wf2_FeststoffkesselMaske": (11437, 1),
+    "Heizung_Heizkreis1_Nachheizung_FeststoffkesselMaske": (14038, 1),
+    "Anlage_Wf10_Type": (8818, 0),
+    "Anlage_Wf11_Type": (9069, 0),
+    "Anlage_Wf12_Type": (9320, 0),
+    "Anlage_Wf13_Type": (9571, 0),
+    "Anlage_Wf14_Type": (9822, 0),
+    "Anlage_Wf15_Type": (10073, 0),
+    "Anlage_Wf16_Type": (10324, 0),
     "Anlage_Wf2_Aktiviert_Modus": (6817, 1),
     "Anlage_Wf3_Type": (7061, 11),
     "Anlage_Wf3_Aktiviert_Modus": (7068, 1),
@@ -211,6 +221,8 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_dtVerzoegerung": (11414, 0),
 }
 CONFIG_SETTINGS = {
+    "Heizung_Wf2_OFeststoffkesselAus": (11436, 0, 0, 1),
+    "Heizung_Heizkreis1_Nachheizung_OFeststoffkesselAus": (14037, 0, 0, 1),
     "Anlage_Wf5_Funktionsblock_OBezugsrelais": (7739, 0, 0, 1),
     "Anlage_Wf5_Funktionsblock_Bezugsrelais_Modus": (7740, 0, 0, 3),
     "Anlage_Wf9_Parallelrelais_ONachlauf": (8629, 0, 0, 1),
@@ -2709,6 +2721,24 @@ async def qualify(directory, phase):
         Peer.extra_values[3439] = 1
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert float(hass.states.get(spread).state) == 70
+
+        # The existing mask is a function number, not the arrangement slot.
+        for name, index in (
+            ("Heizung_Wf2_OFeststoffkesselAus", 11436),
+            ("Heizung_Heizkreis1_Nachheizung_OFeststoffkesselAus", 14037),
+        ):
+            target = entity(name, "switch")
+            before = Peer.saves
+            await hass.services.async_call(
+                "switch", "turn_on", {"entity_id": target}, blocking=True
+            )
+            assert Peer.settings[index] == 1
+            assert Peer.saves == before + 1
+            await hass.services.async_call(
+                "switch", "turn_off", {"entity_id": target}, blocking=True
+            )
+            assert Peer.settings[index] == 0
+            assert Peer.saves == before + 2
 
         # Native flags use the same persistent owner as their companion Numbers.
         for flag, index, companion in (

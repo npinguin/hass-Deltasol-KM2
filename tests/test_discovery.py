@@ -1640,15 +1640,19 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(definitions[name].metadata["size_bytes"], 12)
                 self.assertIn("Blob", definitions[name].metadata["type_chain"])
         coordination = configuration.BX_PLUS_COORDINATION_OPTIONS
-        self.assertEqual(len({setting.name for setting in coordination}), 99)
+        self.assertEqual(len({setting.name for setting in coordination}), 170)
         for setting in coordination:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
-            self.assertEqual(target.metadata["rpt_storage"], "preferences")
-            self.assertIn("Boolean", target.metadata["type_chain"])
             self.assertTrue(target.metadata["menu_refs"])
             self.assertTrue(setting.save)
-            self.assertEqual(setting.kind, "switch")
+            if setting.kind == "switch":
+                self.assertEqual(target.metadata["rpt_storage"], "preferences")
+                self.assertIn("Boolean", target.metadata["type_chain"])
+            else:
+                self.assertEqual(setting.kind, "number")
+                self.assertTrue(target.metadata["compound_parent_read_candidate"])
+                self.assertIn("FlowProxy", target.metadata["type_chain"])
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
         modes = configuration.BX_PLUS_OPERATING_MODE_OPTIONS
