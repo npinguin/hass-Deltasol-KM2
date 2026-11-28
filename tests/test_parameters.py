@@ -3,6 +3,7 @@
 import ast
 import asyncio
 import importlib
+import importlib.util
 import sys
 import types
 import unittest
@@ -47,34 +48,14 @@ class QualificationFixtureTests(unittest.TestCase):
     def setUpClass(cls):
         path = Path(__file__).with_name("qualify_ha.py")
         cls.tree = ast.parse(path.read_text(encoding="utf-8"))
-        # Load the real fixture declarations and setup, not the HA runner.
-        # This avoids a second copy of fixture indices or a dependency on HA.
-        nodes = [
-            node
-            for node in cls.tree.body
-            if (
-                isinstance(node, ast.Import | ast.ImportFrom)
-                and not (
-                    isinstance(node, ast.ImportFrom)
-                    and (node.module or "").startswith("homeassistant")
-                )
-            )
-            or isinstance(node, ast.Assign | ast.AnnAssign)
-            or (
-                isinstance(node, ast.ClassDef | ast.FunctionDef)
-                and node.name in (
-                    "Peer",
-                    "semantic_hash",
-                    "temperature_wire",
-                    "additional_relays",
-                    "additional_configuration",
-                )
-            )
-        ]
-        cls.fixture = {"__name__": "_qualification_fixture"}
-        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), "exec"), cls.fixture)
-        cls.fixture["additional_relays"]()
-        cls.fixture["additional_configuration"]()
+        # Ordinary import of the independent peer. HA is only imported by
+        # the actual lifecycle runner, not by the fixture declarations.
+        spec = importlib.util.spec_from_file_location("_qualification_fixture", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        cls.fixture = vars(module)
+        module.additional_relays()
+        module.additional_configuration()
 
     def test_every_literal_peer_reference_has_correct_storage(self):
         peer = self.fixture["Peer"]
@@ -91,20 +72,18 @@ class QualificationFixtureTests(unittest.TestCase):
             ):
                 continue
             if node.slice.value not in getattr(peer, node.value.attr):
-                failures.append(
-                    (node.lineno, node.value.attr, node.slice.value)
-                )
+                failures.append((node.lineno, node.value.attr, node.slice.value))
         self.assertFalse(failures, failures)
         self.assertFalse(peer.settings.keys() & peer.extra_values.keys())
 
     def test_all_fixture_indices_and_compound_unit_encodings(self):
         f = self.fixture
         peer = f["Peer"]
-        definitions = {**f["CONFIG_SELECTORS"], **f["CONFIG_SETTINGS"], **f["TIMER_VALUES"]}
+        definitions = {
+            **f["CONFIG_SELECTORS"], **f["CONFIG_SETTINGS"], **f["TIMER_VALUES"]
+        }
         aliases = {**f["COMPOUND_ALIASES"], **f["TEMPERATURE_ALIASES"]}
-        self.assertEqual(
-            len({row[0] for row in definitions.values()}), len(definitions)
-        )
+        self.assertEqual(len({row[0] for row in definitions.values()}), len(definitions))
         self.assertEqual(len({row[0] for row in aliases.values()}), len(aliases))
         self.assertFalse(
             {row[0] for row in aliases.values()} & {row[0] for row in definitions.values()}
@@ -129,7 +108,8 @@ class QualificationFixtureTests(unittest.TestCase):
                         else f["temperature_wire"](initial, selected)
                     )
                     matching = [
-                        setting for setting in contracts.get(name, ())
+                        setting
+                        for setting in contracts.get(name, ())
                         if setting.index == index and setting.unit == unit
                     ]
                     if not matching or not any(

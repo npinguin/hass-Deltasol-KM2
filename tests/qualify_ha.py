@@ -19,12 +19,6 @@ from types import MappingProxyType
 from typing import ClassVar
 from unittest.mock import patch
 
-from homeassistant import bootstrap, loader
-from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
-from homeassistant.helpers import entity_registry as er
-
 ADDRESS = 0x7112
 RELAY = 2019
 CHANGESET = 0x2734DABC
@@ -1300,6 +1294,12 @@ class HttpHandler(BaseHTTPRequestHandler):
 
 
 async def qualify(directory, phase):
+    from homeassistant import bootstrap, loader
+    from homeassistant.config_entries import ConfigEntry, ConfigEntryState
+    from homeassistant.core import HomeAssistant
+    from homeassistant.exceptions import HomeAssistantError
+    from homeassistant.helpers import entity_registry as er
+
     hass = HomeAssistant(str(directory))
     loader.async_setup(hass)
     hass.config.skip_pip = True

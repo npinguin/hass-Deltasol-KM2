@@ -66,7 +66,7 @@ jobs:
       startsWith(github.event.head_commit.message, 'release:'))
     needs: [test-and-lint, validate-hassfest, validate-hacs]
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 50
     env:
       GH_TOKEN: ${{ github.token }}
       HA_IMAGE: ghcr.io/home-assistant/home-assistant:2026.11.0
@@ -104,7 +104,15 @@ jobs:
             unzip -q "$1" -d "$Q/config/custom_components/deltasol"
           }
           run_phase() {
-            timeout 480 docker run --rm --entrypoint python3 \
+            # The expanded upgrade covers many more native journeys than the
+            # historical eight-minute budget. Keep the other phase limits
+            # and an explicit job ceiling; this changes no product timeout.
+            local phase_timeout=480
+            if [[ "$1" == "upgrade" ]]; then
+              phase_timeout=1800
+            fi
+            echo "QUALIFICATION_PHASE $1 (limit ${phase_timeout}s)"
+            timeout "$phase_timeout" docker run --rm --entrypoint python3 \
               -e PYTHONDONTWRITEBYTECODE=1 \
               -v "$Q/config:/qualification" \
               -v "$GITHUB_WORKSPACE/tests/qualify_ha.py:/qualify.py:ro" \
