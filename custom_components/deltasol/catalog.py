@@ -519,6 +519,8 @@ ORDINAL_TYPES = frozenset(
         "Heizung_HeizkreisX_Heizgrenze",
         "Heizung_Heizung_HeizkreisX_Struct_Vt{0}_ModusSchaltuhr",
         "Heizung_Heizung_HeizkreisX_Struct_Vt{0}_Kuehlung_Modus",
+        "Heizung_Heizung_HeizkreisX_Struct_Vt{0}_Nachheizung_Modus",
+        "Heizung_RelaisPumpeX_AnlaufNachlaufModus",
         "Heizung_WfX_Struct_Heizung_WfX_ThBwErwaermung_Vt{0}_Modus",
         "Heizung_HeizkreisX_Betriebsart",
         "VtTemperatureHysteresisSelector",
