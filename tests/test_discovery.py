@@ -11,6 +11,7 @@ import types
 import unittest
 import xml.etree.ElementTree as ET
 import zipfile
+import zlib
 from collections import Counter
 from decimal import Decimal
 from pathlib import Path
@@ -1228,8 +1229,71 @@ class DiscoveryTests(unittest.TestCase):
             hex(index_offset),
             hex(binary.index(allocation_table)),
         )
-        # Instruction-level VBus and storage recovery equivalence remains a
-        # separate research question. Do not grant write access from layout.
+        # Fingerprints of complete address-independent instruction blocks
+        # inspected in the supplied DLL. Compare actual instructions, not just
+        # the descriptor layout, without copying vendor bytecode to the repo.
+        _, text_rva, text_size, text_offset = sections[".text"]
+        code = memoryview(binary)[text_offset : text_offset + text_size]
+        fingerprints = (
+            (
+                "JNI read Blob",
+                154,
+                0xBF433D76,
+                "8a80c7be36e1c13f7649ab62ba466f548ea1f876e78ed54e144f6e54e110cf60",
+            ),
+            (
+                "JNI write Blob",
+                136,
+                0xF6F23830,
+                "a9db0743744c6d623c1f2988b5d7437ae38495f57cb196b1291d8b53bf334b95",
+            ),
+            (
+                "VBus read Blob",
+                157,
+                0x07E4416A,
+                "cd077ffb2dd1e1c9fc4550c548850e87109fadf987039835beeed5ff1d300757",
+            ),
+            (
+                "VBus write Blob",
+                166,
+                0x61CE4F13,
+                "e742b2836e8580be998f7dd5f3df00382876ff393f061b5dcbc4db49051f13ff",
+            ),
+            (
+                "VBus bulk Blob",
+                189,
+                0x15E35D69,
+                "f682fd4cc40bf542bde79f4608042b2093de3e23c80dc5a1174db22fa3e2b300",
+            ),
+            (
+                "VBus bulk command",
+                23,
+                0x6EB10750,
+                "af86a19f2d78fc815e96c3419102e693c1e7fa0a63e334ec35dbf5f4b89bb067",
+            ),
+        )
+        locations = {}
+        for label, length, checksum, digest in fingerprints:
+            matches = []
+            for i in range(len(code) - length + 1):
+                candidate = code[i : i + length]
+                if (
+                    zlib.adler32(candidate) == checksum
+                    and hashlib.sha256(candidate).hexdigest() == digest
+                ):
+                    matches.append(text_rva + i)
+            print("Native instruction fingerprint:", label, [hex(x) for x in matches])
+            with self.subTest(label=label):
+                self.assertEqual(len(matches), 1)
+            if len(matches) == 1:
+                locations[label] = matches[0]
+        if len(locations) == len(fingerprints):
+            self.assertEqual(
+                locations["VBus bulk Blob"] - locations["VBus bulk command"],
+                0x6C,
+            )
+        # These blocks establish byte order and immediate mutation, not
+        # permission, commit durability or live physical recovery.
 
     @unittest.skipUnless(os.environ.get("RPT_ARCHIVE"), "real archive not provided")
     def test_exact_vendor_archive(self):
