@@ -463,7 +463,14 @@ def _dependency_layout(dependencies):
     result = {}
     for dep in dependencies:
         if isinstance(
-            dep, (PeerComparison, AnyDependencies, SolarSelection, ActorReferences, FunctionSelection)
+            dep,
+            (
+                PeerComparison,
+                AnyDependencies,
+                SolarSelection,
+                ActorReferences,
+                FunctionSelection,
+            ),
         ):
             result.update(dep.expected)
         else:
@@ -482,7 +489,7 @@ class AnyDependencies:
             | PeerComparison
             | WeeklyProgram
             | ActorReferences
-        | FunctionSelection,
+            | FunctionSelection,
             ...,
         ],
         ...,
@@ -816,7 +823,8 @@ class Setting:
         installed = (self.installed_by,) if self.installed_by else ()
         for dependency in (*installed, *self.dependencies, *self.relative_constraints):
             if isinstance(
-                dependency, (SolarSelection, AnyDependencies, ActorReferences, FunctionSelection)
+                dependency,
+                (SolarSelection, AnyDependencies, ActorReferences, FunctionSelection),
             ):
                 result.update(dependency.expected)
             else:
@@ -943,7 +951,10 @@ def _normalized_numeric(definition, limits):
         # Native correction editor advances one raw tenth of a volt.
         metadata["step"] = "0.1"
     elif (
-        re.fullmatch(r"Anlage_Wf[1-9][0-9]*_Funktionsblock_Volumenstrom(?:Ein|Aus)_(?:LpMin|GpMin)", definition.name)
+        re.fullmatch(
+            r"Anlage_Wf[1-9][0-9]*_Funktionsblock_Volumenstrom(?:Ein|Aus)_(?:LpMin|GpMin)",
+            definition.name,
+        )
         and "FlowSettingBase" in chain
         and metadata.get("quant") == "1.0"
         and metadata.get("storeFactor") == "0.1"
@@ -2290,7 +2301,16 @@ BX_PLUS_LOADING_SETTINGS = tuple(_loading_temperature_settings())
 
 
 def _operating_pair(
-    on, on_index, off, off_index, label, installed, dependencies, variants, *, rising,
+    on,
+    on_index,
+    off,
+    off_index,
+    label,
+    installed,
+    dependencies,
+    variants,
+    *,
+    rising,
     unit_selector=("TemperatureHysteresisSelector", 60),
 ):
     """Reuse a single selected-unit, ordered operating-pair contract."""
@@ -4410,23 +4430,49 @@ def _native_coordination_settings():
                 _installed_activity(root, 11273 + ho, 11275 + ho),
                 RangeDependency(root + "_NhRelais1_Nr", 11337 + ho, 1, 100),
                 RangeDependency(root + "_Sensor1_Nr", 11290 + ho, 1, 65),
-                AnyDependencies((
-                    (Dependency(mode, 11378 + ho, (0,)),),
-                    (Dependency(mode, 11378 + ho, (1,)), RangeDependency(root + "_Sensor2_Nr", 11294 + ho, 1, 65)),
-                )),
+                AnyDependencies(
+                    (
+                        (Dependency(mode, 11378 + ho, (0,)),),
+                        (
+                            Dependency(mode, 11378 + ho, (1,)),
+                            RangeDependency(root + "_Sensor2_Nr", 11294 + ho, 1, 65),
+                        ),
+                    )
+                ),
             ),
-            requested_conditions=(RequestedCondition(1, (FunctionSelection(root + "_FeststoffkesselMaske", 11286 + ho),)),),
+            requested_conditions=(
+                RequestedCondition(
+                    1, (FunctionSelection(root + "_FeststoffkesselMaske", 11286 + ho),)
+                ),
+            ),
         )
         ao = (slot - 1) * 251
         root = f"Anlage_Wf{slot}"
         prefix = root + "_RLBeimischung"
-        selection = FunctionSelection(prefix + "_HeizkreisInternMaske", 6783 + ao, heating=True)
+        selection = FunctionSelection(
+            prefix + "_HeizkreisInternMaske", 6783 + ao, heating=True
+        )
         mixer = (
             _installed_activity(root, 6566 + ao, 6568 + ao),
-            *(RangeDependency(root + f"_Sensor{n}_Nr", 6576 + ao + 4 * (n - 1), 1, 65) for n in range(1, 4)),
+            *(
+                RangeDependency(root + f"_Sensor{n}_Nr", 6576 + ao + 4 * (n - 1), 1, 65)
+                for n in range(1, 4)
+            ),
             RangeDependency(root + "_Relais1_Nr", 6592 + ao, 1, 100),
             RangeDependency(root + "_Relais2_Nr", 6600 + ao, 1, 100),
-            AnyDependencies(((PeerComparison(root + "_Relais1_Nr", 6592 + ao, root + "_Relais2_Nr", 6600 + ao, "ne"),),)),
+            AnyDependencies(
+                (
+                    (
+                        PeerComparison(
+                            root + "_Relais1_Nr",
+                            6592 + ao,
+                            root + "_Relais2_Nr",
+                            6600 + ao,
+                            "ne",
+                        ),
+                    ),
+                )
+            ),
             RangeDependency(prefix + "_Mischerstellzeit", 6772 + ao, 1, 20),
             _activity_thermal(
                 prefix,
@@ -4434,7 +4480,13 @@ def _native_coordination_settings():
                     ("dTEin", 6759 + ao, (10, 250, 5), (20, 500, 10), True),
                     ("dTAus", 6762 + ao, (5, 240, 5), (10, 480, 10), True),
                     ("dTSoll", 6765 + ao, (-200, 250, 10), (-400, 500, 20), True),
-                    ("TMax_Kesselruecklauf", 6768 + ao, (100, 800, 10), (500, 1760, 20), False),
+                    (
+                        "TMax_Kesselruecklauf",
+                        6768 + ao,
+                        (100, 800, 10),
+                        (500, 1760, 20),
+                        False,
+                    ),
                 ),
                 (("dTEin", 6759 + ao, "dTAus", 6762 + ao),),
             ),
@@ -4449,16 +4501,31 @@ def _native_coordination_settings():
             dependencies=mixer,
             requested_conditions=(
                 RequestedCondition(1, (selection,)),
-                RequestedCondition(0, (AnyDependencies(((
-                    RangeDependency(prefix + "_Mischerlaufzeit", 6771 + ao, 10, 600),
-                    _raw_steps(prefix + "_Justierzeit", 6773 + ao, 0, 1380, 60),
-                ),)),)),
+                RequestedCondition(
+                    0,
+                    (
+                        AnyDependencies(
+                            (
+                                (
+                                    RangeDependency(
+                                        prefix + "_Mischerlaufzeit", 6771 + ao, 10, 600
+                                    ),
+                                    _raw_steps(
+                                        prefix + "_Justierzeit", 6773 + ao, 0, 1380, 60
+                                    ),
+                                ),
+                            )
+                        ),
+                    ),
+                ),
             ),
         )
         prefix = root + "_Funktionsblock"
         yield from _operating_pair(
-            prefix + "_VolumenstromEin", 6748 + ao,
-            prefix + "_VolumenstromAus", 6751 + ao,
+            prefix + "_VolumenstromEin",
+            6748 + ao,
+            prefix + "_VolumenstromAus",
+            6751 + ao,
             f"Arrangement function {slot} flow predicate",
             Dependency(root + "_Type", 6559 + ao, (9,)),
             (
@@ -4468,8 +4535,20 @@ def _native_coordination_settings():
                 RangeDependency(root + "_Relais1_Nr", 6592 + ao, 1, 100),
             ),
             (
-                (0, "_LpMin", "L/min", ("1.0", "999.0", "0.1", "0.1"), ("0.5", "998.5", "0.1", "0.1")),
-                (1, "_GpMin", "gal/min", ("0.3", "263.9", "0.1", "0.1"), ("0.1", "263.8", "0.1", "0.1")),
+                (
+                    0,
+                    "_LpMin",
+                    "L/min",
+                    ("1.0", "999.0", "0.1", "0.1"),
+                    ("0.5", "998.5", "0.1", "0.1"),
+                ),
+                (
+                    1,
+                    "_GpMin",
+                    "gal/min",
+                    ("0.3", "263.9", "0.1", "0.1"),
+                    ("0.1", "263.8", "0.1", "0.1"),
+                ),
             ),
             rising=True,
             unit_selector=("FlowSelector", 61),
@@ -4491,13 +4570,27 @@ def _native_coordination_settings():
                 Dependency(root + "_ONachheizung", 13705 + off, (1,)),
                 _installed_activity(prefix, 13708 + off, 13710 + off),
                 RangeDependency(root + "_Relais6_Nr", 14003 + off, 1, 100),
-                AnyDependencies((
-                    (Dependency(prefix + "_Modus", 13706 + off, (0,)), RangeDependency(root + "_Sensor4_Nr", 13804 + off, 1, 65)),
-                    (Dependency(prefix + "_Modus", 13706 + off, (1,)), RangeDependency(root + "_Sensor4_Nr", 13804 + off, 1, 65), RangeDependency(root + "_Sensor5_Nr", 13808 + off, 1, 65)),
-                    (Dependency(prefix + "_Modus", 13706 + off, (2,)),),
-                )),
+                AnyDependencies(
+                    (
+                        (
+                            Dependency(prefix + "_Modus", 13706 + off, (0,)),
+                            RangeDependency(root + "_Sensor4_Nr", 13804 + off, 1, 65),
+                        ),
+                        (
+                            Dependency(prefix + "_Modus", 13706 + off, (1,)),
+                            RangeDependency(root + "_Sensor4_Nr", 13804 + off, 1, 65),
+                            RangeDependency(root + "_Sensor5_Nr", 13808 + off, 1, 65),
+                        ),
+                        (Dependency(prefix + "_Modus", 13706 + off, (2,)),),
+                    )
+                ),
             ),
-            requested_conditions=(RequestedCondition(1, (FunctionSelection(prefix + "_FeststoffkesselMaske", 14038 + off),)),),
+            requested_conditions=(
+                RequestedCondition(
+                    1,
+                    (FunctionSelection(prefix + "_FeststoffkesselMaske", 14038 + off),),
+                ),
+            ),
         )
 
 

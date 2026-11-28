@@ -600,7 +600,10 @@ def _read_settings(
                 sorted(
                     {
                         item
-                        for reference in (*setting.actor_references(), *setting.function_selections())
+                        for reference in (
+                            *setting.actor_references(),
+                            *setting.function_selections(),
+                        )
                         for item in reference.context(values)
                     }
                 )

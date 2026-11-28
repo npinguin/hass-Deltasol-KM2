@@ -81,34 +81,59 @@ class ParameterTests(unittest.TestCase):
         values.update({"mask": 2, "Anlage_Wf12_Type": 6, "Anlage_Wf12_Nr": 2})
         self.assertTrue(solid.matches(values))
         self.assertFalse(solid.matches({**values, "mask": 1 << 11}))
-        self.assertFalse(solid.matches({**values, "Anlage_Wf1_Type": 6, "Anlage_Wf1_Nr": 2}))
+        self.assertFalse(
+            solid.matches({**values, "Anlage_Wf1_Type": 6, "Anlage_Wf1_Nr": 2})
+        )
         self.assertFalse(solid.matches({**values, "Anlage_Wf4_Type": None}))
         self.assertFalse(solid.matches({**values, "mask": 0}))
         internal = c.FunctionSelection("mask", 1, heating=True)
         values = {root + "_Type": 0 for root, _ in internal.slots}
-        values.update({"mask": 2, "Heizung_Heizkreis2_Type": 1,
-                       "Heizung_Heizkreis2_Nr": 2, "Heizung_Heizkreis2_System": 0,
-                       "Heizung_Heizkreis2_Sensor1_Nr": 1, "Heizung_Heizkreis2_Relais1_Nr": 2})
+        values.update(
+            {
+                "mask": 2,
+                "Heizung_Heizkreis2_Type": 1,
+                "Heizung_Heizkreis2_Nr": 2,
+                "Heizung_Heizkreis2_System": 0,
+                "Heizung_Heizkreis2_Sensor1_Nr": 1,
+                "Heizung_Heizkreis2_Relais1_Nr": 2,
+            }
+        )
         self.assertTrue(internal.matches(values))
         self.assertFalse(internal.matches({**values, "Heizung_Heizkreis2_Nr": 1}))
-        self.assertFalse(internal.matches({**values, "Heizung_Heizkreis2_Relais1_Nr": 0}))
+        self.assertFalse(
+            internal.matches({**values, "Heizung_Heizkreis2_Relais1_Nr": 0})
+        )
 
     def test_native_flow_predicate_thresholds(self):
         c = parameters_configuration
-        settings = [s for s in c.BX_PLUS_COORDINATION_OPTIONS if "_Funktionsblock_Volumenstrom" in s.name]
+        settings = [
+            s
+            for s in c.BX_PLUS_COORDINATION_OPTIONS
+            if "_Funktionsblock_Volumenstrom" in s.name
+        ]
         self.assertEqual(len(settings), 64)
         for slot in range(1, 17):
             root = f"Anlage_Wf{slot}"
             prefix = root + "_Funktionsblock"
             for selector, alias in ((0, "_LpMin"), (1, "_GpMin")):
-                pair = [s for s in settings if s.name.startswith(prefix) and s.compound_mirrors[0][2].endswith(alias)]
+                pair = [
+                    s
+                    for s in settings
+                    if s.name.startswith(prefix)
+                    and s.compound_mirrors[0][2].endswith(alias)
+                ]
                 self.assertEqual(len(pair), 2)
                 values = {
-                    root + "_Type": 9, root + "_Aktiviert_Modus": 1,
-                    root + "_SensorVolumenstrom1_Nr": 1, root + "_Relais1_Nr": 2,
-                    prefix + "_OVolumenstrom": 1, "FlowSelector": selector,
-                    prefix + "_VolumenstromEin": 80, prefix + "_VolumenstromEin" + alias: 80,
-                    prefix + "_VolumenstromAus": 75, prefix + "_VolumenstromAus" + alias: 75,
+                    root + "_Type": 9,
+                    root + "_Aktiviert_Modus": 1,
+                    root + "_SensorVolumenstrom1_Nr": 1,
+                    root + "_Relais1_Nr": 2,
+                    prefix + "_OVolumenstrom": 1,
+                    "FlowSelector": selector,
+                    prefix + "_VolumenstromEin": 80,
+                    prefix + "_VolumenstromEin" + alias: 80,
+                    prefix + "_VolumenstromAus": 75,
+                    prefix + "_VolumenstromAus" + alias: 75,
                 }
                 on = next(s for s in pair if s.name.endswith("Ein"))
                 off = next(s for s in pair if s.name.endswith("Aus"))
@@ -116,27 +141,54 @@ class ParameterTests(unittest.TestCase):
                 self.assertFalse(on.accepts(values, 75))
                 self.assertTrue(off.accepts(values, 79))
                 self.assertFalse(off.accepts(values, 80))
-                self.assertFalse(on.accepts({**values, prefix + "_OVolumenstrom": 0}, 81))
-                self.assertFalse(on.accepts({**values, "FlowSelector": 1 - selector}, 81))
-                self.assertFalse(on.accepts({**values, prefix + "_VolumenstromAus" + alias: 74}, 81))
+                self.assertFalse(
+                    on.accepts({**values, prefix + "_OVolumenstrom": 0}, 81)
+                )
+                self.assertFalse(
+                    on.accepts({**values, "FlowSelector": 1 - selector}, 81)
+                )
+                self.assertFalse(
+                    on.accepts({**values, prefix + "_VolumenstromAus" + alias: 74}, 81)
+                )
 
     def test_solid_fuel_interlock_all_slots(self):
         c = parameters_configuration
-        switches = [s for s in c.BX_PLUS_COORDINATION_OPTIONS if s.name.endswith("_OFeststoffkesselAus")]
+        switches = [
+            s
+            for s in c.BX_PLUS_COORDINATION_OPTIONS
+            if s.name.endswith("_OFeststoffkesselAus")
+        ]
         self.assertEqual(len(switches), 23)
         for setting in switches:
             root = setting.name.removesuffix("_OFeststoffkesselAus")
             selection = next(setting.function_selections())
             values = {name: 0 for name in selection.expected}
-            values.update({selection.name: 2, "Anlage_Wf12_Type": 6, "Anlage_Wf12_Nr": 2})
+            values.update(
+                {selection.name: 2, "Anlage_Wf12_Type": 6, "Anlage_Wf12_Nr": 2}
+            )
             values[setting.installed_by.name] = setting.installed_by.allowed[0]
             values[setting.name] = 0
             if "_Nachheizung" in root:
                 circuit = root.removesuffix("_Nachheizung")
-                values.update({circuit + "_Aktiviert_Modus": 1, circuit + "_System": 0, circuit + "_ONachheizung": 1,
-                               root + "_Aktiviert_Modus": 1, root + "_Modus": 2, circuit + "_Relais6_Nr": 1})
+                values.update(
+                    {
+                        circuit + "_Aktiviert_Modus": 1,
+                        circuit + "_System": 0,
+                        circuit + "_ONachheizung": 1,
+                        root + "_Aktiviert_Modus": 1,
+                        root + "_Modus": 2,
+                        circuit + "_Relais6_Nr": 1,
+                    }
+                )
             else:
-                values.update({root + "_Aktiviert_Modus": 1, root + "_NhRelais1_Nr": 1, root + "_Sensor1_Nr": 1, root + "_ThBwErwaermung_Modus": 0})
+                values.update(
+                    {
+                        root + "_Aktiviert_Modus": 1,
+                        root + "_NhRelais1_Nr": 1,
+                        root + "_Sensor1_Nr": 1,
+                        root + "_ThBwErwaermung_Modus": 0,
+                    }
+                )
             self.assertTrue(setting.accepts(values, 1), setting.name)
             self.assertFalse(setting.accepts({**values, selection.name: 1}, 1))
             self.assertTrue(setting.accepts({**values, selection.name: 1}, 0))

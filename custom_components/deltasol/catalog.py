@@ -297,11 +297,19 @@ def parse_menu(xml, digest):
                 and index is not None
                 and 0 < index <= 65535
                 and (
-                    (metadata.get("selector_ref") == "TemperatureHysteresisSelector"
-                     and set(metadata.get("type_chain", ())) & {"TemperatureProxy", "HysteresisProxy"})
-                    or (metadata.get("selector_ref") == "FlowSelector"
+                    (
+                        metadata.get("selector_ref") == "TemperatureHysteresisSelector"
+                        and set(metadata.get("type_chain", ()))
+                        & {"TemperatureProxy", "HysteresisProxy"}
+                    )
+                    or (
+                        metadata.get("selector_ref") == "FlowSelector"
                         and "FlowProxy" in metadata.get("type_chain", ())
-                        and re.fullmatch(r"Anlage_Wf[1-9][0-9]*_Funktionsblock_Volumenstrom(?:Ein|Aus)", name))
+                        and re.fullmatch(
+                            r"Anlage_Wf[1-9][0-9]*_Funktionsblock_Volumenstrom(?:Ein|Aus)",
+                            name,
+                        )
+                    )
                 )
             ):
                 metadata["compound_parent_read_candidate"] = True
