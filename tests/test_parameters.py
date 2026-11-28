@@ -410,18 +410,20 @@ class ParameterTests(unittest.TestCase):
         self.session.read.return_value = 0x2734DABC
         master = "Heizung_Heizkreis1"
         follower = "Heizung_Heizkreis2"
-        self.values.update({
-            master + "_Type": (13684, 1),
-            master + "_Aktiviert_Modus": (13689, 1),
-            master + "_Betriebsart": (14014, 0),
-            master + "_OUrlaub": (14176, 0),
-            follower + "_Type": (14179, 1),
-            follower + "_Aktiviert_Modus": (14184, 1),
-            follower + "_Betriebsart": (14509, 0),
-            follower + "_Kopplung": (14534, 1),
-            follower + "_OUrlaub": (14671, 0),
-            "Urlaubsfunktion_Tage": (19063, 0),
-        })
+        self.values.update(
+            {
+                master + "_Type": (13684, 1),
+                master + "_Aktiviert_Modus": (13689, 1),
+                master + "_Betriebsart": (14014, 0),
+                master + "_OUrlaub": (14176, 0),
+                follower + "_Type": (14179, 1),
+                follower + "_Aktiviert_Modus": (14184, 1),
+                follower + "_Betriebsart": (14509, 0),
+                follower + "_Kopplung": (14534, 1),
+                follower + "_OUrlaub": (14671, 0),
+                "Urlaubsfunktion_Tage": (19063, 0),
+            }
+        )
         hints = {
             name: parameters.ParameterObservation(index, raw, "read")
             for name, (index, raw) in self.values.items()
