@@ -187,9 +187,7 @@ class AnyDependencies:
 
     @property
     def expected(self):
-        return {
-            dep.name: dep.index for group in self.groups for dep in group
-        }
+        return {dep.name: dep.index for group in self.groups for dep in group}
 
     def matches(self, values):
         return any(all(dep.matches(values) for dep in group) for group in self.groups)
@@ -1898,35 +1896,52 @@ def _heating_operating_settings():
                     RangeDependency(f"{room}_Sensor1_Nr", 13834 + delta, 1, 65),
                 )
                 for n in range(1, 6)
-                for room, delta in ((f"{root}_Raumthermostat{n}", offset + 32 * (n - 1)),)
+                for room, delta in (
+                    (f"{root}_Raumthermostat{n}", offset + 32 * (n - 1)),
+                )
             )
         )
         # The native interpolator handles either endpoint order, including
         # identical outdoor points (first flow target fallback).
         for suffix, index, label, celsius, fahrenheit, dependencies in (
             (
-                "Gerade_TAussen1", 13979, "linear outdoor point 1",
-                ("-20", "20"), ("-4", "68"),
+                "Gerade_TAussen1",
+                13979,
+                "linear outdoor point 1",
+                ("-20", "20"),
+                ("-4", "68"),
                 (Dependency(mode_name, mode_index, (3,)), outdoor),
             ),
             (
-                "Gerade_TVorlauf1", 13982, "linear flow point 1",
-                ("20", "90"), ("68", "194"),
+                "Gerade_TVorlauf1",
+                13982,
+                "linear flow point 1",
+                ("20", "90"),
+                ("68", "194"),
                 (Dependency(mode_name, mode_index, (3,)), outdoor),
             ),
             (
-                "Gerade_TAussen2", 13985, "linear outdoor point 2",
-                ("-20", "20"), ("-4", "68"),
+                "Gerade_TAussen2",
+                13985,
+                "linear outdoor point 2",
+                ("-20", "20"),
+                ("-4", "68"),
                 (Dependency(mode_name, mode_index, (3,)), outdoor),
             ),
             (
-                "Gerade_TVorlauf2", 13988, "linear flow point 2",
-                ("20", "90"), ("68", "194"),
+                "Gerade_TVorlauf2",
+                13988,
+                "linear flow point 2",
+                ("20", "90"),
+                ("68", "194"),
                 (Dependency(mode_name, mode_index, (3,)), outdoor),
             ),
             (
-                "Raum_TStart", 13991, "room control initial flow temperature",
-                ("20", "60"), ("68", "140"),
+                "Raum_TStart",
+                13991,
+                "room control initial flow temperature",
+                ("20", "60"),
+                ("68", "140"),
                 (Dependency(mode_name, mode_index, (4,)), rooms),
             ),
         ):
@@ -1946,10 +1961,15 @@ def _heating_operating_settings():
                     unit=unit,
                     installed_by=installed,
                     dependencies=(
-                        active, heating, flow, *dependencies,
+                        active,
+                        heating,
+                        flow,
+                        *dependencies,
                         Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                     ),
-                    compound_mirrors=((name, index, name + alias, index + selector + 1),),
+                    compound_mirrors=(
+                        (name, index, name + alias, index + selector + 1),
+                    ),
                 )
         yield Setting(
             f"{root}_Heizsystem_Raumeinfluss_Faktor",
@@ -1960,7 +1980,11 @@ def _heating_operating_settings():
             limits=("1", "9", "1", "1"),
             installed_by=installed,
             dependencies=(
-                active, heating, flow, outdoor, rooms,
+                active,
+                heating,
+                flow,
+                outdoor,
+                rooms,
                 Dependency(mode_name, mode_index, (5,)),
             ),
         )
@@ -1974,11 +1998,16 @@ def _heating_operating_settings():
             limits=("1", "3", "1", "1"),
             installed_by=installed,
             dependencies=(
-                active, heating, flow, rooms,
-                AnyDependencies((
-                    (Dependency(mode_name, mode_index, (4,)),),
-                    (Dependency(mode_name, mode_index, (5,)), outdoor),
-                )),
+                active,
+                heating,
+                flow,
+                rooms,
+                AnyDependencies(
+                    (
+                        (Dependency(mode_name, mode_index, (4,)),),
+                        (Dependency(mode_name, mode_index, (5,)), outdoor),
+                    )
+                ),
             ),
         )
         mixer = (

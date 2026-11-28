@@ -1155,8 +1155,13 @@ class ParameterTests(unittest.TestCase):
     def test_native_linear_and_room_control_follow_installed_mode(self):
         root = "Heizung_Heizkreis1"
         settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+
         def find(suffix, unit=None):
-            return next(s for s in settings if s.name == root + "_Heizsystem_" + suffix and s.unit == unit)
+            return next(
+                s
+                for s in settings
+                if s.name == root + "_Heizsystem_" + suffix and s.unit == unit
+            )
 
         linear = find("Gerade_TAussen1", "°C")
         initial = find("Raum_TStart", "°C")
@@ -1185,12 +1190,14 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(initial.accepts(values))
         for n in (2, 5):
             room = f"{root}_Raumthermostat{n}"
-            values.update({
-                room + "_Option": 1,
-                room + "_Aktiviert": 1,
-                room + "_Typ": 0,
-                room + "_Sensor1_Nr": n,
-            })
+            values.update(
+                {
+                    room + "_Option": 1,
+                    room + "_Aktiviert": 1,
+                    room + "_Typ": 0,
+                    room + "_Sensor1_Nr": n,
+                }
+            )
         self.assertTrue(initial.accepts(values, initial.encode(50)))
         self.assertTrue(aggregation.accepts(values, aggregation.encode("Maximum")))
         self.assertEqual(aggregation.decode(1), "Minimum")
