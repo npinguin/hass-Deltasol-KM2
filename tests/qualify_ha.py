@@ -1604,6 +1604,22 @@ async def qualify(directory, phase):
         assert_weekly_evidence(diagnostic)
         bound = entry.runtime_data.relay_coordinator.data.configuration
         assert any(cap.setting.value_definition is not None for cap in bound.values())
+        day = "Wsu1_Schaltuhr_Woche_TagMo_Daten"
+        contract = diagnostic["configuration_discovery"]["parameters"][day]
+        assert contract["reference_contract"]["catalogue_binding"] == "verified"
+        assert contract["contract_status"] == "live_verified"
+        control = diagnostic["configuration_controls"][day]
+        assert control["weekly_program"] == 1
+        assert control["active_references"] == ["Anlage_Wf4_SchaltuhrNr"]
+        # A bound, unallocated day is a known contract, not a live control.
+        inactive = diagnostic["configuration_discovery"]["parameters"][
+            "Wsu2_Schaltuhr_Woche_TagMo_Daten"
+        ]
+        assert inactive["reference_contract"]["catalogue_binding"] == "verified"
+        assert inactive["write_access_reason"] == "live_capability_not_confirmed"
+        assert diagnostic["configuration_discovery"]["parameters"][
+            "Wsu0_Schaltuhr_Woche_TagMo_Daten"
+        ]["write_access_reason"] == "reserved_native_weekly_slot"
 
         def entity(name, kind):
             return registry.async_get_entity_id(
