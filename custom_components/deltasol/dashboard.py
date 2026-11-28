@@ -59,7 +59,7 @@ def engineering_enabled(entry, user):
     )
 
 
-def capability_section(setting, state):
+def capability_section(setting, state, *, confirmed=False):
     """Classify verified native contracts, not inferred hydraulic relationships."""
     if setting:
         name = setting.name
@@ -74,6 +74,17 @@ def capability_section(setting, state):
             return "solar"
         if name.startswith("Anlage_") and "_Feststoffkessel_" in name:
             return "heating"
+        # Shared slot parameters (activity, timers) have no DHW-specific
+        # suffix. Use the verified installed contract, never a stale fallback.
+        if confirmed and setting.native_slot and setting.native_slot[1] == "Heizung_Wf":
+            installed = setting.installed_by
+            if (
+                installed
+                and installed.name == setting.native_slot[0] + "_Type"
+                and getattr(installed, "allowed", ())
+                and set(installed.allowed) <= {2, 3, 4}
+            ):
+                return "hot_water"
         if name.startswith("Heizung_"):
             return "heating"
         if setting.native_slot and setting.native_slot[1] == "Wmz":
@@ -370,7 +381,9 @@ def dashboard_objects(hass, user):
                 row.entity_id.startswith("button.") and availability == "unknown"
             ):
                 control = False
-            section = capability_section(setting, state)
+            section = capability_section(
+                setting, state, confirmed=bool(cap and availability == "available")
+            )
             role, priority = capability_role(setting, state, depth)
             asset = objects.setdefault(
                 device.id,

@@ -291,3 +291,12 @@ test("functional views use existing controls and offer one scoped route to setti
   p.tab="hot_water";
   assert.ok(!p.cards().includes("data-input"));
 });
+
+test("native meter, solar and controller preferences localize without changing their native identity",()=>{
+  const p=model(true,true);
+  assert.equal(p.capabilityLabel({native_label:"HQM 2 alternative display unit"}),"Warmtemeter 2 · Alternatieve weergave-eenheid");
+  assert.equal(p.capabilityLabel({native_label:"Solar exchanger 1 target temperature"}),"Zonnewarmtewisselaar 1 · Doeltemperatuur");
+  assert.equal(p.capabilityLabel({native_label:"Controller-wide holiday remaining days"}),"Resterende vakantiedagen (hele regelaar)");
+  p._hass.language="fr";
+  assert.equal(p.capabilityLabel({native_label:"Heating demand 1 minimum runtime"}),"Demande de chauffage 1 · Durée minimale de fonctionnement");
+});

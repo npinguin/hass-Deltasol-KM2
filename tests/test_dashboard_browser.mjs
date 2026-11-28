@@ -15,10 +15,13 @@ function journey(){
     {entity_id:"sensor.temp",name:"Buffer temperature",section:"overview",depth:"status",kind:"sensor"},
     {entity_id:"select.mode",name:"Heating mode",section:"heating",depth:"controls",kind:"select",control:true},
     {entity_id:"text.week",name:"Monday",section:"schedule",depth:"settings",kind:"text",control:true,schedule:true,shared_references:["Heating"]},
-    {entity_id:"button.discovery",name:"Discovery",section:"overview",depth:"engineering",kind:"button",control:true}
+    {entity_id:"button.discovery",name:"Discovery",section:"overview",depth:"engineering",kind:"button",control:true},
+    {entity_id:"number.solar",name:"Solar store 1 target temperature",section:"solar",depth:"settings",kind:"number",control:true},
+    {entity_id:"number.dhw",name:"Heating function 2 loading on temperature",section:"hot_water",depth:"settings",kind:"number",control:true},
+    {entity_id:"sensor.yield",name:"Heat yield",section:"energy",depth:"status",kind:"sensor",role:"energy"}
   ];
   let admin=true,engineering=true;
-  const hass={language:"en",states:{"sensor.temp":state("42",{unit_of_measurement:"°C"}),"select.mode":state("Auto",{options:["Auto","Off"]}),"text.week":state("08:00-10:00"),"button.discovery":state("unknown")},callWS:async request=>{
+  const hass={language:"en",states:{"sensor.temp":state("42",{unit_of_measurement:"°C"}),"select.mode":state("Auto",{options:["Auto","Off"]}),"text.week":state("08:00-10:00"),"button.discovery":state("unknown"),"number.solar":state("60",{min:30,max:85,step:1,unit_of_measurement:"°C"}),"number.dhw":state("45",{min:10,max:80,step:1,unit_of_measurement:"°C"}),"sensor.yield":state("1200",{unit_of_measurement:"Wh"})},callWS:async request=>{
     calls.push(request);
     if(request.type.endsWith("/list"))return [{id:"one",name:"System 1",settings:admin,engineering:admin&&engineering,health:{telemetry:true,parameter_access:true,catalogue:true,selectors_observed:12,selectors_total:16,checkpoint:"checkpoint_incompatible"},objects:[{id:"native",name:"RESOL Arrangement function 1",object_kind:"solid_fuel",object_number:1,capabilities:rows.filter(row=>admin||row.depth!=="engineering"&&row.depth!=="settings")}]},{id:"two",name:"System 2",settings:admin,engineering:false,objects:[]}];
     if(request.type.endsWith("/engineering"))return {configuration_discovery:{parameters:{Schema:{status:"read"}}}};
@@ -42,7 +45,17 @@ function journey(){
     check(root.textContent.includes("Check the native source device"),"Missing actionable unavailable state");
     hass.states["sensor.temp"]=state("42",{unit_of_measurement:"°C"});
     panel.hass=hass;panel.render();
+    click('[data-tab="solar"]');
+    check(root.textContent.includes("Solar store 1"),"Solar preference missing");
+    click('[data-object-settings="native"]');
+    check(root.querySelector('[data-input="number.solar"]'),"Solar owner control not reachable");
+    click('[data-tab="hot_water"]');
+    check(root.textContent.includes("Heating function 2"),"Hot water preference missing");
+    check(!root.querySelector('[data-input="number.solar"]'),"Solar setting leaked into hot water");
+    choose("#object","");
     click('[data-tab="energy"]');
+    check(root.textContent.includes("Energy and power"),"Heat yield group missing");
+    check(root.textContent.includes("1200 Wh"),"Observed heat yield missing");
     check(root.textContent.includes("Other recorded measurements"),"History cannot find non-energy measurements");
     check(root.textContent.includes("Buffer temperature"),"Native temperature missing from history view");
     check(!root.querySelector('[data-input="select.mode"]'),"Unrelated heating control in energy view");

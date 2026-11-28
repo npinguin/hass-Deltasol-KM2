@@ -413,3 +413,18 @@ class DashboardTests(unittest.TestCase):
                     self.assertIsNone(resident_access)
                 else:
                     self.assertEqual(resident_access, (depth, depth == "controls"))
+
+    def test_shared_dhw_parameters_follow_only_the_confirmed_installed_contract(self):
+        section = self.ns["capability_section"]
+        setting = SimpleNamespace(
+            name="Heizung_Wf2_Aktiviert_Modus",
+            weekly_slot=None,
+            native_slot=("Heizung_Wf2", "Heizung_Wf", 2),
+            installed_by=SimpleNamespace(name="Heizung_Wf2_Type", allowed=(2,)),
+        )
+        self.assertEqual(section(setting, None, confirmed=True), "hot_water")
+        self.assertEqual(section(setting, None), "heating")
+        setting.installed_by.allowed = (1, 2)
+        self.assertEqual(section(setting, None, confirmed=True), "heating")
+        setting.installed_by.allowed = (4,)
+        self.assertEqual(section(setting, None, confirmed=True), "hot_water")
