@@ -344,6 +344,124 @@ class ParameterTests(unittest.TestCase):
                             setting.accepts({**values, "Solar_Kol2_Sensor1_Nr": 0}, 1)
                         )
 
+    def test_native_actor_reference_controls_and_namespaces(self):
+        config = parameters_configuration
+        for slot in range(1, 17):
+            root = f"Anlage_Wf{slot}"
+            actor = 71
+            role = 19 | (slot << 8)
+            common = {
+                root + "_Aktiviert_Modus": 1,
+                root + "_Relais1_Nr": actor,
+                root + "_Relais1_Funktion": role,
+                f"Aktor{actor}_Funktion": role,
+                f"Aktor{actor}_RelaisNr": 2,
+                f"Aktor{actor}_AusgangNr": 1,
+                "Relais_Regler_R2_AktorFunktion": role,
+                "Ausgang_Regler_A1_AktorFunktion": role,
+                "Relais_Regler_R1_AktorFunktion": 2,
+                "Ausgang_Regler_A2_AktorFunktion": 3,
+            }
+            prefix = root + "_Parallelrelais"
+            for flag, duration in (("ONachlauf", "dtNachlauf"), ("OVerzoegerung", "dtVerzoegerung")):
+                setting = next(s for s in config.BX_PLUS_REFERENCE_SETTINGS if s.name == prefix + "_" + flag)
+                values = {
+                    **common,
+                    root + "_Type": 1,
+                    root + "_Bezugsrelais1_Nr": 257,
+                    setting.name: 0,
+                    prefix + "_" + duration: 10,
+                }
+                self.assertTrue(setting.accepts(values, 1))
+                for reference in (2, 258, 513, 768, 0, 71):
+                    self.assertFalse(setting.accepts({**values, root + "_Bezugsrelais1_Nr": reference}, 1))
+                self.assertTrue(setting.accepts({**values, root + "_Bezugsrelais1_Nr": 514}, 1))
+                self.assertFalse(setting.accepts({**values, prefix + "_" + duration: 31}, 1))
+                self.assertTrue(setting.accepts({**values, prefix + "_" + duration: 31}, 0))
+                self.assertFalse(setting.accepts({**values, f"Aktor{actor}_Funktion": 0}, 1))
+                self.assertFalse(setting.accepts({**values, "Relais_Regler_R2_AktorFunktion": 3}, 1))
+                self.assertTrue(setting.accepts({**values, root + "_Bezugsrelais1_Nr": 1}, 1))
+                module_values = {
+                    **values,
+                    root + "_Bezugsrelais1_Nr": 271,
+                    "Relais_Modul1_R1_AktorFunktion": 2,
+                    "Modul1_Aktiviert": 1,
+                    "Modul1_Vorhanden": 1,
+                }
+                self.assertTrue(setting.accepts(module_values, 1))
+                self.assertFalse(setting.accepts({**module_values, "Modul1_Vorhanden": 0}, 1))
+            prefix = root + "_Funktionsblock"
+            flag, mode = (
+                next(s for s in config.BX_PLUS_REFERENCE_SETTINGS if s.name == prefix + "_" + name)
+                for name in ("OBezugsrelais", "Bezugsrelais_Modus")
+            )
+            values = {
+                **common,
+                root + "_Type": 9,
+                flag.name: 0,
+                mode.name: 0,
+                **{f"{prefix}_Bezugsrelais{number}_Nr": 0 for number in range(1, 6)},
+                prefix + "_Bezugsrelais1_Nr": 1,
+                prefix + "_Bezugsrelais3_Nr": 514,
+            }
+            self.assertTrue(flag.accepts(values, 1))
+            self.assertFalse(mode.accepts(values))
+            values[flag.name] = 1
+            for raw in range(4):
+                self.assertTrue(mode.accepts(values, raw))
+            self.assertFalse(mode.accepts(values, 4))
+            self.assertFalse(mode.accepts({**values, prefix + "_Bezugsrelais2_Nr": 257}, 1))
+            self.assertFalse(mode.accepts({**values, prefix + "_Bezugsrelais2_Nr": 258}, 1))
+            missing = dict(values)
+            del missing[prefix + "_Bezugsrelais5_Nr"]
+            self.assertFalse(mode.accepts(missing, 1))
+
+    def test_actor_reference_readback_rejects_stale_assignment(self):
+        self.session.read.return_value = 0x2734DABC
+        root = "Anlage_Wf1"
+        flag = root + "_Parallelrelais_ONachlauf"
+        self.values.update(
+            {
+                root + "_Type": (6559, 1),
+                root + "_Aktiviert_Modus": (6566, 1),
+                root + "_Relais1_Nr": (6592, 71),
+                root + "_Relais1_Funktion": (6593, 275),
+                root + "_Bezugsrelais1_Nr": (6616, 257),
+                flag: (6621, 0),
+                root + "_Parallelrelais_dtNachlauf": (6622, 10),
+                "Aktor71_Funktion": (3010, 275),
+                "Aktor71_RelaisNr": (3011, 2),
+                "Aktor71_AusgangNr": (3012, 0),
+                "Relais_Regler_R2_AktorFunktion": (1985, 275),
+                "Relais_Regler_R1_AktorFunktion": (1971, 2),
+                "Relais_Regler_R3_AktorFunktion": (1999, 3),
+            }
+        )
+        hints = {root + "_Type": parameters.ParameterObservation(6559, 1, "read")}
+        cap = next(
+            cap
+            for cap in self.api.discover(telemetry(), hints).configuration.values()
+            if cap.setting.name == flag
+        )
+        self.assertTrue(cap.reference_context)
+        # A different but otherwise valid reference must not inherit old intent.
+        self.values[root + "_Bezugsrelais1_Nr"] = (6616, 259)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, True)
+        self.session.write_verified.assert_not_called()
+        self.values[root + "_Bezugsrelais1_Nr"] = (6616, 257)
+
+        def write(address, index, value, changeset, save=False):
+            self.assertEqual((address, index, value, changeset, save), (0x7112, 6621, 1, 0x2734DABC, True))
+            self.values[flag] = (index, value)
+
+        self.session.write_verified.side_effect = write
+        result = self.api.set_configuration(telemetry(), cap, True)
+        self.assertTrue(result.value)
+        self.session.write_verified.assert_called_once()
+        self.api.set_configuration(telemetry(), result, True)
+        self.session.write_verified.assert_called_once()
+
     def test_function_block_restart_delay_option_all_slots(self):
         config = parameters_configuration
         for slot in range(1, 17):

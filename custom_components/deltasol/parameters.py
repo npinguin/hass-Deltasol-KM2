@@ -31,6 +31,7 @@ from .configuration import (
     BX_PLUS_OPERATING_MODE_OPTIONS,
     BX_PLUS_PROGRAM_OPTIONS,
     BX_PLUS_PUMP_SETTINGS,
+    BX_PLUS_REFERENCE_SETTINGS,
     BX_PLUS_ROOM_THERMAL_CONTROLS,
     BX_PLUS_SETTINGS,
     BX_PLUS_SOLAR_COLLECTOR_SETTINGS,
@@ -44,6 +45,7 @@ from .configuration import (
     BX_PLUS_TRANSFER_SETTINGS,
     BX_PLUS_WEEKLY_TIMER_OPTIONS,
     WEEKLY_OWNERS,
+    ActorReferences,
     ConfigurationCapability,
     Setting,
     WeeklyProgram,
@@ -165,6 +167,7 @@ PROFILES = (
             *BX_PLUS_OPERATING_MODE_OPTIONS,
             *BX_PLUS_ROOM_THERMAL_CONTROLS,
             *BX_PLUS_ACTIVITY_SETTINGS,
+            *BX_PLUS_REFERENCE_SETTINGS,
             *BX_PLUS_DIFFERENTIAL_SETTINGS,
             *BX_PLUS_TRANSFER_SETTINGS,
             *BX_PLUS_SOLID_FUEL_MIXER_SETTINGS,
@@ -312,6 +315,107 @@ def _checked_parameters(session, profile, changeset, expected):
     }
 
 
+def _read_actor_dependencies(
+    session, profile, changeset, settings, values, controller, inventory, relay_capabilities
+):
+    """Resolve only referenced registry records and physical output evidence."""
+    dependencies = {
+        reference
+        for setting in settings
+        if setting.installed_by is None or setting.installed_by.matches(values)
+        for reference in setting.actor_references()
+    }
+    if not dependencies:
+        return
+
+    def read(expected):
+        if not expected:
+            return {}
+        return session.read_parameter_observations(
+            profile.address,
+            expected,
+            changeset,
+            expected=expected,
+            schema=profile.schema_index,
+        )
+
+    def merge(observed, expected):
+        values.update(
+            {
+                name: row.value
+                for name, row in observed.items()
+                if row.status == "read" and row.index == expected[name]
+            }
+        )
+
+    registry = {
+        name: index
+        for ref in dependencies
+        for name, index in ActorReferences.actor_layout(values.get(ref.name)).items()
+    }
+    merge(read(registry), registry)
+    outputs = {
+        name: index
+        for ref in dependencies
+        for name, index in ref.output_dependencies(values).items()
+    }
+    observed = read(outputs)
+    merge(observed, outputs)
+    # Reuse the exact-profile presence exception only for known observed
+    # modules, never for an explicit negative or invalid presence result.
+    for group in profile.groups:
+        if not group.flags:
+            continue
+        activation, presence = (name for name, _ in group.flags)
+        row = observed.get(presence)
+        if (
+            row is None
+            or row.status != "not_resolved"
+            or row.index is not None
+            or values.get(activation) != 1
+        ):
+            continue
+        device = find_device(inventory, group.address)
+        if device is None or device.serial != controller.serial:
+            continue
+        if relay_capabilities is None:
+            numbers = tuple(
+                number
+                for number in range(1, len(group.indices) + 1)
+                if group.parameter(number, "AktorFunktion") in outputs
+            )
+            if not numbers:
+                continue
+            _, relays = _read_group(
+                session, profile, changeset, group, controller, device, numbers
+            )
+        else:
+            relays = relay_capabilities
+        if any(
+            cap.group == group
+            and cap.device == device
+            and group.parameter(cap.number, "AktorFunktion") in outputs
+            for cap in relays.values()
+        ):
+            values[presence + "#verified"] = 1
+    # The native assignment may be replaced during the extra reads. Never
+    # keep a previously resolved actor or physical reference in that case.
+    links = {
+        **{name: index for ref in dependencies for name, index in ref.expected.items()},
+        **registry,
+    }
+    reread = read(links)
+    for name, index in links.items():
+        row = reread.get(name)
+        if (
+            row is None
+            or row.status != "read"
+            or row.index != index
+            or row.value != values.get(name)
+        ):
+            values.pop(name, None)
+
+
 def _read_settings(
     session,
     profile,
@@ -379,6 +483,9 @@ def _read_settings(
         for name, result in observed.items()
         if result.status == "read" and result.index == expected[name]
     }
+    _read_actor_dependencies(
+        session, profile, changeset, settings, values, controller, inventory, relay_capabilities
+    )
     # Resolve the native pool only after observing the owner's exact reference.
     # A read-only refresh needs allocation/initialization; actual enable or
     # predicate removal additionally verifies all seven packed days.
@@ -471,6 +578,15 @@ def _read_settings(
                 setting.timer_reference.slot(values)
                 if setting.timer_reference
                 else None
+            ),
+            reference_context=tuple(
+                sorted(
+                    {
+                        item
+                        for reference in setting.actor_references()
+                        for item in reference.context(values)
+                    }
+                )
             ),
         )
         uid = capability.unique_id
@@ -1179,6 +1295,7 @@ class RelayParameters:
                 and current.owners == capability.owners
                 and current.active_owners == capability.active_owners
                 and current.program_reference == capability.program_reference
+                and current.reference_context == capability.reference_context
             )
 
         with self._lock:

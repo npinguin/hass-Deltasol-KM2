@@ -245,10 +245,154 @@ class WeeklyProgram:
         )
 
 
+@dataclass(frozen=True)
+class ActorReferences:
+    """Resolve native actor IDs separately from encoded physical references."""
+
+    name: str
+    index: int
+    references: tuple[tuple[str, int], ...]
+
+    @property
+    def expected(self):
+        return {
+            self.name: self.index,
+            self.name.removesuffix("_Nr") + "_Funktion": self.index + 1,
+            **dict(self.references),
+        }
+
+    @staticmethod
+    def actor_layout(actor):
+        if type(actor) is not int or not 1 <= actor <= 100:
+            return {}
+        base = 2660 + 5 * (actor - 1)
+        return {
+            f"Aktor{actor}_Funktion": base,
+            f"Aktor{actor}_RelaisNr": base + 1,
+            f"Aktor{actor}_AusgangNr": base + 2,
+        }
+
+    @staticmethod
+    def decode_reference(raw):
+        if type(raw) is not int or not 0 < raw <= 0x7FFF:
+            return None
+        kind, number = divmod(raw, 256)
+        if kind in (0, 1) and 1 <= number <= 45:
+            return ("relay", number)
+        if kind == 2 and 1 <= number <= 4:
+            return ("analog", number)
+        return None
+
+    @staticmethod
+    def output_layout(output):
+        kind, number = output
+        if kind == "analog" and 1 <= number <= 4:
+            return {f"Ausgang_Regler_A{number}_AktorFunktion": 2602 + 15 * (number - 1)}
+        if kind != "relay" or not 1 <= number <= 45:
+            return {}
+        if number <= 14:
+            return {f"Relais_Regler_R{number}_AktorFunktion": 1971 + 14 * (number - 1)}
+        if number <= 39:
+            module, relay = divmod(number - 15, 5)
+            return {
+                f"Relais_Modul{module + 1}_R{relay + 1}_AktorFunktion": 2167
+                + 14 * (number - 15),
+                f"Modul{module + 1}_Aktiviert": 191 + 6 * module,
+                f"Modul{module + 1}_Vorhanden": 193 + 6 * module,
+            }
+        return {f"Relais_Virtuell_R{number - 39}_AktorFunktion": 2517 + 14 * (number - 40)}
+
+    def owner_outputs(self, values):
+        names = tuple(self.actor_layout(values.get(self.name)))
+        if not names:
+            return ()
+        _, relay, analog = (values.get(name) for name in names)
+        if (
+            type(relay) is not int
+            or type(analog) is not int
+            or not 0 <= relay <= 45
+            or not 0 <= analog <= 4
+        ):
+            return ()
+        return tuple(
+            output for output in (("relay", relay), ("analog", analog)) if output[1]
+        )
+
+    def output_dependencies(self, values):
+        outputs = set(self.owner_outputs(values))
+        outputs.update(
+            output
+            for name, _ in self.references
+            if (output := self.decode_reference(values.get(name))) is not None
+        )
+        return {
+            name: index
+            for output in outputs
+            for name, index in self.output_layout(output).items()
+        }
+
+    @staticmethod
+    def assigned_role(raw):
+        # Native AktorFunktion is a 16-bit role plus instance, not a plain enum.
+        return type(raw) is int and 0 <= raw <= 0xFFFF and 2 <= raw & 0xFF <= 68
+
+    @classmethod
+    def output_role(cls, output, values):
+        layout = cls.output_layout(output)
+        if not layout:
+            return None
+        role = values.get(next(iter(layout)))
+        if not cls.assigned_role(role):
+            return None
+        for name in tuple(layout)[1:]:
+            if values.get(name) == 1:
+                continue
+            if name.endswith("_Vorhanden") and values.get(name + "#verified") == 1:
+                continue
+            return None
+        return role
+
+    def matches(self, values):
+        names = tuple(self.actor_layout(values.get(self.name)))
+        owners = self.owner_outputs(values)
+        if not names or not owners:
+            return False
+        role = values.get(names[0])
+        if (
+            not self.assigned_role(role)
+            or role != values.get(self.name.removesuffix("_Nr") + "_Funktion")
+            or any(self.output_role(output, values) != role for output in owners)
+        ):
+            return False
+        refs = []
+        for name, _ in self.references:
+            raw = values.get(name)
+            if type(raw) is not int:
+                return False
+            if raw == 0:
+                continue
+            output = self.decode_reference(raw)
+            if output is None or output in owners or self.output_role(output, values) is None:
+                return False
+            refs.append(output)
+        return bool(refs) and len(refs) == len(set(refs))
+
+    def context(self, values):
+        layout = {
+            **self.expected,
+            **self.actor_layout(values.get(self.name)),
+            **self.output_dependencies(values),
+        }
+        return tuple(
+            (name, values.get(name + "#verified", values.get(name)))
+            for name in sorted(layout)
+        )
+
+
 def _dependency_layout(dependencies):
     result = {}
     for dep in dependencies:
-        if isinstance(dep, (PeerComparison, AnyDependencies, SolarSelection)):
+        if isinstance(dep, (PeerComparison, AnyDependencies, SolarSelection, ActorReferences)):
             result.update(dep.expected)
         else:
             result[dep.name] = dep.index
@@ -260,7 +404,11 @@ class AnyDependencies:
     """At least one complete positively verified native assignment group."""
 
     groups: tuple[
-        tuple[Dependency | RangeDependency | PeerComparison | WeeklyProgram, ...], ...
+        tuple[
+            Dependency | RangeDependency | PeerComparison | WeeklyProgram | ActorReferences,
+            ...,
+        ],
+        ...,
     ]
 
     @property
@@ -357,7 +505,8 @@ class RequestedCondition:
         | PeerComparison
         | WeeklyProgram
         | AnyDependencies
-        | SolarSelection,
+        | SolarSelection
+        | ActorReferences,
         ...,
     ]
 
@@ -420,7 +569,12 @@ class Setting:
     limits: tuple[str, str, str, str] | None = None  # min, max, step, factor
     unit: str | None = None
     dependencies: tuple[
-        Dependency | RangeDependency | SolarSelection | AnyDependencies | WeeklyProgram,
+        Dependency
+        | RangeDependency
+        | SolarSelection
+        | AnyDependencies
+        | WeeklyProgram
+        | ActorReferences,
         ...,
     ] = ()
     owner_address: int | None = None
@@ -467,6 +621,21 @@ class Setting:
         for condition in self.requested_conditions:
             if requested == condition.raw:
                 yield from walk(condition.alternatives)
+
+    def actor_references(self):
+        """Only established, fixed native references; never scan all actors."""
+
+        def walk(dependencies):
+            for dep in dependencies:
+                if isinstance(dep, ActorReferences):
+                    yield dep
+                elif isinstance(dep, AnyDependencies):
+                    for group in dep.groups:
+                        yield from walk(group)
+
+        yield from walk(self.dependencies)
+        for condition in self.requested_conditions:
+            yield from walk(condition.alternatives)
 
     @property
     def native_slot(self):
@@ -554,7 +723,7 @@ class Setting:
         result = {self.name: self.index}
         installed = (self.installed_by,) if self.installed_by else ()
         for dependency in (*installed, *self.dependencies, *self.relative_constraints):
-            if isinstance(dependency, (SolarSelection, AnyDependencies)):
+            if isinstance(dependency, (SolarSelection, AnyDependencies, ActorReferences)):
                 result.update(dependency.expected)
             else:
                 result[dependency.name] = dependency.index
@@ -836,6 +1005,7 @@ class ConfigurationCapability:
     owners: tuple[str, ...] = ()
     active_owners: tuple[str, ...] = ()
     program_reference: int | None = None
+    reference_context: tuple[tuple[str, int | None], ...] = ()
 
     @property
     def unique_id(self):
@@ -1660,6 +1830,11 @@ def _timing_settings():
                     Dependency(
                         f"{arrangement}_Parallelrelais_{flag}", flag_index + ao, (1,)
                     ),
+                    ActorReferences(
+                        arrangement + "_Relais1_Nr",
+                        6592 + ao,
+                        ((arrangement + "_Bezugsrelais1_Nr", 6616 + ao),),
+                    ),
                 ),
                 installed_by=Dependency(f"{arrangement}_Type", 6559 + ao, (1,)),
             )
@@ -1826,6 +2001,79 @@ def _timing_settings():
             dependencies=(Dependency(f"{solar}_Aktiviert_Modus", 4415 + so, (1, 2)),),
             installed_by=Dependency(f"{solar}_Type", 4409 + so, (11,)),
         )
+
+
+def _reference_settings():
+    """Native reference-dependent options, never the assignments themselves."""
+    for slot in range(1, 17):
+        ao = (slot - 1) * 251
+        root = f"Anlage_Wf{slot}"
+        active = AnyDependencies(
+            (
+                (Dependency(root + "_Aktiviert_Modus", 6566 + ao, (1,)),),
+                (
+                    Dependency(root + "_Aktiviert_Modus", 6566 + ao, (2,)),
+                    RangeDependency(root + "_Aktiviert_SensorSchalter_Nr", 6568 + ao, 1, 65),
+                ),
+            )
+        )
+        parallel = ActorReferences(
+            root + "_Relais1_Nr",
+            6592 + ao,
+            ((root + "_Bezugsrelais1_Nr", 6616 + ao),),
+        )
+        for suffix, index, duration, label in (
+            ("ONachlauf", 6621, "dtNachlauf", "overrun"),
+            ("OVerzoegerung", 6623, "dtVerzoegerung", "delay"),
+        ):
+            prefix = root + "_Parallelrelais"
+            yield Setting(
+                prefix + "_" + suffix,
+                index + ao,
+                f"Arrangement function {slot} parallel relay {label} enabled",
+                "switch",
+                True,
+                installed_by=Dependency(root + "_Type", 6559 + ao, (1,)),
+                dependencies=(active, parallel),
+                requested_conditions=(
+                    RequestedCondition(1, (RangeDependency(prefix + "_" + duration, index + ao + 1, 1, 30),)),
+                ),
+            )
+        prefix = root + "_Funktionsblock"
+        references = ActorReferences(
+            root + "_Relais1_Nr",
+            6592 + ao,
+            tuple(
+                (f"{prefix}_Bezugsrelais{number}_Nr", 6736 + ao + number)
+                for number in range(1, 6)
+            ),
+        )
+        installed = Dependency(root + "_Type", 6559 + ao, (9,))
+        flag = Dependency(prefix + "_OBezugsrelais", 6735 + ao, (1,))
+        mode = Dependency(prefix + "_Bezugsrelais_Modus", 6736 + ao, (0, 1, 2, 3))
+        yield Setting(
+            flag.name,
+            flag.index,
+            f"Arrangement function {slot} reference logic enabled",
+            "switch",
+            True,
+            installed_by=installed,
+            dependencies=(active, references),
+            requested_conditions=(RequestedCondition(1, (mode,)),),
+        )
+        yield Setting(
+            mode.name,
+            mode.index,
+            f"Arrangement function {slot} reference logic",
+            "select",
+            True,
+            options=(("OR", 0), ("AND", 1), ("NOR", 2), ("NAND", 3)),
+            installed_by=installed,
+            dependencies=(active, references, flag),
+        )
+
+
+BX_PLUS_REFERENCE_SETTINGS = tuple(_reference_settings())
 
 
 BX_PLUS_TIMING_SETTINGS = tuple(_timing_settings())

@@ -1288,6 +1288,36 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(flag[0] - duration[0], 42)
             delay_pairs.add(flag[2:])
         self.assertEqual(len(delay_pairs), 1)
+        for actor in range(1, 101):
+            root = f"Aktor{actor}"
+            role = descriptor(root + "_Funktion")[0]
+            self.assertEqual(descriptor(root + "_RelaisNr")[0], role + 2)
+            self.assertEqual(descriptor(root + "_AusgangNr")[0], role + 3)
+            for name, index in configuration.ActorReferences.actor_layout(actor).items():
+                self.assertEqual(values[name], index)
+        relay_base = descriptor("Relais_Regler_R1_AktorFunktion")[0]
+        for number in range(1, 46):
+            layout = configuration.ActorReferences.output_layout(("relay", number))
+            role = next(iter(layout))
+            self.assertEqual(descriptor(role)[0], relay_base + 4 * (number - 1))
+            for name, index in layout.items():
+                self.assertEqual(values[name], index)
+        for number in range(1, 5):
+            layout = configuration.ActorReferences.output_layout(("analog", number))
+            role = next(iter(layout))
+            self.assertEqual(descriptor(role)[0], relay_base + 4 * (44 + number))
+            for name, index in layout.items():
+                self.assertEqual(values[name], index)
+        decoder_prefix = bytes.fromhex("5589e583ec108b4508c1f808")
+        decoder_matches = []
+        position = text_offset
+        while (position := binary.find(decoder_prefix, position, text_offset + text_size)) >= 0:
+            if hashlib.sha256(binary[position : position + 115]).hexdigest() == (
+                "8eff49107718eba0bd1cbef241e3220dd4e081f46e8ba52262acac0e6f5657ad"
+            ):
+                decoder_matches.append(position)
+            position += 1
+        self.assertEqual(len(decoder_matches), 1)
         prefix = bytes.fromhex("5589e583ec388b450c8845e4807de400747a8b45")
         matches = []
         position = text_offset
@@ -1988,6 +2018,19 @@ class DiscoveryTests(unittest.TestCase):
                         catalog.numeric_encoding(definitions[alias]),
                         tuple(Decimal(v) for v in setting.limits),
                     )
+        self.assertEqual(len(configuration.BX_PLUS_REFERENCE_SETTINGS), 64)
+        for setting in configuration.BX_PLUS_REFERENCE_SETTINGS:
+            self.assertIn(setting.name, bound_names)
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertTrue(target.metadata["menu_refs"])
+            self.assertEqual(target.metadata["rpt_storage"], "preferences")
+            if setting.kind == "select":
+                self.assertEqual(set(catalog.ordinal_options(target)), {0, 1, 2, 3})
+            else:
+                self.assertIn("Boolean", target.metadata["type_chain"])
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
         self.assertEqual(len(configuration.BX_PLUS_TIMING_SETTINGS), 160)
         for setting in configuration.BX_PLUS_TIMING_SETTINGS:
             target = definitions[setting.name]

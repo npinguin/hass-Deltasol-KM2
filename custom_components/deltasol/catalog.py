@@ -515,6 +515,7 @@ ORDINAL_TYPES = frozenset(
         "Heizung_HeizkreisX_Type",
         "WmzX_Type",
         "ActivityMode",
+        "Anlage_WfX_Struct_Anlage_WfX_Funktionsblock_Vt{0}_Bezugsrelais_Modus",
         "Heizung_HeizkreisX_Heizsystem",
         "Heizung_HeizkreisX_Heizgrenze",
         "Heizung_Heizung_HeizkreisX_Struct_Vt{0}_ModusSchaltuhr",

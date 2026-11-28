@@ -127,6 +127,28 @@ CONFIG_SELECTORS = {
     "Anlage_Wf5_Type": (7563, 9),
     "Anlage_Wf5_Aktiviert_Modus": (7570, 1),
     "Anlage_Wf5_Relais1_Nr": (7596, 4),
+    "Anlage_Wf5_Relais1_Funktion": (7597, 1308),
+    "Aktor4_Funktion": (2675, 1308),
+    "Aktor4_RelaisNr": (2676, 3),
+    "Aktor4_AusgangNr": (2677, 0),
+    "Relais_Regler_R3_AktorFunktion": (1999, 1308),
+    "Relais_Regler_R1_AktorFunktion": (1971, 2),
+    "Anlage_Wf5_Funktionsblock_Bezugsrelais1_Nr": (7741, 257),
+    "Anlage_Wf5_Funktionsblock_Bezugsrelais2_Nr": (7742, 0),
+    "Anlage_Wf5_Funktionsblock_Bezugsrelais3_Nr": (7743, 0),
+    "Anlage_Wf5_Funktionsblock_Bezugsrelais4_Nr": (7744, 0),
+    "Anlage_Wf5_Funktionsblock_Bezugsrelais5_Nr": (7745, 0),
+    "Anlage_Wf9_Type": (8567, 1),
+    "Anlage_Wf9_Aktiviert_Modus": (8574, 1),
+    "Anlage_Wf9_Relais1_Nr": (8600, 71),
+    "Anlage_Wf9_Relais1_Funktion": (8601, 2323),
+    "Anlage_Wf9_Bezugsrelais1_Nr": (8624, 257),
+    "Aktor71_Funktion": (3010, 2323),
+    "Aktor71_RelaisNr": (3011, 2),
+    "Aktor71_AusgangNr": (3012, 0),
+    "Relais_Regler_R2_AktorFunktion": (1985, 2323),
+    "Anlage_Wf9_Parallelrelais_dtNachlauf": (8630, 10),
+    "Anlage_Wf9_Parallelrelais_dtVerzoegerung": (8632, 10),
     "Heizung_Heizkreis1_System": (13697, 2),
     "Heizung_Heizkreis1_ONachheizung": (13705, 1),
     "Heizung_Heizkreis1_Nachheizung_Aktiviert_Modus": (13708, 1),
@@ -189,6 +211,10 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_dtVerzoegerung": (11414, 0),
 }
 CONFIG_SETTINGS = {
+    "Anlage_Wf5_Funktionsblock_OBezugsrelais": (7739, 0, 0, 1),
+    "Anlage_Wf5_Funktionsblock_Bezugsrelais_Modus": (7740, 0, 0, 3),
+    "Anlage_Wf9_Parallelrelais_ONachlauf": (8629, 0, 0, 1),
+    "Anlage_Wf9_Parallelrelais_OVerzoegerung": (8631, 0, 0, 1),
     "Solar_Wf1_Zieltemperatur_Aktiviert_Modus": (4335, 1, 0, 2),
     "Solar_Wf1_CsBypass_Aktiviert_Modus": (3981, 1, 0, 2),
     "Solar_Wf1_Bypass_Aktiviert_Modus": (3888, 1, 0, 2),
@@ -2956,6 +2982,38 @@ async def qualify(directory, phase):
             assert (hass.states.get(delay).state == "unavailable") == (raw == 0)
             assert Peer.settings[7748] == original_duration
         assert Peer.saves == before + 2
+
+        for root, suffix, index in (
+            ("Anlage_Wf5_Funktionsblock", "OBezugsrelais", 7739),
+            ("Anlage_Wf9_Parallelrelais", "ONachlauf", 8629),
+            ("Anlage_Wf9_Parallelrelais", "OVerzoegerung", 8631),
+        ):
+            flag = entity(root + "_" + suffix, "switch")
+            assert flag
+            before = Peer.saves
+            await hass.services.async_call(
+                "switch", "turn_on", {"entity_id": flag}, blocking=True
+            )
+            await hass.async_block_till_done()
+            assert Peer.settings[index] == 1 and Peer.saves == before + 1
+            await hass.services.async_call(
+                "switch", "turn_on", {"entity_id": flag}, blocking=True
+            )
+            assert Peer.saves == before + 1
+        logic = entity("Anlage_Wf5_Funktionsblock_Bezugsrelais_Modus", "select")
+        assert logic
+        before = Peer.saves
+        await set_mode(logic, "NOR")
+        assert Peer.settings[7740] == 2
+        Peer.extra_values[7741] = 259  # self-reference to actor 4's relay 3
+        await reject_mode(logic, "AND")
+        assert Peer.settings[7740] == 2 and Peer.saves == before + 1
+        Peer.extra_values[7741] = 257
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        await hass.async_block_till_done()
+        await set_mode(logic, "OR")
+        assert Peer.settings[7740] == 0
+        assert Peer.extra_values[7596] == 4 and Peer.extra_values[7741] == 257
 
         room_activation = entity(
             "Heizung_Heizkreis1_Raumthermostat1_Aktiviert", "select"
