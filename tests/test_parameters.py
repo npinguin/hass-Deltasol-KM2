@@ -74,6 +74,14 @@ class ParameterTests(unittest.TestCase):
             for name in names
         }
 
+    def test_cooling_priority_bounds(self):
+        from custom_components.deltasol.configuration import RelativeConstraint
+
+        values = {"Solar_SystemId": 20201}
+        self.assertTrue(RelativeConstraint("Solar_SystemId", 3416, "solar_cooling_priority").matches(0, values))
+        self.assertFalse(RelativeConstraint("Solar_SystemId", 3416, "solar_cooling_priority").matches(5, values))
+        self.assertFalse(RelativeConstraint("Solar_SystemId", 3416, "solar_store_priority").matches(0, values))
+
     def test_function_selection_uses_native_number_not_slot(self):
         c = parameters_configuration
         solid = c.FunctionSelection("mask", 1)

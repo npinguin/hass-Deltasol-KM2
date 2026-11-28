@@ -1731,8 +1731,8 @@ class DiscoveryTests(unittest.TestCase):
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
         activity = configuration.BX_PLUS_ACTIVITY_SETTINGS
-        self.assertEqual(len({setting.name for setting in activity}), 63)
-        self.assertEqual(len(activity), 198)
+        self.assertEqual(len({setting.name for setting in activity}), 75)
+        self.assertEqual(len(activity), 210)
         for setting in activity:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)

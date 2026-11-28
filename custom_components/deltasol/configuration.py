@@ -610,12 +610,12 @@ class RelativeConstraint:
 
     def matches(self, raw, values, current=None):
         other = values.get(self.name)
-        if self.operation == "solar_store_priority":
+        if self.operation in ("solar_store_priority", "solar_cooling_priority"):
             return (
                 type(raw) is int
                 and type(other) is int
                 and other in BX_PLUS_SOLAR_SYSTEMS
-                and 1 <= raw <= (other // 100) % 100
+                and (0 if self.operation == "solar_cooling_priority" else 1) <= raw <= (other // 100) % 100
             )
         if self.operation == "preserve_order":
             return (
@@ -1020,7 +1020,7 @@ def native_menu_review_reason(name):
         family,
     ):
         return "protection_or_safety_configuration"
-    if re.fullmatch(r"Solar_Sp5_Vorrang", name):
+    if re.fullmatch(r"Solar_(?:Sp5_(?:Vorrang|Aktiviert_Modus)|Urlaubsfunktion_(?:Vorrang5|TSp5Max)|Wf1_Bereitschaft_Vorrang5)", name):
         return "unsupported_native_topology_slot"
     if family.endswith("_Handbetrieb"):
         return "manual_override_contract_unverified"
@@ -4537,9 +4537,259 @@ def _dedicated_solar_activity():
     yield replace(setting, dependencies=(topology,))
 
 
+def _solar_program_installed(kind):
+    """The dedicated instance must exist in the native optional registry."""
+    return AnyDependencies(
+        tuple(
+            (
+                Dependency(f"Solar_Wf{slot}_Type", 4409 + 120 * (slot - 1), (kind,)),
+                Dependency(f"Solar_Wf{slot}_Nr", 4410 + 120 * (slot - 1), (1,)),
+            )
+            for slot in range(1, 17)
+        )
+    )
+
+
+def _solar_store_present(slot):
+    return AnyDependencies(
+        ((
+            Dependency("Solar_SystemId", 3416, tuple(sorted(
+                system for system in BX_PLUS_SOLAR_SYSTEMS
+                if (system // 100) % 100 >= slot
+            ))),
+            RangeDependency(f"Solar_Sp{slot}_Sensor1_Nr", 3576 + 36 * (slot - 1), 1, 65),
+        ),)
+    )
+
+
+def _remaining_operating_settings():
+    """Installed solar cooling, drainback and supplementary heat programs."""
+    collector = RangeDependency("Solar_Kol1_Sensor1_Nr", 3536, 1, 65)
+    solar_output = RangeDependency("Solar_Relais1_Nr", 3452, 1, 100)
+    store = AnyDependencies(tuple((_solar_store_present(n),) for n in range(1, 5)))
+    base = (solar_output, store)
+    for slot in range(1, 5):
+        root = f"Solar_Sp{slot}"
+        off = 36 * (slot - 1)
+        thermal = _activity_thermal(
+            root,
+            (
+                ("dTein", 3579 + off, (10, 200, 5), (20, 400, 10), True),
+                ("dTaus", 3582 + off, (5, 195, 5), (10, 390, 10), True),
+                ("dTsoll", 3585 + off, (15, 300, 5), (30, 600, 10), True),
+                ("Tsoll", 3588 + off, (40, 950, 10), (400, 2040, 20), False),
+                ("Tmax", 3591 + off, (40, 950, 10), (400, 2040, 20), False),
+                ("Hmax", 3594 + off, (1, 100, 1), (2, 200, 2), True),
+                ("Anstieg", 3597 + off, (10, 200, 5), (20, 400, 10), True),
+            ),
+            (
+                ("dTein", 3579 + off, "dTaus", 3582 + off),
+                ("dTsoll", 3585 + off, "dTein", 3579 + off),
+            ),
+        )
+        yield replace(
+            _activity_setting(
+                root, 3604 + off,
+                RangeDependency(root + "_Sensor1_Nr", 3576 + off, 1, 65),
+                (
+                    thermal,
+                    PeerComparison(root + "_Tmax", 3591 + off, root + "_Tsoll", 3588 + off, "ge"),
+                    RangeDependency(root + "_tMin", 3601 + off, 0, 300),
+                    RangeDependency(root + "_MinDrehzahl", 3602 + off, 20, 100),
+                ),
+            ),
+            dependencies=(collector, solar_output, _solar_store_present(slot)),
+        )
+
+    # Loading mode changes no topology; the sequence settings must already exist.
+    active_pair = AnyDependencies(tuple(
+        (
+            _solar_store_present(first), _solar_store_present(second),
+            _installed_activity(f"Solar_Sp{first}", 3604 + 36 * (first - 1), 3606 + 36 * (first - 1)),
+            _installed_activity(f"Solar_Sp{second}", 3604 + 36 * (second - 1), 3606 + 36 * (second - 1)),
+        )
+        for first in range(1, 4) for second in range(first + 1, 5)
+    ))
+    yield Setting(
+        "Solar_Beladungstyp", 3417, "Solar loading mode", "select", True,
+        options=(("Pendulum", 0), ("Successive", 1)),
+        installed_by=collector, dependencies=(solar_output, active_pair),
+        requested_conditions=(RequestedCondition(0, (AnyDependencies(((
+            RangeDependency("Solar_Pendelpause", 3418, 1, 5),
+            RangeDependency("Solar_Umwaelzzeit", 3419, 1, 60),
+            AnyDependencies((
+                (Dependency("Solar_OPausendrehzahl", 3420, (0,)),),
+                (Dependency("Solar_OPausendrehzahl", 3420, (1,)),
+                 RangeDependency("Solar_Pausendrehzahl", 3421, 20, 100)),
+            )),
+        ),)),)),),
+    )
+
+    for holiday in (False, True):
+        root = "Solar_Urlaubsfunktion" if holiday else "Solar_Wf1_Bereitschaft"
+        mode, mi = (root + "_Kuehlung", 6329) if holiday else (root + "_Variante", 4363)
+        flag, fi = (root + "_Speicherkuehlung_Aktiviert", 6338) if holiday else (root + "_OSpeicherkuehlung", 4364)
+        on, oi = (root + "_Speicherkuehlung_dTEin", 6339) if holiday else (root + "_dTEin", 4373)
+        off, ai = (root + "_Speicherkuehlung_dTAus", 6342) if holiday else (root + "_dTAus", 4376)
+        tmax, ti = (root + "_Kollektorkuehlung_TKolMax", 6330) if holiday else (root + "_TKolMax", 4370)
+        priority = 6333 if holiday else 4365
+        deps = base if holiday else (*base, _solar_program_installed(8))
+        pair = AnyDependencies(tuple(
+            (
+                Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                *_unit_value(on, oi, unit, alias, 10 * factor, 300 * factor, 5 * factor),
+                *_unit_value(off, ai, unit, alias, 5 * factor, 295 * factor, 5 * factor),
+                PeerComparison(on, oi, off, ai, "gt"),
+            )
+            for unit, alias, factor in ((0, "_K", 1), (1, "_R", 2))
+        ))
+        # The editor bounds collector cooling by the native emergency limit.
+        # Use the selected-unit mirrors for both values; never edit Tnot.
+        maximum = AnyDependencies(tuple(
+            (
+                Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                *_unit_value(tmax, ti, unit, alias, lo, hi, step),
+                *_unit_value("Solar_Kol1_Tnot", 3542, unit, alias, elo, ehi, estep),
+                Dependency(mode, mi, (2,)),
+                # A lower limit on the emergency temperature is checked at write
+                # time by the temperature setting's relative constraint.
+            )
+            for unit, alias, lo, hi, step, elo, ehi, estep in (
+                (0, "_C", 700, 1900, 10, 800, 2000, 10),
+                (1, "_F", 1580, 3740, 20, 1760, 3920, 20),
+            )
+        ))
+        yield Setting(
+            flag, fi, f"{root} store cooling", "switch", True,
+            installed_by=collector, dependencies=deps,
+            requested_conditions=(RequestedCondition(1, (pair,)),),
+        )
+        yield from _operating_pair(
+            on, oi, off, ai, f"{root} store cooling differential", collector,
+            (*deps, Dependency(flag, fi, (1,))),
+            (
+                (0, "_K", "K", ("1", "30", "0.5", "0.1"), ("0.5", "29.5", "0.5", "0.1")),
+                (1, "_R", "°R", ("2", "60", "1", "0.1"), ("1", "59", "1", "0.1")),
+            ), rising=True,
+        )
+        for unit, alias, u, limits, margin in (
+            (0, "_C", "°C", ("70", "190", "1", "0.1"), 100),
+            (1, "_F", "°F", ("158", "374", "2", "0.1"), 180),
+        ):
+            yield Setting(
+                tmax, ti, f"{root} collector cooling limit", "number", True,
+                limits=limits, unit=u, installed_by=collector,
+                dependencies=(*deps, maximum, Dependency("TemperatureHysteresisSelector", 60, (unit,))),
+                relative_constraints=(RelativeConstraint("Solar_Kol1_Tnot", 3542, "le", margin),),
+                compound_mirrors=((tmax, ti, tmax + alias, ti + unit + 1),),
+            )
+            if holiday:
+                for slot in range(1, 5):
+                    target, index = f"{root}_TSp{slot}Max", 6345 + 3 * (slot - 1)
+                    yield Setting(
+                        target, index, f"Holiday store {slot} maximum", "number", True,
+                        limits=("4", "95", "1", "0.1") if unit == 0 else ("40", "204", "2", "0.1"),
+                        unit=u, installed_by=collector,
+                        dependencies=(*deps, _solar_store_present(slot), Dependency("TemperatureHysteresisSelector", 60, (unit,))),
+                        compound_mirrors=((target, index, target + alias, index + unit + 1),),
+                    )
+        for slot in range(1, 5):
+            yield Setting(
+                f"{root}_Vorrang{slot}", priority + slot - 1,
+                f"{root} cooling priority {slot}", "number", True,
+                limits=("0", "5", "1", "1"),
+                installed_by=collector,
+                dependencies=(*deps, _solar_store_present(slot), Dependency(mode, mi, (1,))),
+                relative_constraints=(RelativeConstraint("Solar_SystemId", 3416, "solar_cooling_priority"),),
+                requested_conditions=tuple(RequestedCondition(n, (_solar_store_present(n),)) for n in range(1, 5)),
+            )
+
+    root = "Solar_Wf1_DrainBack"
+    deps = (*base, _solar_program_installed(10))
+    times = (
+        ("Befuellzeit", 4389, "min", ("1", "30", "1", "1"), (1, 30, 1)),
+        ("Erholungszeit", 4390, "min", ("1", "15", "0.5", "0.1"), (10, 150, 5)),
+        ("Initialisierungszeit", 4391, "s", ("1", "100", "1", "1"), (1, 100, 1)),
+        ("DrainImpuls_Verzoegerung", 4394, "min", ("1", "30", "1", "1"), (1, 30, 1)),
+        ("DrainImpuls_Dauer", 4395, "s", ("1", "60", "1", "1"), (1, 60, 1)),
+    )
+    pulse = tuple(_raw_steps(root + "_" + suffix, index, *bounds) for suffix, index, _, _, bounds in times[3:])
+    pulse_flag = root + "_ODrainImpuls"
+    yield replace(
+        _activity_setting(root, 4384, collector, (
+            *(_raw_steps(root + "_" + suffix, index, *bounds) for suffix, index, _, _, bounds in times[:3]),
+            AnyDependencies(((Dependency(pulse_flag, 4393, (0,)),), (Dependency(pulse_flag, 4393, (1,)), *pulse))),
+            AnyDependencies((
+                (Dependency(root + "_OBooster", 4392, (0,)),),
+                (Dependency(root + "_OBooster", 4392, (1,)), RangeDependency(root + "_Relais1_Nr", 4397, 1, 100)),
+            )),
+        )),
+        dependencies=deps,
+    )
+    active = _installed_activity(root, 4384, 4386)
+    yield Setting(
+        pulse_flag, 4393, "Drainback drain pulse enabled", "switch", True,
+        installed_by=collector, dependencies=(*deps, active),
+        requested_conditions=(RequestedCondition(1, (AnyDependencies((pulse,)),)),),
+    )
+    for suffix, index, unit, limits, _ in times:
+        yield Setting(
+            root + "_" + suffix, index, f"Drainback {suffix}", "number", True,
+            limits=limits, unit=unit, installed_by=collector,
+            dependencies=(*deps, active, *((Dependency(pulse_flag, 4393, (1,)),) if index >= 4394 else ())),
+        )
+
+    for circuit in range(1, 8):
+        root = f"Heizung_Heizkreis{circuit}"
+        off = 495 * (circuit - 1)
+        installed = Dependency(root + "_Type", 13684 + off, (1,))
+        deps = (
+            _installed_activity(root, 13689 + off, 13691 + off),
+            Dependency(root + "_System", 13697 + off, (0, 2)),
+            RangeDependency(root + "_Relais1_Nr", 13764 + off, 1, 100),
+            RangeDependency(root + "_Sensor1_Nr", 13796 + off, 1, 65),
+        )
+        dhw = AnyDependencies(tuple((
+            Dependency(f"Heizung_Wf{n}_Type", 11266 + 151 * (n - 1), (2,)),
+            RangeDependency(f"Heizung_Wf{n}_NhRelais1_Nr", 11337 + 151 * (n - 1), 1, 100),
+            RangeDependency(f"Heizung_Wf{n}_Sensor1_Nr", 11290 + 151 * (n - 1), 1, 65),
+        ) for n in range(1, 17)))
+        yield Setting(
+            root + "_OBwVorrang", 13725 + off, f"Heating circuit {circuit} DHW priority", "switch", True,
+            installed_by=installed, dependencies=deps,
+            requested_conditions=(RequestedCondition(1, (dhw,)),),
+        )
+        prefix = root + "_Nachheizung"
+        thermal = AnyDependencies(tuple((
+            RangeDependency(root + "_Sensor4_Nr", 13804 + off, 1, 65),
+            Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+            *_unit_value(prefix + "_dTEin", 13747 + off, unit, alias, -150 * factor, 445 * factor, 5 * factor),
+            *_unit_value(prefix + "_dTAus", 13750 + off, unit, alias, -145 * factor, 450 * factor, 5 * factor),
+            PeerComparison(prefix + "_dTAus", 13750 + off, prefix + "_dTEin", 13747 + off, "gt"),
+        ) for unit, alias, factor in ((0, "_K", 1), (1, "_R", 2))))
+        yield replace(
+            _activity_setting(prefix, 13708 + off, installed, (
+                RangeDependency(root + "_Relais6_Nr", 14003 + off, 1, 100),
+                AnyDependencies((
+                    (Dependency(prefix + "_Modus", 13706 + off, (0,)), thermal),
+                    (Dependency(prefix + "_Modus", 13706 + off, (1,)), thermal,
+                     RangeDependency(root + "_Sensor5_Nr", 13808 + off, 1, 65)),
+                    (Dependency(prefix + "_Modus", 13706 + off, (2,)),),
+                )),
+            )),
+            dependencies=(*deps, Dependency(root + "_ONachheizung", 13705 + off, (1,))),
+        )
+
+
+_remaining = tuple(_remaining_operating_settings())
+BX_PLUS_REMAINING_OPERATING_SETTINGS = tuple(
+    setting for setting in _remaining if not setting.name.endswith("_Aktiviert_Modus")
+)
+
 BX_PLUS_ACTIVITY_SETTINGS = (
     *_installed_function_activity(),
     *_dedicated_solar_activity(),
+    *(setting for setting in _remaining if setting.name.endswith("_Aktiviert_Modus")),
 )
 
 
