@@ -23,6 +23,7 @@ from .configuration import (
     BX_PLUS_HEATING_SETTINGS,
     BX_PLUS_HQM_SETTINGS,
     BX_PLUS_LOADING_SETTINGS,
+    BX_PLUS_LOGGING_SETTINGS,
     BX_PLUS_MIXER_SETTINGS,
     BX_PLUS_PUMP_SETTINGS,
     BX_PLUS_SETTINGS,
@@ -141,6 +142,7 @@ PROFILES = (
         configuration_changeset=0x2734DABC,
         settings=(
             *BX_PLUS_SETTINGS,
+            *BX_PLUS_LOGGING_SETTINGS,
             *BX_PLUS_MIXER_SETTINGS,
             *BX_PLUS_HQM_SETTINGS,
             *BX_PLUS_HEATING_SETTINGS,

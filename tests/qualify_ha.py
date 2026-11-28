@@ -38,6 +38,17 @@ HQM_SENSOR_UID = "00_0010_7131_0100__004_4_0"
 # Independent wire fixtures: exact 2.08 reference positions, not imported
 # production Setting objects. Persistent state belongs to the protocol peer.
 CONFIG_SELECTORS = {
+    "SDKarte_Status_KarteVorhanden": (18227, 1),
+    "SDKarte_Status_Schreibfehler": (18228, 0),
+    "SDKarte_Status_KarteUnbekannt": (18229, 0),
+    "SDKarte_Status_KarteUnformatiert": (18230, 0),
+    "SDKarte_Status_KarteVoll": (18231, 0),
+    "SDKarte_Status_KarteSchreibgeschuetzt": (18232, 0),
+    "Anlage_Wf1_Sensor1_Nr": (6576, 1),
+    "Anlage_Wf1_Relais1_Nr": (6592, 2),
+    "Anlage_Wf1_Relais2_Nr": (6600, 3),
+    "Heizung_Heizkreis1_Kuehlung_Modus": (14066, 0),
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem": (14075, 0),
     "Anlage_Wf1_Type": (6559, 2),
     "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
     "Anlage_Wf2_Type": (6810, 6),
@@ -135,6 +146,16 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
+    "Display_Invertiert": (18260, 0, 0, 1),
+    "SDKarte_Logging_Intervall": (18234, 60, 1, 1200),
+    "SDKarte_Logging_Methode": (18235, 0, 0, 1),
+    "Anlage_Wf1_Mischer_TZiel": (6629, 600, 0, 1300),
+    "Heizung_Heizkreis1_Kuehlung_Aussen_TAussen": (14072, 240, 200, 400),
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf": (14076, 200, 50, 250),
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TAussen1": (14080, 200, 150, 450),
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf1": (14083, 200, 50, 250),
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TAussen2": (14086, 400, 150, 450),
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf2": (14089, 100, 50, 250),
     "Anlage_Wf1_Mischer_dtIntervall": (6625, 4, 1, 20),
     "Heizung_Heizkreis1_Heizkurve": (13698, 12, 3, 30),
     "Heizung_Heizkreis1_Heizsystem_Gerade_TAussen1": (13979, 100, -200, 200),
@@ -256,6 +277,13 @@ TEMPERATURE_NAMES = (
     "Heizung_Heizkreis1_Heizsystem_Gerade_TAussen2",
     "Heizung_Heizkreis1_Heizsystem_Gerade_TVorlauf2",
     "Heizung_Heizkreis1_Heizsystem_Raum_TStart",
+    "Anlage_Wf1_Mischer_TZiel",
+    "Heizung_Heizkreis1_Kuehlung_Aussen_TAussen",
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf",
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TAussen1",
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf1",
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TAussen2",
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf2",
 )
 TEMPERATURE_PARENTS = {CONFIG_SETTINGS[name][0] for name in TEMPERATURE_NAMES}
 TEMPERATURE_ALIASES = {
@@ -687,6 +715,23 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert (
                             Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
                         )
+                    elif index == 6629:
+                        assert Peer.extra_values[6559] == 2
+                        assert Peer.extra_values[6566] == 1
+                        assert all(Peer.extra_values[i] > 0 for i in (6576, 6592, 6600))
+                    elif index in (14072, 14076, 14080, 14083, 14086, 14089):
+                        assert Peer.extra_values[13684] == 1
+                        assert Peer.extra_values[13689] == 1
+                        assert Peer.extra_values[13697] in (1, 2)
+                        assert Peer.extra_values[14059] > 0
+                        if index == 14072:
+                            assert Peer.extra_values[14066] in (0, 2)
+                            assert Peer.extra_values[13800] > 0
+                        else:
+                            assert Peer.extra_values[13796] > 0
+                            assert Peer.extra_values[14075] == (0 if index == 14076 else 1)
+                            if index != 14076:
+                                assert Peer.extra_values[13800] > 0
                     elif index in (13979, 13982, 13985, 13988, 13991):
                         assert Peer.extra_values[13978] == (4 if index == 13991 else 3)
                         assert Peer.extra_values[13796] > 0
@@ -705,6 +750,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index in (18234, 18235):
+                    assert Peer.extra_values[18227] == 1
+                    assert all(Peer.extra_values[i] == 0 for i in range(18228, 18233))
                 if index in (13991, 14174, 14175):
                     assert Peer.extra_values[13819] == 1
                     assert Peer.extra_values[13820] == 1
@@ -1338,6 +1386,12 @@ async def qualify(directory, phase):
                     ("Anlage_Wf1_Mischer_dtIntervall", "number", 5),
                     ("Heizung_Heizkreis1_Heizkurve", "number", 1.5),
                     ("Heizung_Heizkreis1_MischerIntervall", "number", 6),
+                    ("Anlage_Wf1_Mischer_TZiel", "number", 158),
+                    ("Display_Invertiert", "switch", "on"),
+                    ("SDKarte_Logging_Intervall", "number", 120),
+                    ("SDKarte_Logging_Methode", "select", "Cyclic (overwrite oldest)"),
+                    ("Heizung_Heizkreis1_Kuehlung_Aussen_TAussen", "number", 86),
+                    ("Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf", "number", 68),
                     ("Heizung_Heizkreis1_Mischer_dTEin", "number", 4),
                     ("Heizung_Heizkreis1_Mischer_dTAus", "number", 2.4),
                     ("Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin", "number", 15),
@@ -1407,6 +1461,21 @@ async def qualify(directory, phase):
                     assert entity
                     observed = hass.states.get(entity).state
                     assert (float(observed) if kind == "number" else observed) == value
+                Peer.extra_values[14075] = 1
+                await entry.runtime_data.relay_coordinator.async_refresh()
+                await hass.async_block_till_done()
+                for suffix, value in (
+                    ("TAussen1", 68),
+                    ("TVorlauf1", 68),
+                    ("TAussen2", 104),
+                    ("TVorlauf2", 50),
+                ):
+                    name = "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_" + suffix
+                    target = registry.async_get_entity_id(
+                        "number", "deltasol", f"isolated-gateway_7112_{name}_configuration"
+                    )
+                    assert target and float(hass.states.get(target).state) == value
+                Peer.extra_values[14075] = 0
                 for mode, expected in (
                     (
                         3,
@@ -2262,6 +2331,41 @@ async def qualify(directory, phase):
         Peer.extra_values[13834] = 4
         Peer.extra_values[13978] = 1
         await entry.runtime_data.relay_coordinator.async_refresh()
+
+        before_cooling = Peer.saves
+        await number("Anlage_Wf1_Mischer_TZiel", 158)
+        await number("SDKarte_Logging_Intervall", 120)
+        logging_method = entity("SDKarte_Logging_Methode", "select")
+        await set_mode(logging_method, "Cyclic (overwrite oldest)")
+        invert = entity("Display_Invertiert", "switch")
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": invert}, blocking=True
+        )
+        cooling = "Heizung_Heizkreis1_Kuehlung_"
+        await number(cooling + "Aussen_TAussen", 86)
+        await number(cooling + "Kuehlsystem_TVorlauf", 68)
+        # The last request is a no-op at the default 20 Celsius.
+        assert Peer.saves == before_cooling + 5
+        Peer.extra_values[14075] = 1
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        await hass.async_block_till_done()
+        for suffix, value in (
+            ("TAussen1", 68),
+            ("TVorlauf1", 68),
+            ("TAussen2", 104),
+            ("TVorlauf2", 50),
+        ):
+            await number(cooling + "Kuehlsystem_" + suffix, value)
+        constant = entity(cooling + "Kuehlsystem_TVorlauf", "number")
+        assert hass.states.get(constant).state == "unavailable"
+        Peer.extra_values[14075] = 0
+        Peer.extra_values[18231] = 1
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(logging_method).state == "unavailable"
+        Peer.extra_values[18231] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(logging_method).state == "Cyclic (overwrite oldest)"
+        assert float(hass.states.get(constant).state) == 68
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"

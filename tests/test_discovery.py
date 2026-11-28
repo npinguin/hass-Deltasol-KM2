@@ -1680,6 +1680,23 @@ class DiscoveryTests(unittest.TestCase):
                 labels = [item["label"] for item in definition.metadata["value_text"]]
                 self.assertEqual(len(labels), len(setting.options))
                 self.assertEqual([raw for _, raw in setting.options], [0, 1])
+        for setting in configuration.BX_PLUS_LOGGING_SETTINGS:
+            target = definitions[setting.name]
+            self.assertEqual(target.storage, "unspecified")
+            self.assertTrue(
+                any(
+                    ref.get("menu") == "SDKarte"
+                    and "SDKarte_Status_KarteVorhanden" in ref.get("mask", "")
+                    and "SDKarte_Status_KarteNichtVoll" in ref.get("mask", "")
+                    for ref in target.metadata["menu_refs"]
+                )
+            )
+            if setting.kind == "number":
+                self.assertEqual(target.metadata["minimum"], "1")
+                self.assertEqual(target.metadata["maximum"], "1200")
+                self.assertEqual(target.metadata["quant_step"], "1")
+            else:
+                self.assertEqual(catalog.ordinal_options(target), {0: "Linear", 1: "Zyklisch"})
         # Every generated mixer slot must match the exact firmware layout,
         # documented setting and ordinal semantics. The live Type and
         # ActivityMode checks still gate every native action.
@@ -1891,8 +1908,8 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
-        self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 403)
-        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 275)
+        self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 435)
+        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 359)
         for setting in configuration.BX_PLUS_HEATING_OPERATING_SETTINGS:
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)

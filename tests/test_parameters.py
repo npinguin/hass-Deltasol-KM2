@@ -1152,6 +1152,93 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(interval.accepts(values))
         self.assertFalse(on.accepts(values))
 
+    def test_native_cooling_settings_and_mixer_target_follow_assignments(self):
+        root = "Heizung_Heizkreis1"
+        prefix = root + "_Kuehlung"
+        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+
+        def find(suffix):
+            return next(
+                s for s in settings
+                if s.name == prefix + suffix and s.unit == "°C"
+            )
+
+        outside = find("_Aussen_TAussen")
+        constant = find("_Kuehlsystem_TVorlauf")
+        linear = find("_Kuehlsystem_TVorlauf1")
+        values = {
+            root + "_Type": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_System": 2,
+            root + "_Sensor1_Nr": 1,
+            root + "_Sensor2_Nr": 2,
+            prefix + "_Relais1_Nr": 3,
+            prefix + "_Modus": 0,
+            prefix + "_Kuehlsystem": 0,
+            outside.name: 240,
+            outside.name + "_C": 240,
+            constant.name: 200,
+            constant.name + "_C": 200,
+            linear.name: 200,
+            linear.name + "_C": 200,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(outside.accepts(values, outside.encode(25)))
+        self.assertTrue(constant.accepts(values, constant.encode(21)))
+        self.assertFalse(linear.accepts(values))
+        values[prefix + "_Kuehlsystem"] = 1
+        self.assertFalse(constant.accepts(values))
+        self.assertTrue(linear.accepts(values, linear.encode(19)))
+        values[prefix + "_Modus"] = 1
+        self.assertFalse(outside.accepts(values))
+        values[root + "_Sensor2_Nr"] = 0
+        self.assertFalse(linear.accepts(values))
+        values[prefix + "_Relais1_Nr"] = 0
+        self.assertFalse(linear.accepts(values))
+
+        root = "Anlage_Wf1"
+        target = next(
+            s for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            if s.name == root + "_Mischer_TZiel" and s.unit == "°C"
+        )
+        values = {
+            root + "_Type": 2,
+            root + "_Aktiviert_Modus": 1,
+            root + "_Sensor1_Nr": 1,
+            root + "_Relais1_Nr": 2,
+            root + "_Relais2_Nr": 3,
+            target.name: 600,
+            target.name + "_C": 600,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(target.accepts(values, target.encode(65)))
+        values[root + "_Relais2_Nr"] = 0
+        self.assertFalse(target.accepts(values))
+
+    def test_native_sd_logging_requires_usable_card(self):
+        interval, method = parameters_configuration.BX_PLUS_LOGGING_SETTINGS
+        values = {
+            "SDKarte_Status_KarteVorhanden": 1,
+            "SDKarte_Status_Schreibfehler": 0,
+            "SDKarte_Status_KarteUnbekannt": 0,
+            "SDKarte_Status_KarteUnformatiert": 0,
+            "SDKarte_Status_KarteVoll": 0,
+            "SDKarte_Status_KarteSchreibgeschuetzt": 0,
+            interval.name: 60,
+            method.name: 0,
+        }
+        self.assertTrue(interval.accepts(values, interval.encode(1200)))
+        self.assertFalse(interval.accepts(values, 1201))
+        self.assertTrue(method.accepts(values, method.encode("Cyclic (overwrite oldest)")))
+        for status in ("KarteVoll", "KarteSchreibgeschuetzt", "Schreibfehler"):
+            name = "SDKarte_Status_" + status
+            values[name] = 1
+            self.assertFalse(interval.accepts(values))
+            self.assertFalse(method.accepts(values))
+            values[name] = 0
+        del values["SDKarte_Status_KarteVorhanden"]
+        self.assertFalse(method.accepts(values))
+
     def test_native_linear_and_room_control_follow_installed_mode(self):
         root = "Heizung_Heizkreis1"
         settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS

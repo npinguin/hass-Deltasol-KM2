@@ -497,6 +497,16 @@ def _normalized_numeric(definition, limits):
             raise CatalogError("Unsupported restart delay encoding")
         metadata.pop("quant_step")
         metadata["type_chain"] = [*chain, "Number"]
+    elif "Time" in chain and definition.name == "SDKarte_Logging_Intervall":
+        # The native SD log interval is already encoded in whole seconds.
+        if (
+            limits != ("1", "1200", "1", "1")
+            or metadata.get("quant") != "1"
+            or metadata.get("quant_step") != "1"
+        ):
+            raise CatalogError("Unsupported SD logging interval encoding")
+        metadata.pop("quant_step")
+        metadata["type_chain"] = [*chain, "Number"]
     elif "Time" in chain:
         if limits[3] != "1":
             raise CatalogError("Unsupported duration factor")
@@ -756,6 +766,7 @@ def weekly_settings_for(definitions):
 # clocks/date, safety and dependent thermal parameters are not granted by
 # these contracts. The generic writer below is not limited to this group.
 BX_PLUS_SETTINGS = (
+    Setting("Display_Invertiert", 18260, "Invert controller display", "switch", True),
     Setting(
         "AutoSommerWinterzeit", 56, "Automatic daylight saving time", "switch", True
     ),
@@ -790,6 +801,41 @@ BX_PLUS_SETTINGS = (
         "select",
         True,
         (("kWh", 0), ("MBTU", 1)),
+    ),
+)
+
+
+# Only change logging preferences on a positively observed usable SD card.
+# The native controller owns logging, storage and any actual file operations.
+_SD_CARD_PRESENT = Dependency("SDKarte_Status_KarteVorhanden", 18227, (1,))
+_SD_CARD_USABLE = (
+    Dependency("SDKarte_Status_Schreibfehler", 18228, (0,)),
+    Dependency("SDKarte_Status_KarteUnbekannt", 18229, (0,)),
+    Dependency("SDKarte_Status_KarteUnformatiert", 18230, (0,)),
+    Dependency("SDKarte_Status_KarteVoll", 18231, (0,)),
+    Dependency("SDKarte_Status_KarteSchreibgeschuetzt", 18232, (0,)),
+)
+BX_PLUS_LOGGING_SETTINGS = (
+    Setting(
+        "SDKarte_Logging_Intervall",
+        18234,
+        "SD card logging interval",
+        "number",
+        True,
+        limits=("1", "1200", "1", "1"),
+        unit="s",
+        installed_by=_SD_CARD_PRESENT,
+        dependencies=_SD_CARD_USABLE,
+    ),
+    Setting(
+        "SDKarte_Logging_Methode",
+        18235,
+        "SD card logging method",
+        "select",
+        True,
+        options=(("Linear", 0), ("Cyclic (overwrite oldest)", 1)),
+        installed_by=_SD_CARD_PRESENT,
+        dependencies=_SD_CARD_USABLE,
     ),
 )
 
@@ -1592,6 +1638,32 @@ def _additional_operating_settings():
         arrangement = f"Anlage_Wf{slot}"
         heating = f"Heizung_Wf{slot}"
         active = Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (1, 2))
+        # The ordinary arrangement mixer target is independent of
+        # protective maximum boiler return temperature (Type 11).
+        name = f"{arrangement}_Mischer_TZiel"
+        index = 6629 + ao
+        for selector, alias, unit, limits in (
+            (0, "_C", "°C", ("0", "130", "1", "0.1")),
+            (1, "_F", "°F", ("32", "266", "2", "0.1")),
+        ):
+            yield Setting(
+                name,
+                index,
+                f"Arrangement function {slot} mixer target temperature",
+                "number",
+                True,
+                limits=limits,
+                unit=unit,
+                installed_by=Dependency(f"{arrangement}_Type", 6559 + ao, (2,)),
+                dependencies=(
+                    active,
+                    RangeDependency(f"{arrangement}_Sensor1_Nr", 6576 + ao, 1, 65),
+                    RangeDependency(f"{arrangement}_Relais1_Nr", 6592 + ao, 1, 100),
+                    RangeDependency(f"{arrangement}_Relais2_Nr", 6600 + ao, 1, 100),
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                compound_mirrors=((name, index, name + alias, index + selector + 1),),
+            )
         # BX Plus manual pp. 60-61: return mixing uses three temperature
         # sensors and two mixer outputs. The operating thresholds are
         # independent of automatic adjustment time and boiler maximum.
@@ -2128,6 +2200,90 @@ def _heating_operating_settings():
                         *supplementary,
                         Dependency(f"{prefix}_{flag}", flag_index + offset, (1,)),
                     ),
+                )
+        cooling = f"{root}_Kuehlung"
+        cooling_common = (
+            active,
+            Dependency(f"{root}_System", 13697 + offset, (1, 2)),
+            RangeDependency(f"{cooling}_Relais1_Nr", 14059 + offset, 1, 100),
+        )
+        # The native menu distinguishes the cooling demand trigger from
+        # the selected constant/linear flow-temperature representation.
+        # Preserve the configured protective limits and dew-point controls.
+        for suffix, index, label, celsius, fahrenheit, extra in (
+            (
+                "Aussen_TAussen",
+                14072,
+                "outdoor cooling threshold",
+                ("20", "40"),
+                ("68", "104"),
+                (
+                    outdoor,
+                    Dependency(f"{cooling}_Modus", 14066 + offset, (0, 2)),
+                ),
+            ),
+            (
+                "Kuehlsystem_TVorlauf",
+                14076,
+                "constant cooling flow target",
+                ("5", "25"),
+                ("40", "76"),
+                (flow, Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (0,))),
+            ),
+            (
+                "Kuehlsystem_TAussen1",
+                14080,
+                "linear cooling outdoor point 1",
+                ("15", "45"),
+                ("60", "114"),
+                (flow, outdoor, Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,))),
+            ),
+            (
+                "Kuehlsystem_TVorlauf1",
+                14083,
+                "linear cooling flow point 1",
+                ("5", "25"),
+                ("40", "76"),
+                (flow, outdoor, Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,))),
+            ),
+            (
+                "Kuehlsystem_TAussen2",
+                14086,
+                "linear cooling outdoor point 2",
+                ("15", "45"),
+                ("60", "114"),
+                (flow, outdoor, Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,))),
+            ),
+            (
+                "Kuehlsystem_TVorlauf2",
+                14089,
+                "linear cooling flow point 2",
+                ("5", "25"),
+                ("40", "76"),
+                (flow, outdoor, Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,))),
+            ),
+        ):
+            name = f"{cooling}_{suffix}"
+            index += offset
+            for selector, alias, unit, bounds, step in (
+                (0, "_C", "°C", celsius, "1"),
+                (1, "_F", "°F", fahrenheit, "2"),
+            ):
+                yield Setting(
+                    name,
+                    index,
+                    f"Heating circuit {circuit} {label}",
+                    "number",
+                    True,
+                    limits=(*bounds, step, "0.1"),
+                    unit=unit,
+                    installed_by=installed,
+                    dependencies=(
+                        *cooling_common,
+                        *extra,
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    compound_mirrors=((name, index, name + alias, index + selector + 1),),
                 )
         for suffix, index, label in (
             ("tEin", 14099, "start"),

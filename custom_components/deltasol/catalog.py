@@ -522,6 +522,7 @@ ORDINAL_TYPES = frozenset(
         "VtPressureSelector",
         "VtEnergySelector",
         "VtSolar_Beladungstyp",
+        "SDKarte_Vt{0}_Logging_Methode",
         "Wmz_WmzX_Struct_Vt{0}_AlternativAnzeigeEinheit",
     )
 )
