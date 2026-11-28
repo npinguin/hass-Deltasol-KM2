@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from hashlib import sha256
+from math import isclose
 from pathlib import Path
 
 import voluptuous as vol
@@ -16,8 +17,12 @@ from homeassistant.auth.permissions.const import POLICY_CONTROL, POLICY_READ
 from homeassistant.components import frontend, panel_custom, websocket_api
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntryState
+from homeassistant.core import Context
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr, entity_registry as er
 
+from .catalog import CatalogError
+from .configuration import format_weekly_day, parse_weekly_day
 from .const import CONF_DASHBOARD, CONF_ENGINEERING, DOMAIN
 from .diagnostics import async_get_config_entry_diagnostics
 
@@ -63,11 +68,10 @@ def capability_section(setting, state):
     return "overview"
 
 
-def capability_access(registered, cap, state, user, engineering):
+def capability_access(registered, setting, state, user, engineering, *, relay=False):
     """UI eligibility is additional to, never a substitute for, HA permissions."""
     domain = registered.entity_id.split(".", 1)[0]
-    setting = cap.setting if cap and hasattr(cap, "setting") else None
-    if domain == "button" or (domain == "select" and cap and setting is None):
+    if domain == "button" or relay:
         depth = "engineering"
     elif setting and not setting.save:
         depth = "engineering"
@@ -110,6 +114,10 @@ def dashboard_objects(hass, user):
         snapshot = relay.data if relay else None
         controls = snapshot.configuration if snapshot else {}
         relays = snapshot.capabilities if snapshot else {}
+        static_settings = {
+            setting.name: setting
+            for setting in snapshot.profile.settings
+        } if snapshot and snapshot.profile else {}
         objects = {}
         for row in er.async_entries_for_config_entry(registry, entry.entry_id):
             if (
@@ -129,18 +137,21 @@ def dashboard_objects(hass, user):
             ):
                 continue
             state = hass.states.get(row.entity_id)
-            cap = controls.get(row.unique_id) or relays.get(row.unique_id)
-            access = capability_access(row, cap, state, user, engineering)
+            cap = controls.get(row.unique_id)
+            setting = cap.setting if cap else None
+            # Retain category when a previously discovered control is unavailable.
+            if not setting and state:
+                setting = static_settings.get(state.attributes.get("parameter"))
+            relay_control = row.unique_id in relays or (
+                row.entity_id.startswith("select.") and row.unique_id.endswith("_mode")
+                and setting is None
+            )
+            access = capability_access(
+                row, setting, state, user, engineering, relay=relay_control
+            )
             if access is None:
                 continue
             depth, control = access
-            setting = cap.setting if cap and hasattr(cap, "setting") else None
-            # Retain category when a previously discovered control is unavailable.
-            if not setting and state and snapshot and snapshot.profile:
-                name = state.attributes.get("parameter")
-                setting = next(
-                    (s for s in snapshot.profile.settings if s.name == name), None
-                )
             section = capability_section(setting, state)
             asset = objects.setdefault(
                 device.id,
@@ -158,6 +169,15 @@ def dashboard_objects(hass, user):
                     "section": section,
                     "depth": depth,
                     "control": control,
+                    "schedule": bool(setting and setting.weekly_slot is not None),
+                    "shared_references": (
+                        [
+                            static_settings[owner].label if owner in static_settings else
+                            "RESOL program reference"
+                            for owner in cap.owners
+                        ]
+                        if cap and setting and setting.weekly_slot is not None else []
+                    ),
                 }
             )
         if objects:
@@ -196,6 +216,91 @@ async def ws_engineering(hass, connection, msg):
     connection.send_result(msg["id"], report)
 
 
+def scoped_control(hass, user, entry_id, entity_id):
+    for installation in dashboard_objects(hass, user):
+        if installation["id"] != entry_id:
+            continue
+        for asset in installation["objects"]:
+            for row in asset["capabilities"]:
+                if row["entity_id"] == entity_id and row["control"]:
+                    return row
+    raise HomeAssistantError("Control is unavailable or not permitted")
+
+
+def service_request(row, value):
+    kind = row["kind"]
+    if kind == "switch" and type(value) is bool:
+        return kind, "turn_on" if value else "turn_off", {}
+    if kind == "select" and isinstance(value, str):
+        return kind, "select_option", {"option": value}
+    if kind == "number" and type(value) in (float, int):
+        return kind, "set_value", {"value": value}
+    if kind == "text" and isinstance(value, str):
+        if row["schedule"]:
+            value = format_weekly_day(parse_weekly_day(value))
+        return kind, "set_value", {"value": value}
+    if kind == "button" and value is None:
+        return kind, "press", {}
+    raise HomeAssistantError("Unsupported control value")
+
+
+def observed_result(kind, state, value):
+    if state is None or state.state in ("unknown", "unavailable"):
+        return "unavailable"
+    if kind == "button":
+        return "submitted"
+    if kind == "number":
+        try:
+            return "observed" if isclose(float(state.state), value, abs_tol=1e-9) else "not_confirmed"
+        except (TypeError, ValueError):
+            return "not_confirmed"
+    if kind == "switch":
+        value = "on" if value else "off"
+    return "observed" if state.state == value else "not_confirmed"
+
+
+@websocket_api.websocket_command(
+    {
+        vol.Required("type"): "deltasol/dashboard/action",
+        vol.Required("entry_id"): str,
+        vol.Required("entity_id"): str,
+        vol.Required("value"): vol.Any(None, bool, int, float, str),
+        vol.Optional("preview", default=False): bool,
+    }
+)
+@websocket_api.async_response
+async def ws_action(hass, connection, msg):
+    """Use native HA services with caller identity; never write the bus here."""
+    try:
+        row = scoped_control(
+            hass, connection.user, msg["entry_id"], msg["entity_id"]
+        )
+        kind, service, data = service_request(row, msg["value"])
+        if msg["preview"]:
+            if not row["schedule"]:
+                raise HomeAssistantError("Preview is only for weekly schedules")
+            connection.send_result(
+                msg["id"], {"value": data["value"], "references": row["shared_references"]}
+            )
+            return
+        await hass.services.async_call(
+            kind,
+            service,
+            {"entity_id": row["entity_id"], **data},
+            blocking=True,
+            context=Context(user_id=connection.user.id),
+        )
+        state = hass.states.get(row["entity_id"])
+        result = observed_result(kind, state, data.get("value", msg["value"]))
+        connection.send_result(
+            msg["id"], {"outcome": result, "value": state.state if state else None}
+        )
+    except (HomeAssistantError, CatalogError, ValueError, TypeError):
+        connection.send_error(
+            msg["id"], "action_failed", "Action rejected or outcome uncertain; check live state"
+        )
+
+
 def module_url(directory):
     digest = sha256((directory / "dashboard.js").read_bytes()).hexdigest()[:16]
     return f"/deltasol_dashboard/dashboard.js?v={digest}"
@@ -213,6 +318,7 @@ async def async_setup_dashboard(hass):
             )
             websocket_api.async_register_command(hass, ws_dashboard_list)
             websocket_api.async_register_command(hass, ws_engineering)
+            websocket_api.async_register_command(hass, ws_action)
             hass.data[_RESOURCES] = True
         url = await hass.async_add_executor_job(module_url, directory)
         await panel_custom.async_register_panel(
