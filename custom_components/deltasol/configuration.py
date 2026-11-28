@@ -51,6 +51,65 @@ class RangeDependency:
         return type(raw) is int and self.minimum <= raw <= self.maximum
 
 
+# Exact topology table in the BX Plus 2.08 native model; zero/1 are not
+# installed solar topologies. Counts are encoded in the first two fields.
+BX_PLUS_SOLAR_SYSTEMS = frozenset((
+    10101, 20101, 20102, 30101, 30102,
+    10201, 10202, 10203, 20201, 20202, 20203, 20204, 20205,
+    30201, 30202, 30203, 30204,
+    10301, 10302, 10303, 20301, 20302, 20304, 20305,
+    10401, 10402, 10403,
+))
+
+
+@dataclass(frozen=True)
+class SolarSelection:
+    """Require a valid native topology and each selected live assignment."""
+
+    name: str
+    index: int
+    stores: bool = False
+
+    @property
+    def assignments(self):
+        if self.stores:
+            return tuple(
+                (
+                    RangeDependency(f"Solar_Sp{n}_Sensor1_Nr", 3576 + 36 * (n - 1), 1, 65),
+                    Dependency(f"Solar_Sp{n}_Aktiviert_Modus", 3604 + 36 * (n - 1), (1, 2)),
+                )
+                for n in range(1, 5)
+            )
+        return tuple(
+            (RangeDependency(f"Solar_Kol{n}_Sensor1_Nr", 3536 + 14 * (n - 1), 1, 65),)
+            for n in range(1, 4)
+        )
+
+    @property
+    def expected(self):
+        return {
+            "Solar_SystemId": 3416,
+            self.name: self.index,
+            **{dep.name: dep.index for group in self.assignments for dep in group},
+        }
+
+    def matches(self, values):
+        system = values.get("Solar_SystemId")
+        mask = values.get(self.name)
+        if type(system) is not int or system not in BX_PLUS_SOLAR_SYSTEMS:
+            return False
+        count = (system // 100) % 100 if self.stores else system // 10000
+        return (
+            type(mask) is int
+            and 0 < mask < (1 << count)
+            and all(
+                all(dep.matches(values) for dep in group)
+                for bit, group in enumerate(self.assignments)
+                if mask & (1 << bit)
+            )
+        )
+
+
 @dataclass(frozen=True)
 class RelativeConstraint:
     """Verified relation between values with the same raw encoding."""
@@ -58,6 +117,7 @@ class RelativeConstraint:
     name: str
     index: int
     operation: str
+    margin: int = 0
 
     def matches(self, raw, values, current=None):
         other = values.get(self.name)
@@ -76,7 +136,7 @@ class RelativeConstraint:
             compare is not None
             and type(raw) is int
             and type(other) is int
-            and compare(raw, other)
+            and compare(raw, other + (self.margin if self.operation in ("gt", "ge") else -self.margin))
         )
 
 
@@ -93,7 +153,7 @@ class Setting:
     # Exact static engineering-unit limits, not inferred vendor metadata.
     limits: tuple[str, str, str, str] | None = None  # min, max, step, factor
     unit: str | None = None
-    dependencies: tuple[Dependency | RangeDependency, ...] = ()
+    dependencies: tuple[Dependency | RangeDependency | SolarSelection, ...] = ()
     owner_address: int | None = None
     relative_constraints: tuple[RelativeConstraint, ...] = ()
     # Installed program selector: may be used as a Discovery hint, never as
@@ -126,8 +186,8 @@ class Setting:
             self.installed_by.name,
         )
         dedicated = re.fullmatch(
-            r"Solar_Wf([1-9][0-9]*)_(Bypass|CsBypass|Zieltemperatur)_"
-            r"(?:Sensor1_Nr|SensorEinstrahlung_Nr)",
+            r"Solar_Wf([1-9][0-9]*)_(Bypass|CsBypass|Zieltemperatur|Roehrenkollektor|ExtWT)_"
+            r"(?:Sensor1_Nr|SensorEinstrahlung_Nr|KollektorMaske)",
             self.installed_by.name,
         )
         if dedicated:
@@ -195,7 +255,10 @@ class Setting:
         result = {self.name: self.index}
         installed = (self.installed_by,) if self.installed_by else ()
         for dependency in (*installed, *self.dependencies, *self.relative_constraints):
-            result[dependency.name] = dependency.index
+            if isinstance(dependency, SolarSelection):
+                result.update(dependency.expected)
+            else:
+                result[dependency.name] = dependency.index
         for parent, index, child, child_index in self.compound_mirrors:
             result[parent] = index
             result[child] = child_index
@@ -235,7 +298,19 @@ def _normalized_numeric(definition, limits):
     """
     metadata = dict(definition.metadata)
     chain = metadata.get("type_chain", ())
-    if "Time" in chain:
+    if "DayTime" in chain:
+        if limits[3] != "1":
+            raise CatalogError("Unsupported clock encoding")
+        for key in ("minimum", "maximum"):
+            parts = str(metadata.get(key)).split(":")
+            if len(parts) != 2 or not all(part.isdecimal() for part in parts):
+                raise CatalogError("Unsupported clock encoding")
+            hour, minute = map(int, parts)
+            if hour > 23 or minute > 59:
+                raise CatalogError("Invalid clock")
+            metadata[key] = str(hour * 60 + minute)
+        metadata["type_chain"] = [*chain, "Number"]
+    elif "Time" in chain:
         if limits[3] != "1":
             raise CatalogError("Unsupported duration factor")
         for key in ("minimum", "maximum", "quant"):
@@ -1815,7 +1890,106 @@ def _solar_dedicated_settings():
             )
 
 
-BX_PLUS_SOLAR_DEDICATED_SETTINGS = tuple(_solar_dedicated_settings())
+def _solar_tube_exchanger_settings():
+    """Native operational parameters, with topology and assignment checks."""
+    output = RangeDependency("Solar_Relais1_Nr", 3452, 1, 100)
+    clock = ("0", "1410", "30", "1")
+    for slot in range(1, 4):
+        offset = (slot - 1) * 18
+        root = f"Solar_Wf{slot}_Roehrenkollektor"
+        mask = root + "_KollektorMaske"
+        installed = RangeDependency(mask, 3839 + offset, 1, 7)
+        deps = (
+            output,
+            SolarSelection(mask, 3839 + offset),
+            Dependency(root + "_Aktiviert_Modus", 3834 + offset, (1, 2)),
+        )
+        for suffix, index, other, other_index, relation in (
+            ("tBeginn", 3840, "tEnde", 3841, "le"),
+            ("tEnde", 3841, "tBeginn", 3840, "ge"),
+        ):
+            yield Setting(
+                root + "_" + suffix,
+                index + offset,
+                f"Solar tube collector {slot} {'start' if suffix == 'tBeginn' else 'end'}",
+                "number",
+                True,
+                limits=clock,
+                unit="min",
+                installed_by=installed,
+                dependencies=deps,
+                relative_constraints=(
+                    RelativeConstraint(root + "_" + other, other_index + offset, relation, 30),
+                ),
+                peer_limits=((root + "_" + other, clock),),
+            )
+        for suffix, index, bounds, unit, label in (
+            ("Laufzeit", 3842, ("5", "600", "5", "1"), "s", "runtime"),
+            ("Pausezeit", 3843, ("1", "60", "1", "1"), "min", "pause"),
+        ):
+            yield Setting(
+                root + "_" + suffix, index + offset,
+                f"Solar tube collector {slot} {label}", "number", True,
+                limits=bounds, unit=unit, installed_by=installed, dependencies=deps,
+            )
+    for slot in range(1, 6):
+        offset = (slot - 1) * 49
+        root = f"Solar_Wf{slot}_ExtWT"
+        installed = RangeDependency(root + "_Sensor1_Nr", 4094 + offset, 1, 65)
+        deps = (
+            output,
+            SolarSelection(root + "_SpeicherMaske", 4089 + offset, stores=True),
+            RangeDependency(root + "_Relais1_Nr", 4102 + offset, 1, 100),
+        )
+        for suffix, index, bounds, label in (
+            ("Nachlaufzeit", 4090, ("0", "15", "1", "1"), "run-on"),
+            ("Mindestlaufzeit", 4092, ("1", "15", "1", "1"), "minimum runtime"),
+        ):
+            yield Setting(
+                root + "_" + suffix, index + offset,
+                f"Solar exchanger {slot} {label}", "number", True,
+                limits=bounds, unit="min", installed_by=installed, dependencies=deps,
+            )
+        yield from _operating_pair(
+            root + "_dTein", 4112 + offset,
+            root + "_dTaus", 4115 + offset,
+            f"Solar exchanger {slot} differential", installed, deps,
+            (
+                (0, "_K", "K", ("1", "20", "0.5", "0.1"), ("0.5", "19.5", "0.5", "0.1")),
+                (1, "_R", "°R", ("2", "40", "1", "0.1"), ("1", "39", "1", "0.1")),
+            ),
+            rising=True,
+        )
+        for suffix, index, label, variants in (
+            ("ZieltemperaturSekundaer", 4109, "target", (
+                (0, "_C", "°C", ("15", "95", "1", "0.1")),
+                (1, "_F", "°F", ("60", "204", "2", "0.1")),
+            )),
+            ("dTAnstieg", 4121, "rise", (
+                (0, "_K", "K", ("1", "30", "1", "0.1")),
+                (1, "_R", "°R", ("2", "60", "2", "0.1")),
+            )),
+        ):
+            name = root + "_" + suffix
+            for selector, alias, unit, limits in variants:
+                yield Setting(
+                    name, index + offset,
+                    f"Solar exchanger {slot} {label}", "number", True,
+                    limits=limits, unit=unit, installed_by=installed,
+                    dependencies=(
+                        *deps,
+                        Dependency(root + "_OZieltemperatur", 4091 + offset, (1,)),
+                        RangeDependency(root + "_Sensor2_Nr", 4098 + offset, 1, 65),
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    compound_mirrors=((name, index + offset, name + alias, index + offset + selector + 1),),
+                )
+
+
+BX_PLUS_SOLAR_DEDICATED_SETTINGS = (
+    *tuple(_solar_dedicated_settings()),
+    *tuple(_solar_tube_exchanger_settings()),
+)
 
 
 def _heating_comfort_settings():
