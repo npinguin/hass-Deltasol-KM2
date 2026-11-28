@@ -17,13 +17,13 @@ from functools import cached_property
 from threading import RLock
 from time import monotonic, sleep
 
-from .catalog import CatalogError
 from .bx_plus import (
     SETTINGS,
     WEEKLY_OWNERS,
     native_menu_review_reason,
     weekly_settings_for,
 )
+from .catalog import CatalogError
 from .configuration import (
     ActorReferences,
     ConfigurationCapability,
