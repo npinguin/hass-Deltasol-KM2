@@ -2021,6 +2021,7 @@ def _additional_operating_settings():
 
 BX_PLUS_ADDITIONAL_OPERATING_SETTINGS = tuple(_additional_operating_settings())
 
+
 def _installed_activity(root, index, switch_index):
     """Native enabled or switch-controlled activity with the assigned input."""
     return AnyDependencies(
@@ -2028,7 +2029,9 @@ def _installed_activity(root, index, switch_index):
             (Dependency(root + "_Aktiviert_Modus", index, (1,)),),
             (
                 Dependency(root + "_Aktiviert_Modus", index, (2,)),
-                RangeDependency(root + "_Aktiviert_SensorSchalter_Nr", switch_index, 1, 65),
+                RangeDependency(
+                    root + "_Aktiviert_SensorSchalter_Nr", switch_index, 1, 65
+                ),
             ),
         )
     )
@@ -2043,8 +2046,18 @@ def _installed_program_options():
     """Existing user options, separate from function installation and protection."""
     pump = "Anlage_WTUmwaelzpumpe"
     for suffix, index, label, companion in (
-        ("ONachlauf", 10647, "run-on", _raw_steps(pump + "_Nachlaufzeit", 10648, 0, 60, 1)),
-        ("ORuhemodus", 10650, "idle mode", _raw_steps(pump + "_RuhemodusDauer", 10651, 5, 240, 5)),
+        (
+            "ONachlauf",
+            10647,
+            "run-on",
+            _raw_steps(pump + "_Nachlaufzeit", 10648, 0, 60, 1),
+        ),
+        (
+            "ORuhemodus",
+            10650,
+            "idle mode",
+            _raw_steps(pump + "_RuhemodusDauer", 10651, 5, 240, 5),
+        ),
     ):
         yield Setting(
             pump + "_" + suffix,
@@ -2082,7 +2095,9 @@ def _installed_program_options():
                     RangeDependency(root + "_Sensor3_Nr", 6584 + offset, 1, 65),
                     Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                 ),
-                compound_mirrors=((target, index, target + alias, index + selector + 1),),
+                compound_mirrors=(
+                    (target, index, target + alias, index + selector + 1),
+                ),
                 requested_conditions=(
                     RequestedCondition(1, (_raw_steps(target, index, lo, hi, step),)),
                 ),
@@ -2118,15 +2133,25 @@ def _installed_program_options():
             day_index = 13741 + offset
             night_index = 13744 + offset
             day_mirror = (day, day_index, day + alias, day_index + selector + 1)
-            night_mirror = (night, night_index, night + alias, night_index + selector + 1)
+            night_mirror = (
+                night,
+                night_index,
+                night + alias,
+                night_index + selector + 1,
+            )
             day_valid = _raw_steps(day, day_index, low, high, step)
             night_valid = _raw_steps(night, night_index, low, high, step)
             clock = tuple(
                 _raw_steps(root + "_" + suffix, index + offset, 0, 1425, 15)
-                for suffix, index in (("tSommerTagEin", 13700), ("tSommerTagAus", 13701))
+                for suffix, index in (
+                    ("tSommerTagEin", 13700),
+                    ("tSommerTagAus", 13701),
+                )
             )
             for current_mode in (0, 1):
-                companions = (day_valid, night_valid, *clock) if current_mode else (day_valid,)
+                companions = (
+                    (day_valid, night_valid, *clock) if current_mode else (day_valid,)
+                )
                 mirrors = (day_mirror, night_mirror) if current_mode else (day_mirror,)
                 yield Setting(
                     flag,
@@ -2141,7 +2166,9 @@ def _installed_program_options():
                         Dependency(mode, mode_index, (current_mode,)),
                     ),
                     compound_mirrors=mirrors,
-                    requested_conditions=tuple(RequestedCondition(1, (dep,)) for dep in companions),
+                    requested_conditions=tuple(
+                        RequestedCondition(1, (dep,)) for dep in companions
+                    ),
                 )
             yield Setting(
                 mode,
@@ -2155,7 +2182,10 @@ def _installed_program_options():
                 compound_mirrors=(day_mirror, night_mirror),
                 requested_conditions=(
                     RequestedCondition(0, (day_valid,)),
-                    *(RequestedCondition(1, (dep,)) for dep in (day_valid, night_valid, *clock)),
+                    *(
+                        RequestedCondition(1, (dep,))
+                        for dep in (day_valid, night_valid, *clock)
+                    ),
                 ),
             )
         energy = root + "_Energiesparbetrieb"
@@ -2177,7 +2207,9 @@ def _installed_program_options():
                     RangeDependency(energy + "_Sensor1_Nr", 14160 + offset, 1, 65),
                     Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                 ),
-                compound_mirrors=((target, index, target + alias, index + selector + 1),),
+                compound_mirrors=(
+                    (target, index, target + alias, index + selector + 1),
+                ),
                 requested_conditions=tuple(
                     RequestedCondition(1, (dep,))
                     for dep in (
@@ -2229,21 +2261,34 @@ def _installed_program_options():
                 f"Solar exchanger {slot} target temperature enabled",
                 "switch",
                 True,
-                installed_by=RangeDependency(root + "_Sensor1_Nr", 4094 + offset, 1, 65),
+                installed_by=RangeDependency(
+                    root + "_Sensor1_Nr", 4094 + offset, 1, 65
+                ),
                 dependencies=(
                     RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
-                    SolarSelection(root + "_SpeicherMaske", 4089 + offset, stores=True),
+                    SolarSelection(
+                        root + "_SpeicherMaske", 4089 + offset, stores=True
+                    ),
                     RangeDependency(root + "_Relais1_Nr", 4102 + offset, 1, 100),
                     RangeDependency(root + "_Sensor2_Nr", 4098 + offset, 1, 65),
                     Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                 ),
                 compound_mirrors=(
-                    (target, target_index, target + alias, target_index + selector + 1),
+                    (
+                        target,
+                        target_index,
+                        target + alias,
+                        target_index + selector + 1,
+                    ),
                     (rise, rise_index, rise + hysteresis, rise_index + selector + 1),
                 ),
                 requested_conditions=(
-                    RequestedCondition(1, (_raw_steps(target, target_index, lo, hi, step),)),
-                    RequestedCondition(1, (_raw_steps(rise, rise_index, rlo, rhi, rstep),)),
+                    RequestedCondition(
+                        1, (_raw_steps(target, target_index, lo, hi, step),)
+                    ),
+                    RequestedCondition(
+                        1, (_raw_steps(rise, rise_index, rlo, rhi, rstep),)
+                    ),
                 ),
             )
 
