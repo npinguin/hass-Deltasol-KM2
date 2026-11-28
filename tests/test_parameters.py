@@ -2337,6 +2337,43 @@ class ParameterTests(unittest.TestCase):
                 self.api.set_configuration(telemetry(), capability, 6, vendor)
         self.session.write_verified.assert_not_called()
 
+    def test_profile_binding_review_reports_mismatch_and_keeps_valid_control(self):
+        from dataclasses import replace
+
+        catalogue = importlib.import_module(f"{PACKAGE}.catalog")
+        base = parameters.PROFILES[0]
+        setting = next(s for s in base.settings if s.name == "AutoSommerWinterzeit")
+        another = next(
+            s for s in base.settings if s.name == "TemperatureHysteresisSelector"
+        )
+        profile = replace(
+            base,
+            settings=(setting, another),
+            weekly_owners=(),
+            weekly_factory=None,
+            menu_review=None,
+        )
+        source = catalogue.source_for(base.address, base.configuration_changeset)
+        definitions = (
+            catalogue.Definition(
+                setting.name, setting.index, "unspecified", "Boolean",
+                {"type_chain": ["Boolean"]},
+            ),
+            catalogue.Definition(
+                another.name, another.index + 1, "unspecified", "Enum", {}
+            ),
+        )
+        vendor = catalogue.Catalog(source.digest, definitions, source)
+        bound, rejected = profile.binding_review(source.changeset, vendor)
+        self.assertEqual(bound, (setting,))
+        self.assertEqual(
+            rejected, {another.name: ("Catalogue contract layout differs",)}
+        )
+        self.assertEqual(profile.settings_for(source.changeset, vendor), bound)
+        self.assertEqual(profile.binding_review(source.changeset + 1, vendor), ((), {}))
+        self.assertFalse(profile.weekly_owners)
+        self.assertIsNone(profile.menu_review)
+
     def test_catalogue_provenance_never_changes_identity_or_authorizes_write(self):
         catalogue = importlib.import_module(f"{PACKAGE}.catalog")
         source = catalogue.source_for(0x7112, 0x2734DABC)

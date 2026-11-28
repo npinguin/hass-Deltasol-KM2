@@ -44,7 +44,7 @@ from .catalog import (
     load_catalog,
     source_for,
 )
-from .configuration import WEEKLY_OWNERS, encode_action
+from .configuration import encode_action
 from .const import (
     CONF_VBUS_PASSWORD,
     DEFAULT_NAME,
@@ -576,7 +576,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             if setting.installed_by and setting.weekly_slot is None
         }
         if any(setting.weekly_slot is not None for setting in contracts):
-            selectors.update(owner.name for owner in WEEKLY_OWNERS)
+            selectors.update(owner.name for owner in profile.weekly_owners)
         hints = {}
         # The previous completed capture avoids temporarily losing controls
         # during a new scan. The newer observations replace previous hints.
@@ -723,10 +723,10 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             affected_owners = (
                 {
                     owner.name
-                    for owner in WEEKLY_OWNERS
+                    for owner in self.data.profile.weekly_owners
                     if verified.setting.name in owner.expected
                 }
-                if changed
+                if changed and self.data.profile
                 else set()
             )
             timer = verified.setting.timer_reference if changed else None

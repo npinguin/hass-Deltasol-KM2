@@ -3,7 +3,6 @@
 import re
 from collections import Counter
 
-from .configuration import native_menu_review_reason
 from .const import CONF_VBUS_PASSWORD
 from .discovery import compare_captures
 from .parameters import (
@@ -187,7 +186,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
     relay_contracts = {item["parameter"]: item for item in relays.values()}
     reference_contracts = {}
     if profile and capture and capture.changeset == profile.configuration_changeset:
-        bound = profile.settings_for(capture.changeset, capture.catalog)
+        bound, rejected = profile.binding_review(capture.changeset, capture.catalog)
         bound_names = {setting.name for setting in bound}
         for setting in (*profile.settings_for(capture.changeset), *bound):
             row = reference_contracts.setdefault(
@@ -200,6 +199,8 @@ async def async_get_config_entry_diagnostics(hass, entry):
             )
             if setting.name in bound_names:
                 row["catalogue_binding"] = "verified"
+            if setting.name in rejected:
+                row["rejected_variant_reasons"] = list(rejected[setting.name])
     coverage = Counter()
     contract_coverage = Counter()
     for name, item in configuration.get("parameters", {}).items():
@@ -226,13 +227,22 @@ async def async_get_config_entry_diagnostics(hass, entry):
             item["write_access_reason"] = "live_capability_not_confirmed"
         elif (
             capture
-            and capture.catalog.matches(0x7112, 0x2734DABC)
+            and profile
+            and profile.weekly_factory is not None
+            and capture.catalog.matches(profile.address, capture.changeset)
+            and capture.changeset == profile.configuration_changeset
             and re.fullmatch(
                 r"Wsu0_Schaltuhr_Woche_Tag(?:Mo|Di|Mi|Do|Fr|Sa|So)_Daten", name
             )
         ):
             item["write_access_reason"] = "reserved_native_weekly_slot"
-        elif capture and capture.catalog.matches(0x7112, 0x2734DABC):
+        elif (
+            capture
+            and profile
+            and profile.menu_review is not None
+            and capture.changeset == profile.configuration_changeset
+            and capture.catalog.matches(profile.address, capture.changeset)
+        ):
             definition = capture.catalog.by_name.get(name)
             if (
                 definition
@@ -244,7 +254,7 @@ async def async_get_config_entry_diagnostics(hass, entry):
                     or definition.metadata.get("compound_parent_read_candidate")
                 )
             ):
-                item["write_access_reason"] = native_menu_review_reason(name)
+                item["write_access_reason"] = profile.menu_review(name)
         if name in reference_contracts:
             item["reference_contract"] = reference_contracts[name]
             item["contract_status"] = (

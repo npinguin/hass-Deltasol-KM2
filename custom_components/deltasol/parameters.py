@@ -9,6 +9,7 @@ The BX Plus manual specifies five local relays and two EM slots.
 
 import asyncio
 import struct
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -49,9 +50,11 @@ from .configuration import (
     ActorReferences,
     ConfigurationCapability,
     Setting,
+    WeeklyOwner,
     WeeklyProgram,
     bind_setting,
     encode_action,
+    native_menu_review_reason,
     weekly_settings_for,
 )
 from .vbus import (
@@ -96,31 +99,42 @@ class ControllerProfile:
     module_presence_lookup_optional_changeset: int | None = None
     configuration_changeset: int | None = None
     settings: tuple[Setting, ...] = ()
+    weekly_owners: tuple[WeeklyOwner, ...] = ()
+    weekly_factory: Callable | None = None
+    menu_review: Callable[[str], str] | None = None
 
     def settings_for(self, changeset, catalog=None):
+        """Return the existing authorized capabilities, without global BX rules."""
+        return self.binding_review(changeset, catalog)[0]
+
+    def binding_review(self, changeset, catalog=None):
+        """Return supported bindings and concrete rejected contract reasons.
+
+        A rejection of one definition must not silently remove unrelated
+        compatible controls. Reasons describe contract validation, not access.
+        """
         if changeset != self.configuration_changeset:
-            return ()
+            return (), {}
         if catalog is None:
-            # Existing exact firmware contracts remain usable before the
-            # catalogue is acquired; they are independently source-verified.
-            return self.settings
+            return self.settings, {}
         if not catalog.matches(self.address, changeset):
-            return ()
+            return (), {}
         try:
             definitions = catalog.by_name
         except CatalogError:
-            return ()
+            return (), {}
         bound = []
+        rejected = {}
         for setting in self.settings:
             try:
                 bound.append(bind_setting(setting, definitions))
-            except CatalogError:
-                # A contradictory definition cannot authorize this setting.
-                # Unrelated, independently validated contracts still work.
-                continue
-        if self.address == 0x7112 and changeset == 0x2734DABC:
-            bound.extend(weekly_settings_for(definitions))
-        return tuple(bound)
+            except CatalogError as error:
+                rejected.setdefault(setting.name, set()).add(str(error))
+        if self.weekly_factory is not None:
+            bound.extend(self.weekly_factory(definitions))
+        return tuple(bound), {
+            name: tuple(sorted(reasons)) for name, reasons in rejected.items()
+        }
 
 
 PROFILES = (
@@ -152,6 +166,9 @@ PROFILES = (
         # physical module identity + exact activation and relay mappings.
         module_presence_lookup_optional_changeset=0x2734DABC,
         configuration_changeset=0x2734DABC,
+        weekly_owners=WEEKLY_OWNERS,
+        weekly_factory=weekly_settings_for,
+        menu_review=native_menu_review_reason,
         settings=(
             *BX_PLUS_SETTINGS,
             *BX_PLUS_LOGGING_SETTINGS,
@@ -632,7 +649,7 @@ def _read_weekly_settings(
     hints = hints or {}
     candidates = tuple(
         owner
-        for owner in WEEKLY_OWNERS
+        for owner in profile.weekly_owners
         if complete
         or (
             (row := hints.get(owner.name)) is not None
@@ -1123,7 +1140,7 @@ class RelayParameters:
                     selectors = sorted(
                         {
                             *selectors,
-                            *((owner.name, owner.index) for owner in WEEKLY_OWNERS),
+                            *((owner.name, owner.index) for owner in profile.weekly_owners),
                         },
                         key=lambda item: item[1],
                     )

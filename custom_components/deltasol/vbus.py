@@ -615,7 +615,9 @@ class VBusSession:
     def write_packed_verified(self, address, index, before, wanted, changeset):
         """Write a caller-verified native Blob, not a fixed weekly wire shape."""
         if (
-            not isinstance(before, tuple)
+            type(index) is not int
+            or not 0 < index <= 65535
+            or not isinstance(before, tuple)
             or not isinstance(wanted, tuple)
             or len(before) != len(wanted)
             or not 1 <= len(wanted) <= 128
