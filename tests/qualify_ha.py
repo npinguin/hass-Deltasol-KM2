@@ -1432,11 +1432,15 @@ async def qualify(directory, phase):
                     for suffix, kind, value in expected:
                         name = "Heizung_Heizkreis1_Heizsystem_" + suffix
                         entity = registry.async_get_entity_id(
-                            kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
+                            kind,
+                            "deltasol",
+                            f"isolated-gateway_7112_{name}_configuration",
                         )
                         assert entity
                         observed = hass.states.get(entity).state
-                        assert (float(observed) if kind == "number" else observed) == value
+                        assert (
+                            float(observed) if kind == "number" else observed
+                        ) == value
                 Peer.extra_values[13978] = 1
                 assert Peer.saves == 0
                 assert hass.states.get(display).state == "°F"
