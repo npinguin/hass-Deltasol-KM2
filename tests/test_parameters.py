@@ -406,6 +406,37 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(self.session.write_verified.call_count, 3)
         self.assertEqual(set(controls()), {switch.name})
 
+    def test_global_holiday_duration_requires_commissioning(self):
+        self.session.read.return_value = 0x2734DABC
+        self.values.update({
+            "Urlaubsfunktion_Tage": (19063, 0),
+            "InbetriebnahmeAbgeschlossen": (68, 0),
+        })
+        self.assertFalse(self.api.discover(telemetry()).configuration)
+        self.values["InbetriebnahmeAbgeschlossen"] = (68, 1)
+        cap = next(
+            c for c in self.api.discover(telemetry()).configuration.values()
+            if c.setting.name == "Urlaubsfunktion_Tage"
+        )
+        self.assertEqual(cap.value, 0)
+        for invalid in (-1, 201, 0.5):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), cap, invalid)
+        self.session.write_verified.assert_not_called()
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, changeset, save), (0x7112, 19063, 0x2734DABC, True))
+            self.values["Urlaubsfunktion_Tage"] = (index, value)
+
+        self.session.write_verified.side_effect = write
+        changed = self.api.set_configuration(telemetry(), cap, 7)
+        self.assertEqual(changed.value, 7)
+        self.assertEqual(self.api.set_configuration(telemetry(), changed, 0).value, 0)
+        self.values["InbetriebnahmeAbgeschlossen"] = (68, 0)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), changed, 1)
+        self.assertEqual(self.session.write_verified.call_count, 2)
+
     def test_native_heating_mode_respects_coupling_and_holiday(self):
         self.session.read.return_value = 0x2734DABC
         master = "Heizung_Heizkreis1"
