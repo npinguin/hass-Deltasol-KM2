@@ -1616,9 +1616,10 @@ class DiscoveryTests(unittest.TestCase):
                 # Continue from the proven callback edges in research 4.40.
                 # Each helper is shared by both native instances.
                 for label, start, end in (
-                    ("demand transition", 0x7194, 0x7259),
-                    ("pump transition", 0x7618, 0x76E3),
-                    ("valve transition", 0x773F, 0x780A),
+                    ("registry add", 0xF9E38, 0xF9ECD),
+                    ("registry remove", 0xF9ECD, 0xF9ECD + 420),
+                    ("registry lookup", 0xF9563, 0xF9563 + 160),
+                    ("setup and periodic dispatch", 0x2BFC, 0x2C45),
                 ):
                     inspect_region(label, start, end)
 
