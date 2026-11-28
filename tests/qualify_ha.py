@@ -582,7 +582,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[11405] == 0
                     elif index in (13741, 13744):
                         assert Peer.extra_values[13739] == 1
-                        assert Peer.extra_values[13740] in ((0, 1) if index == 13741 else (1,))
+                        assert Peer.extra_values[13740] in (
+                            (0, 1) if index == 13741 else (1,)
+                        )
                         assert Peer.extra_values[13800] > 0
                     elif index == 4109:
                         assert Peer.extra_values[4091] == 1
@@ -1933,8 +1935,10 @@ async def qualify(directory, phase):
 
         before_comfort = Peer.saves
         for suffix, value in (
-            ("TSommerTag", 86), ("TSommerNacht", 50),
-            ("tSommerTagEin", 555), ("tSommerTagAus", 1275),
+            ("TSommerTag", 86),
+            ("TSommerNacht", 50),
+            ("tSommerTagEin", 555),
+            ("tSommerTagAus", 1275),
             ("Raumthermostat1_dTAbsenkung", 12),
         ):
             await number("Heizung_Heizkreis1_" + suffix, value)
