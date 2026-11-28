@@ -443,6 +443,7 @@ class Setting:
     value_definition: Definition | None = None
     weekly_slot: int | None = None
     requested_conditions: tuple[RequestedCondition, ...] = ()
+    native_options: tuple[int, ...] = ()
 
     @property
     def timer_reference(self):
@@ -813,7 +814,8 @@ def bind_setting(setting, definitions):
             # Explicit native min/mean/max aggregation, stored as a number.
             _normalized_numeric(target, setting.limits)
             options = (1, 2, 3)
-        if set(options) != {raw for _, raw in setting.options}:
+        exposed = {raw for _, raw in setting.options}
+        if set(options) != set(setting.native_options or exposed) or not exposed <= set(options):
             raise CatalogError("Catalogue enumeration contract differs")
     else:
         raise CatalogError("Unsupported configuration contract")
@@ -3211,6 +3213,295 @@ def _operating_mode_options():
 
 
 BX_PLUS_OPERATING_MODE_OPTIONS = tuple(_operating_mode_options())
+
+
+def _unit_value(name, index, selector, alias, low, high, step):
+    """Selected-unit preference evidence without changing its native value."""
+    return (
+        _raw_steps(name, index, low, high, step),
+        PeerComparison(name, index, name + alias, index + selector + 1, "eq"),
+    )
+
+
+def _room_sensor_groups(root, base):
+    """Complete sensor-type room setup, including its optional weekly program."""
+    groups = []
+    for unit, ta, da, low, high, step, factor in (
+        (0, "_C", "_K", 100, 300, 10, 1),
+        (1, "_F", "_R", 500, 860, 20, 2),
+    ):
+        sensor = (
+            Dependency(root + "_Typ", base + 4, (0,)),
+            RangeDependency(root + "_Sensor1_Nr", base + 15, 1, 65),
+            Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+            *_unit_value(root + "_TRaum", base + 5, unit, ta, low, high, step),
+            *_unit_value(
+                root + "_dTRaum", base + 8, unit, da, 5 * factor, 200 * factor, factor
+            ),
+        )
+        groups.extend(
+            (
+                (*sensor, Dependency(root + "_OSchaltuhr", base + 2, (0,))),
+                (
+                    *sensor,
+                    Dependency(root + "_OSchaltuhr", base + 2, (1,)),
+                    WeeklyProgram(root + "_SchaltuhrNr", base + 30, True),
+                    *_unit_value(
+                        root + "_dTAbsenkung",
+                        base + 11,
+                        unit,
+                        da,
+                        10 * factor,
+                        200 * factor,
+                        10 * factor,
+                    ),
+                ),
+            )
+        )
+    return tuple(groups)
+
+
+def _room_thermal_controls():
+    """Documented RTH, pump and thermal regulation controls of installed functions."""
+    for circuit in range(1, 8):
+        offset = (circuit - 1) * 495
+        root = f"Heizung_Heizkreis{circuit}"
+        installed = Dependency(root + "_Type", 13684 + offset, (1,))
+        common = (
+            _installed_activity(root, 13689 + offset, 13691 + offset),
+            Dependency(root + "_System", 13697 + offset, (0, 2)),
+            RangeDependency(root + "_Relais1_Nr", 13764 + offset, 1, 100),
+        )
+        rooms = []
+        for room in range(1, 6):
+            prefix = f"{root}_Raumthermostat{room}"
+            base = 13819 + offset + (room - 1) * 32
+            sensor = _room_sensor_groups(prefix, base)
+            switch = (
+                Dependency(prefix + "_Typ", base + 4, (1,)),
+                RangeDependency(prefix + "_SensorSchalter1_Nr", base + 19, 1, 65),
+            )
+            rooms.append((prefix, base, sensor, switch))
+        for prefix, base, sensor, switch in rooms:
+            mode = prefix + "_Aktiviert"
+            # RTH's two documented operating states are distinct from the
+            # generic ActivityMode storage enumeration. No input assignment
+            # exists for a separate activity switch in the room structure.
+            remaining_sensor = AnyDependencies(
+                tuple(
+                    (
+                        Dependency(other + "_Option", oi, (1,)),
+                        Dependency(other + "_Aktiviert", oi + 1, (1,)),
+                        *group,
+                    )
+                    for other, oi, other_sensor, _ in rooms
+                    if other != prefix
+                    for group in other_sensor
+                )
+            )
+            yield Setting(
+                mode,
+                base + 1,
+                f"{prefix.replace('_', ' ')} temporary activation",
+                "select",
+                True,
+                options=(("Deactivated", 0), ("Activated", 1)),
+                native_options=(0, 1, 2),
+                installed_by=installed,
+                dependencies=(
+                    *common,
+                    Dependency(prefix + "_Option", base, (1,)),
+                    AnyDependencies(
+                        (
+                            (
+                                Dependency(prefix + "_Typ", base + 4, (0,)),
+                                RangeDependency(prefix + "_Sensor1_Nr", base + 15, 1, 65),
+                            ),
+                            switch,
+                        )
+                    ),
+                ),
+                requested_conditions=(
+                    RequestedCondition(1, (AnyDependencies((*sensor, switch)),)),
+                    RequestedCondition(
+                        0,
+                        (
+                            Dependency(mode, base + 1, (0,)),
+                            Dependency(root + "_Heizsystem", 13978 + offset, (1, 2, 3)),
+                            Dependency(prefix + "_Typ", base + 4, (1,)),
+                            remaining_sensor,
+                        ),
+                    ),
+                ),
+            )
+        active_rooms = AnyDependencies(
+            tuple(
+                (
+                    Dependency(prefix + "_Option", base, (1,)),
+                    Dependency(prefix + "_Aktiviert", base + 1, (1,)),
+                    *group,
+                )
+                for prefix, base, sensor, switch in rooms
+                for group in (*sensor, switch)
+            )
+        )
+        yield Setting(
+            root + "_RTH_HKaus",
+            14041 + offset,
+            f"Heating circuit {circuit} room thermostat heating-off option",
+            "switch",
+            True,
+            installed_by=installed,
+            dependencies=common,
+            requested_conditions=(RequestedCondition(1, (active_rooms,)),),
+        )
+        prefix = root + "_Nachheizung"
+        mi = 13706 + offset
+        on, off = prefix + "_dTEin", prefix + "_dTAus"
+        oi, ai = 13747 + offset, 13750 + offset
+        thermal = AnyDependencies(
+            tuple(
+                (
+                    RangeDependency(root + "_Sensor4_Nr", 13804 + offset, 1, 65),
+                    Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                    *_unit_value(on, oi, unit, alias, -150 * factor, 445 * factor, 5 * factor),
+                    *_unit_value(off, ai, unit, alias, -145 * factor, 450 * factor, 5 * factor),
+                    PeerComparison(off, ai, on, oi, "gt"),
+                )
+                for unit, alias, factor in ((0, "_K", 1), (1, "_R", 2))
+            )
+        )
+        yield Setting(
+            prefix + "_Modus",
+            mi,
+            f"Heating circuit {circuit} supplementary heating mode",
+            "select",
+            True,
+            options=(("Thermostat", 0), ("Zone", 1), ("On/Off", 2)),
+            installed_by=installed,
+            dependencies=(
+                *common,
+                Dependency(root + "_ONachheizung", 13705 + offset, (1,)),
+                _installed_activity(prefix, 13708 + offset, 13710 + offset),
+                RangeDependency(root + "_Relais6_Nr", 14003 + offset, 1, 100),
+            ),
+            requested_conditions=(
+                RequestedCondition(0, (thermal,)),
+                RequestedCondition(1, (thermal,)),
+                RequestedCondition(
+                    1, (RangeDependency(root + "_Sensor5_Nr", 13808 + offset, 1, 65),)
+                ),
+            ),
+        )
+
+    for slot in (1, 2):
+        offset = (slot - 1) * 29
+        root = f"Heizung_RelaisPumpe{slot}"
+        installed = Dependency(root + "_Type", 11166 + offset, (2,))
+        for phase, mode, ti, duration in (
+            ("Anlauf", 11178, 11179, 11182),
+            ("Nachlauf", 11183, 11184, 11187),
+        ):
+            target = f"{root}_{phase}_T{phase}"
+            thermal = AnyDependencies(
+                tuple(
+                    (
+                        Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                        *_unit_value(target, ti + offset, unit, alias, lo, hi, step),
+                        RangeDependency(
+                            root + "_AnlaufNachlauf_Sensor1_Nr", 11189 + offset, 1, 65
+                        ),
+                    )
+                    for unit, alias, lo, hi, step in (
+                        (0, "_C", 100, 900, 10),
+                        (1, "_F", 500, 1940, 20),
+                    )
+                )
+            )
+            yield Setting(
+                f"{root}_{phase}_Modus",
+                mode + offset,
+                f"Heating pump {slot} {phase} mode",
+                "select",
+                True,
+                options=(("None", 0), ("Temperature", 1), ("Time", 2)),
+                installed_by=installed,
+                dependencies=(
+                    Dependency(root + "_Aktiviert_Modus", 11169 + offset, (1,)),
+                    RangeDependency(root + "_Relais1_Nr", 11171 + offset, 1, 100),
+                ),
+                requested_conditions=(
+                    RequestedCondition(1, (thermal,)),
+                    RequestedCondition(
+                        2,
+                        (RangeDependency(f"{root}_{phase}_dt{phase}", duration + offset, 0, 300),),
+                    ),
+                ),
+            )
+
+    for slot in range(1, 17):
+        offset = (slot - 1) * 151
+        root = f"Heizung_Wf{slot}"
+        prefix = root + "_BwVorerwaermung"
+        common = (
+            _installed_activity(root, 11273 + offset, 11275 + offset),
+            RangeDependency(root + "_Relais1_Nr", 11321 + offset, 1, 100),
+            RangeDependency(root + "_Sensor1_Nr", 11290 + offset, 1, 65),
+            RangeDependency(root + "_SensorDurchfluss1_Nr", 11315 + offset, 1, 65),
+            AnyDependencies(
+                (
+                    (Dependency(prefix + "_OVentil", 11388 + offset, (0,)),),
+                    (
+                        Dependency(prefix + "_OVentil", 11388 + offset, (1,)),
+                        RangeDependency(root + "_Relais2_Nr", 11329 + offset, 1, 100),
+                    ),
+                )
+            ),
+            AnyDependencies(
+                (
+                    (Dependency(prefix + "_ODifferenz", 11398 + offset, (0,)),),
+                    (
+                        Dependency(prefix + "_ODifferenz", 11398 + offset, (1,)),
+                        RangeDependency(root + "_Sensor2_Nr", 11294 + offset, 1, 65),
+                        RangeDependency(root + "_Sensor3_Nr", 11298 + offset, 1, 65),
+                    ),
+                )
+            ),
+        )
+        for suffix, index, label, variants in (
+            (
+                "TMax", 11389, "temperature target",
+                ((0, "_C", "°C", ("20", "90", "1", "0.1")),
+                 (1, "_F", "°F", ("68", "194", "2", "0.1"))),
+            ),
+            (
+                "dTMax", 11394, "speed-regulation hysteresis",
+                ((0, "_K", "K", ("0.5", "10", "0.5", "0.1")),
+                 (1, "_R", "°R", ("1", "20", "1", "0.1"))),
+            ),
+        ):
+            name = prefix + "_" + suffix
+            for selector, alias, unit, limits in variants:
+                yield Setting(
+                    name,
+                    index + offset,
+                    f"Heating function {slot} DHW preheat {label}",
+                    "number",
+                    True,
+                    limits=limits,
+                    unit=unit,
+                    installed_by=Dependency(root + "_Type", 11266 + offset, (3,)),
+                    dependencies=(
+                        *common,
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    compound_mirrors=(
+                        (name, index + offset, name + alias, index + offset + selector + 1),
+                    ),
+                )
+
+
+BX_PLUS_ROOM_THERMAL_CONTROLS = tuple(_room_thermal_controls())
 
 
 def _heating_operating_settings():
