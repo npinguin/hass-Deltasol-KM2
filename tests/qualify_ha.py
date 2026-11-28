@@ -38,6 +38,12 @@ HQM_SENSOR_UID = "00_0010_7131_0100__004_4_0"
 # Independent wire fixtures: exact 2.08 reference positions, not imported
 # production Setting objects. Persistent state belongs to the protocol peer.
 CONFIG_SELECTORS = {
+    "Heizung_Wf2_SolarAus_SpeicherMaske": (11434, 1),
+    "Heizung_Heizkreis1_Nachheizung_SolarAus_SpeicherMaske": (14142, 1),
+    "Solar_Wf8_Type": (5249, 6),
+    "Solar_Wf8_Aktiviert_Modus": (5255, 1),
+    "Solar_Wf8_Relais1_Nr": (5276, 1),
+    "Solar_Wf8_NhUnterdrueckung_SpeicherMaske": (5301, 1),
     "Anlage_Wf8_Type": (8316, 3),
     "Anlage_Wf8_Aktiviert_Modus": (8323, 1),
     "Anlage_Wf8_Relais1_Nr": (8349, 1),
@@ -123,13 +129,10 @@ CONFIG_SELECTORS = {
     "Heizung_Heizkreis1_ONachheizung": (13705, 1),
     "Heizung_Heizkreis1_Nachheizung_Modus": (13706, 0),
     "Heizung_Heizkreis1_Nachheizung_Aktiviert_Modus": (13708, 1),
-    "Heizung_Heizkreis1_Nachheizung_OFruehstart": (13714, 1),
-    "Heizung_Heizkreis1_Nachheizung_OBlockierung": (13716, 1),
     "Heizung_Heizkreis1_Sensor4_Nr": (13804, 4),
     "Heizung_Heizkreis1_Sensor5_Nr": (13808, 5),
     "Heizung_Heizkreis1_Relais6_Nr": (14003, 2),
     "Heizung_Heizkreis1_Kuehlung_Relais1_Nr": (14059, 3),
-    "Heizung_Heizkreis1_Kuehlung_OTimer": (14098, 1),
     "Anlage_WTUmwaelzpumpe_Aktiviert_Modus": (10607, 1),
     "Anlage_WTUmwaelzpumpe_Relais_Nr": (10614, 2),
     "Heizung_RelaisPumpe1_Type": (11166, 2),
@@ -182,6 +185,17 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
+    "Heizung_Heizkreis1_Nachheizung_OFruehstart": (13714, 1, 0, 1),
+    "Heizung_Heizkreis1_Nachheizung_OBlockierung": (13716, 1, 0, 1),
+    "Heizung_Heizkreis1_Kuehlung_OTimer": (14098, 1, 0, 1),
+    "Heizung_Wf2_OUrlaubAus": (11432, 0, 0, 1),
+    "Heizung_Wf2_OSolarAus": (11433, 0, 0, 1),
+    "Heizung_Wf2_SolarAus_OTSoll": (11435, 0, 0, 1),
+    "Heizung_Heizkreis1_Nachheizung_OSolarAus": (14141, 0, 0, 1),
+    "Heizung_Heizkreis1_Nachheizung_SolarAus_OTSoll": (14143, 0, 0, 1),
+    "Solar_Wf8_NhUnterdrueckung_OSpSoll": (5302, 0, 0, 1),
+    "Solar_Sp1_Tsoll": (3588, 500, 40, 950),
+    "Solar_Sp1_Tmax": (3591, 800, 40, 950),
     "Anlage_Wf8_OSchaltuhr": (8331, 0, 0, 1),
     "Heizung_Wf3_BwVorerwaermung_dTAus": (11704, 40, 5, 495),
     "Heizung_Wf3_BwVorerwaermung_dTEin": (11701, 60, 10, 500),
@@ -379,6 +393,8 @@ TEMPERATURE_NAMES = (
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf1",
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TAussen2",
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf2",
+    "Solar_Sp1_Tsoll",
+    "Solar_Sp1_Tmax",
 )
 TEMPERATURE_PARENTS = {CONFIG_SETTINGS[name][0] for name in TEMPERATURE_NAMES}
 TEMPERATURE_ALIASES = {
@@ -935,12 +951,12 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     else:
                         assert Peer.extra_values[13706] == 0
                     if index == 13715:
-                        assert Peer.extra_values[13714] == 1
+                        assert Peer.settings[13714] == 1
                     elif index == 13717:
-                        assert Peer.extra_values[13716] == 1
+                        assert Peer.settings[13716] == 1
                 if index in (14099, 14100):
                     assert Peer.extra_values[13697] in (1, 2)
-                    assert Peer.extra_values[14098] == 1
+                    assert Peer.settings[14098] == 1
                     assert Peer.extra_values[14059] > 0 and value % 15 == 0
                 if index in (10646, 10648, 10651):
                     assert Peer.extra_values[10607] == 1
@@ -2438,10 +2454,10 @@ async def qualify(directory, phase):
                 raise AssertionError("Invalid operating value accepted")
         assert Peer.saves == before_operating + 11
         early = entity("Heizung_Heizkreis1_Nachheizung_tFruehstart", "number")
-        Peer.extra_values[13714] = 0
+        Peer.settings[13714] = 0
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert hass.states.get(early).state == "unavailable"
-        Peer.extra_values[13714] = 1
+        Peer.settings[13714] = 1
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert float(hass.states.get(early).state) == 90
         assert entity("Heizung_Heizkreis1_Nachheizung_tFruehstart", "number") == early
@@ -2785,6 +2801,26 @@ async def qualify(directory, phase):
         assert hass.states.get(independent).state == "unavailable"
         assert entity("Heizung_Heizkreis1_Betriebsart", "select") == heating_mode
 
+        # Operational flags are persisted through the existing writer. A
+        # disabled parent hides its child without rewriting that preference.
+        for name, index in (
+            ("Heizung_Wf2_OUrlaubAus", 11432),
+            ("Heizung_Wf2_OSolarAus", 11433),
+            ("Heizung_Wf2_SolarAus_OTSoll", 11435),
+            ("Heizung_Heizkreis1_Nachheizung_OSolarAus", 14141),
+            ("Heizung_Heizkreis1_Nachheizung_SolarAus_OTSoll", 14143),
+            ("Solar_Wf8_NhUnterdrueckung_OSpSoll", 5302),
+        ):
+            switch = entity(name, "switch")
+            assert switch and hass.states.get(switch).state == "off", name
+            before_coordination = Peer.saves
+            await hass.services.async_call(
+                "switch", "turn_on", {"entity_id": switch}, blocking=True
+            )
+            await hass.async_block_till_done()
+            assert Peer.settings[index] == 1
+            assert Peer.saves == before_coordination + 1
+
         timer = entity("Anlage_Wf8_OSchaltuhr", "switch")
         assert timer and hass.states.get(timer).state == "off"
         assert hass.states.get(timer).attributes["weekly_program_reference"] == 2
@@ -2817,7 +2853,9 @@ async def qualify(directory, phase):
         assert Peer.settings[8331] == 0 and Peer.saves == before_timer + 2
         assert hass.states.get(day_two).state == "unavailable"
         assert Peer.extra_values[8377] == 2
-        assert all(Peer.weekly_words[idx] == words for idx, words in week_before.items())
+        assert all(
+            Peer.weekly_words[idx] == words for idx, words in week_before.items()
+        )
         await timer_action("turn_on")
         assert Peer.saves == before_timer + 3
 
