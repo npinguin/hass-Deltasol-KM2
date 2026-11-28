@@ -1587,19 +1587,35 @@ class DiscoveryTests(unittest.TestCase):
         # this is native commissioning, not an independent runtime toggle.
         batch = (
             (
-                "Anlage_Wf", "Feststoffkessel_OMischer", 251, 0xFFFA, 13,
+                "Anlage_Wf",
+                "Feststoffkessel_OMischer",
+                251,
+                0xFFFA,
+                13,
                 (("Relais2_Nr", -176), ("Relais3_Nr", -172)),
             ),
             (
-                "Anlage_Wf", "Funktionsblock_OVolumenstrom", 251, 0xFFFB, 14,
+                "Anlage_Wf",
+                "Funktionsblock_OVolumenstrom",
+                251,
+                0xFFFB,
+                14,
                 (("SensorVolumenstrom1_Nr", -166),),
             ),
             (
-                "Heizung_Wf", "ThBwErwaermung_OLadepumpe", 151, 0xFFFD, 14,
+                "Heizung_Wf",
+                "ThBwErwaermung_OLadepumpe",
+                151,
+                0xFFFD,
+                14,
                 (("Relais2_Nr", -56),),
             ),
             (
-                "Heizung_Wf", "BwVorerwaermung_OVentil", 151, 0xFFF9, 14,
+                "Heizung_Wf",
+                "BwVorerwaermung_OVentil",
+                151,
+                0xFFF9,
+                14,
                 (("Relais2_Nr", -56),),
             ),
         )
