@@ -2471,7 +2471,9 @@ def _heating_comfort_settings():
                         Dependency(f"{root}_Heizgrenze", 13740 + offset, modes),
                         Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                     ),
-                    compound_mirrors=((name, index, name + alias, index + selector + 1),),
+                    compound_mirrors=(
+                        (name, index, name + alias, index + selector + 1),
+                    ),
                 )
         for suffix, index, label in (
             ("tSommerTagEin", 13700, "heating limit day period start"),
