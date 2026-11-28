@@ -1335,6 +1335,57 @@ class DiscoveryTests(unittest.TestCase):
             name = f"Heizung_RelaisAnforderung{slot}_OMindestlaufzeit"
             self.assertEqual(descriptor(name)[1], 0xFFF9)
             self.assertIn(descriptor(name)[2:], registration_pairs)
+        # Fixed native evidence inventory from the remaining V1 review.
+        # This is not a write allowlist: a generic editor and a value-change
+        # callback are distinct, and neither proves registration preservation.
+        review_families = {
+            "Anlage_WTUmwaelzpumpe_Aktiviert_Modus": 1,
+            "Anlage_WfX_Feststoffkessel_OMischer": 16,
+            "Anlage_WfX_Funktionsblock_OVolumenstrom": 16,
+            "Heizung_HeizkreisX_Fernzugriff_Modus": 7,
+            "Heizung_HeizkreisX_OFernzugriff": 7,
+            "Heizung_HeizkreisX_ONachheizung": 7,
+            "Heizung_HeizkreisX_RaumthermostatX_Option": 35,
+            "Heizung_RelaisAnforderungX_Aktiviert_Modus": 2,
+            "Heizung_RelaisAnforderungX_OAusgangX": 2,
+            "Heizung_RelaisAnforderungX_ORelaisX": 2,
+            "Heizung_RelaisPumpeX_Aktiviert_Modus": 2,
+            "Heizung_RelaisVentilX_Aktiviert_Modus": 2,
+            "Heizung_WfX_BwVorerwaermung_OVentil": 16,
+            "Heizung_WfX_ThBwErwaermung_OLadepumpe": 16,
+            "Solar_Losreissimpuls": 1,
+            "Solar_ORuecklaufSensor": 1,
+            "Solar_OVorlaufSensor": 1,
+            "Solar_WfX_DrainBack_OBooster": 1,
+        }
+        review = {family: [] for family in review_families}
+        for row in catalog.load_catalog(archive_path).definitions:
+            family = re.sub(r"(?<=\D)\d+", "X", row.name)
+            if (
+                family in review
+                and row.metadata.get("menu_refs")
+                and not row.excluded
+                and not row.metadata.get("compound_ref")
+                and row.metadata.get("rpt_storage")
+                in ("preferences", "persistent")
+            ):
+                review[family].append(row.name)
+        for family, names in review.items():
+            with self.subTest(native_review_family=family):
+                self.assertEqual(len(names), review_families[family])
+                flags = Counter()
+                editor_pairs = set()
+                for name in names:
+                    pointer, flag, editor, reader = descriptor(name)
+                    flags[hex(flag)] += 1
+                    editor_pairs.add((hex(editor - base), hex(reader - base)))
+                    self.assertNotEqual(pointer, 0)
+                print(
+                    "Native remaining family:",
+                    family,
+                    sorted(flags.items()),
+                    sorted(editor_pairs),
+                )
         delay_pairs = set()
         for slot in range(1, 17):
             root = f"Anlage_Wf{slot}_Funktionsblock"
