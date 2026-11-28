@@ -1625,7 +1625,10 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(len([s for s in comfort if s.kind == "select"]), 7)
         vacation = next(s for s in bound if s.name == "Urlaubsfunktion_Tage")
         self.assertEqual(vacation.limits, ("0", "200", "1", "1"))
-        self.assertEqual(vacation.expected, {"Urlaubsfunktion_Tage": 19063, "InbetriebnahmeAbgeschlossen": 68})
+        self.assertEqual(
+            vacation.expected,
+            {"Urlaubsfunktion_Tage": 19063, "InbetriebnahmeAbgeschlossen": 68},
+        )
         for setting in (s for s in comfort if s.compound_mirrors):
             parent = definitions[setting.name]
             self.assertEqual(parent.index, setting.index)
