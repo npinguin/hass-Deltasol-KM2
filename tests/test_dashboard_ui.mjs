@@ -263,3 +263,31 @@ test("every supported entity depth is reachable in the shared dashboard navigati
   p.current().engineering=false;
   assert.ok(!p.tabs().includes("engineering"));
 });
+
+test("energy and history exposes actual readings from every operational source without inventing totals",()=>{
+  const p=model(true,true),a=p.current().objects[0];a.name="Source";
+  a.capabilities.push({entity_id:"sensor.yield",depth:"status",section:"energy",kind:"sensor",role:"energy"});
+  p._hass.states["sensor.yield"]={state:"1200",attributes:{unit_of_measurement:"Wh"}};
+  p.tab="energy";
+  assert.ok(p.objectsForTab().includes(a));
+  assert.ok(p.visibleRows(a).some(row=>row.entity_id==="sensor.temperature"));
+  assert.ok(!p.visibleRows(a).some(row=>row.entity_id==="select.heating"));
+  assert.ok(p.cards().includes(p.t("energy_measurements")));
+  assert.ok(p.cards().includes(p.t("other_measurements")));
+  assert.ok(p.cards().includes("1200 Wh"));
+  assert.ok(!p.domainTask().includes(p.t("no_energy_measurement")));
+  p.row("sensor.yield").availability="telemetry_unavailable";
+  assert.ok(p.domainTask().includes(p.t("no_energy_measurement")));
+});
+test("functional views use existing controls and offer one scoped route to settings",()=>{
+  const p=model(true,true),a=p.current().objects[0];a.name="Heating";
+  p.tab="heating";
+  assert.ok(p.domainTask().includes(p.t("heating_task")));
+  const html=p.cards();
+  assert.equal((html.match(/data-input="select.heating"/g)||[]).length,1);
+  assert.ok(html.includes('data-object-settings="device"'));
+  p.current().settings=false;
+  assert.ok(!p.cards().includes("data-object-settings"));
+  p.tab="hot_water";
+  assert.ok(!p.cards().includes("data-input"));
+});

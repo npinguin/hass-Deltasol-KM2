@@ -42,6 +42,10 @@ function journey(){
     check(root.textContent.includes("Check the native source device"),"Missing actionable unavailable state");
     hass.states["sensor.temp"]=state("42",{unit_of_measurement:"°C"});
     panel.hass=hass;panel.render();
+    click('[data-tab="energy"]');
+    check(root.textContent.includes("Other recorded measurements"),"History cannot find non-energy measurements");
+    check(root.textContent.includes("Buffer temperature"),"Native temperature missing from history view");
+    check(!root.querySelector('[data-input="select.mode"]'),"Unrelated heating control in energy view");
     click('[data-tab="heating"]');
     const nav=root.querySelector('[data-tab="heating"]');nav.focus();panel.render();
     check(root.activeElement?.dataset.tab==="heating","Lost keyboard focus on rerender");
