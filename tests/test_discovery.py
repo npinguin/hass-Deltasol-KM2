@@ -1569,6 +1569,18 @@ class DiscoveryTests(unittest.TestCase):
             for name in days:
                 self.assertEqual(definitions[name].metadata["size_bytes"], 12)
                 self.assertIn("Blob", definitions[name].metadata["type_chain"])
+        coordination = configuration.BX_PLUS_COORDINATION_OPTIONS
+        self.assertEqual(len({setting.name for setting in coordination}), 99)
+        for setting in coordination:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertEqual(target.metadata["rpt_storage"], "preferences")
+            self.assertIn("Boolean", target.metadata["type_chain"])
+            self.assertTrue(target.metadata["menu_refs"])
+            self.assertTrue(setting.save)
+            self.assertEqual(setting.kind, "switch")
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
         self.assertEqual(len(bound), len(profile.settings) + 350)
         self.assertEqual(len([s for s in bound if s.weekly_slot is not None]), 350)
         # Report the remaining catalogue/menu review surface as part of the
