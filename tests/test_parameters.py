@@ -1568,7 +1568,11 @@ class ParameterTests(unittest.TestCase):
                 connection.recv.side_effect = [
                     offer,
                     TimeoutError(),
-                    *( [offer, TimeoutError()] if confirmed else [TimeoutError(), TimeoutError()] ),
+                    *(
+                        [offer, TimeoutError()]
+                        if confirmed
+                        else [TimeoutError(), TimeoutError()]
+                    ),
                 ]
                 session = transport.VBusSession(connection)
                 self.ctx.__enter__.return_value = session
@@ -1582,9 +1586,12 @@ class ParameterTests(unittest.TestCase):
                     for call in connection.sendall.call_args_list
                 ]
                 self.assertEqual(
-                    commands, [0x0300, 0x0600] if confirmed else [0x0300, 0x0600, 0x0600]
+                    commands,
+                    [0x0300, 0x0600] if confirmed else [0x0300, 0x0600, 0x0600],
                 )
-                self.assertEqual(api.transport_health()["read_resync_attempts"], int(confirmed))
+                self.assertEqual(
+                    api.transport_health()["read_resync_attempts"], int(confirmed)
+                )
                 self.assertEqual(api.transport_health()["read_resync_successes"], 0)
 
     def test_session_gap_applies_to_reads_and_writes(self):
