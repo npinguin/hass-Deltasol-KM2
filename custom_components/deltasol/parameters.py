@@ -17,6 +17,7 @@ from time import monotonic, sleep
 
 from .catalog import CatalogError
 from .configuration import (
+    BX_PLUS_ACTIVITY_SETTINGS,
     BX_PLUS_ADDITIONAL_OPERATING_SETTINGS,
     BX_PLUS_COORDINATION_OPTIONS,
     BX_PLUS_DIFFERENTIAL_SETTINGS,
@@ -163,6 +164,7 @@ PROFILES = (
             *BX_PLUS_COORDINATION_OPTIONS,
             *BX_PLUS_OPERATING_MODE_OPTIONS,
             *BX_PLUS_ROOM_THERMAL_CONTROLS,
+            *BX_PLUS_ACTIVITY_SETTINGS,
             *BX_PLUS_DIFFERENTIAL_SETTINGS,
             *BX_PLUS_TRANSFER_SETTINGS,
             *BX_PLUS_SOLID_FUEL_MIXER_SETTINGS,
