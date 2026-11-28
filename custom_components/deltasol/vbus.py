@@ -582,7 +582,9 @@ class VBusSession:
             if result.status == "read"
         }
 
-    def write_verified(self, address, index, value, changeset, *, save=False):
+    def write_verified(
+        self, address, index, value, changeset, *, save=False, subindex=0
+    ):
         """Internal write primitive; caller must hold the bus.
 
         The MIT resol-vbus connection.js reference distinguishes volatile
@@ -593,40 +595,64 @@ class VBusSession:
         Only a verified semantic mapping may invoke this primitive. Do not
         retry an uncertain write: report the error and re-read separately.
         """
-        ack = self.request(address, 0x0400 if save else 0x0200, index, value)
+        if type(subindex) is not int or not 0 <= subindex <= 127:
+            raise VBusError("Invalid VBus parameter subindex")
+        ack = self.request(
+            address,
+            (0x0400 if save else 0x0200) | subindex,
+            index,
+            value,
+            replies=(0x0100 | subindex,),
+        )
         if ack.value != value:
             raise VBusError("VBus write acknowledgement differs")
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during write")
-        if self.read(address, index) != value:
+        if self.read(address, index, subindex=subindex) != value:
             raise VBusError("VBus write readback differs")
         return value
 
     def write_packed_verified(self, address, index, before, wanted, changeset):
-        """Internal non-atomic three-word transport for a previously verified Blob.
+        """Write a caller-verified native Blob, not a fixed weekly wire shape."""
+        if (
+            not isinstance(before, tuple)
+            or not isinstance(wanted, tuple)
+            or len(before) != len(wanted)
+            or not 1 <= len(wanted) <= 128
+        ):
+            raise VBusError("Invalid configuration value")
+        observed = {(index, n): word for n, word in enumerate(before)}
+        requested = {(index, n): word for n, word in enumerate(wanted)}
+        result = self.write_bulk_verified(address, observed, requested, changeset)
+        return tuple(result.values())
 
-        MIT resol-vbus connection.js bulk transaction and upstream
-        connection.spec.js zero-status acknowledgements, including subindex
-        correlation. The caller must establish controller support, semantic
-        authorization, layout, packing and storage semantics before calling.
-        A fresh capability response must advertise bulk transactions (bit
-        0x08, observed in RESOL RPT 2.02). This is transport evidence only,
-        not authorization to write any particular Blob. BX Plus mutates the
-        parameter buffer during each stage. No rollback is established.
-        A failed stage or commit requires a fresh read-only reconciliation;
-        never replay the request or commit a partially applied value.
+    def write_bulk_verified(self, address, before, wanted, changeset):
+        """Internal ordered bulk transport for already authorized native words.
+
+        RPT TransferSerial and AbstractVBusConnection encode the parameter ID
+        and seven-bit subindex independently; BVT start/stage status is
+        nonnegative on success. A fresh capability query must advertise BVT.
+        Verify the entire requested set before and after the transaction.
+        BX Plus stages mutate the live buffer immediately; a transaction is
+        not atomic and no rollback is established. Never retry an uncertain
+        stage or commit. This is transport, not a public raw-write service.
         """
         if (
-            type(index) is not int
-            or not 0 < index <= 65535
+            not isinstance(before, dict)
+            or not isinstance(wanted, dict)
+            or not wanted
+            or before.keys() != wanted.keys()
             or any(
-                not isinstance(words, tuple)
-                or len(words) != 3
-                or any(
-                    type(word) is not int or not -(2**31) <= word < 2**31
-                    for word in words
-                )
+                not isinstance(key, tuple)
+                or len(key) != 2
+                or type(key[0]) is not int
+                or not 0 < key[0] <= 65535
+                or type(key[1]) is not int
+                or not 0 <= key[1] <= 127
+                or type(word) is not int
+                or not -(2**31) <= word < 2**31
                 for words in (before, wanted)
+                for key, word in words.items()
             )
         ):
             raise VBusError("Invalid configuration value")
@@ -634,39 +660,38 @@ class VBusSession:
             raise VBusError("Controller changeset changed before write")
 
         def read_words():
-            return tuple(self.read(address, index, subindex=n) for n in range(3))
+            return {
+                (index, subindex): self.read(address, index, subindex=subindex)
+                for index, subindex in wanted
+            }
 
         if read_words() != before:
             raise VBusError("VBus write readback differs")
         if before == wanted:
-            return before
+            return dict(wanted)
         if not self.read_capabilities(address) & 0x08:
             raise VBusError("Controller does not advertise VBus bulk transactions")
 
         def acknowledged(command, reply, index=0, value=0):
             response = self.request(address, command, index, value, replies=(reply,))
-            if response.value != 0:
+            if response.value < 0:
                 raise VBusError("VBus bulk transaction rejected")
 
-        # Begin rejection is not an acknowledged transaction. A lost begin
-        # response is already classified as uncertain by request().
         acknowledged(0x1400, 0x1401, value=10)
         try:
-            for subindex, word in enumerate(wanted):
+            for (index, subindex), word in wanted.items():
                 acknowledged(0x1500 | subindex, 0x1600 | subindex, index, word)
             if self.read(address, 0) != changeset:
                 raise VBusError("Controller changeset changed during write")
             acknowledged(0x1402, 0x1403, value=10)
         except (OSError, VBusError) as error:
-            # Prior words may already have changed even on an explicit
-            # rejection. Do not invent rollback, commit, or another begin.
-            # Let the bus owner recover and reconcile via a fresh read.
+            # Previous words can already be live, even after a rejection.
             raise VBusError("VBus write outcome uncertain") from error
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during write")
         if read_words() != wanted:
             raise VBusError("VBus write readback differs")
-        return wanted
+        return dict(wanted)
 
 
 @contextmanager

@@ -2376,7 +2376,9 @@ async def qualify(directory, phase):
 
         # The native Number remains the same entity as the active display
         # unit changes. Write the parent only and verify reconnect/persistence.
-        name = COMPOUND_NAMES[0]
+        name = "Anlage_Wf2_Feststoffkessel_dTEin"
+        room_delta = entity("Heizung_Heizkreis1_Raumthermostat1_dTRaum", "number")
+        assert room_delta and float(hass.states.get(room_delta).state) == 2
         compound = entity(name, "number")
         assert compound
         assert float(hass.states.get(compound).state) == 10
@@ -2385,12 +2387,14 @@ async def qualify(directory, phase):
         await set_mode(display, "°C")
         assert entity(name, "number") == compound
         assert float(hass.states.get(compound).state) == 6
+        assert float(hass.states.get(room_delta).state) == 1
         assert hass.states.get(compound).attributes["unit_of_measurement"] == "K"
         await number(name, 7)
         assert Peer.settings[6914] == 70 and Peer.saves == 14
         await set_mode(display, "°F")
         assert entity(name, "number") == compound
         assert float(hass.states.get(compound).state) == 14
+        assert float(hass.states.get(room_delta).state) == 2
         assert hass.states.get(compound).attributes["unit_of_measurement"] == "°R"
         assert Peer.saves == 15
 

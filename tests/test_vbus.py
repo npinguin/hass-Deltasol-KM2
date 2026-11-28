@@ -150,6 +150,68 @@ class VBusTests(unittest.TestCase):
         self.assertEqual(sent[5].value, 10)
         self.assertEqual(sent[10].value, 10)
 
+    def test_bulk_variable_words_and_multiple_native_ids(self):
+        changeset = 123
+        keys = ((18419, 0), (18419, 1), (18419, 2), (18419, 3), (18420, 127))
+        before = dict.fromkeys(keys, -1)
+        wanted = dict(zip(keys, (11, 22, 33, 44, 55), strict=True))
+        conn = Mock()
+        conn.recv.return_value = b"".join(
+            (
+                response(0x0100, 0, changeset),
+                *(
+                    response(0x0100 | sub, index, value)
+                    for (index, sub), value in before.items()
+                ),
+                response(0x1301, value=8),
+                response(0x1401, value=1),
+                *(
+                    response(0x1600 | sub, index, 2)
+                    for index, sub in wanted
+                ),
+                response(0x0100, 0, changeset),
+                response(0x1403, value=3),
+                response(0x0100, 0, changeset),
+                *(
+                    response(0x0100 | sub, index, value)
+                    for (index, sub), value in wanted.items()
+                ),
+            )
+        )
+        self.assertEqual(
+            vbus.VBusSession(conn).write_bulk_verified(
+                ADDRESS, before, wanted, changeset
+            ),
+            wanted,
+        )
+        sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+        self.assertEqual(
+            [(p.index, p.command & 127, p.value) for p in sent
+             if p.command & 0xFF80 == 0x1500],
+            [(index, sub, value) for (index, sub), value in wanted.items()],
+        )
+        self.assertEqual(sum(p.command == 0x1402 for p in sent), 1)
+
+    def test_variable_packed_words_and_invalid_shape(self):
+        index, changeset = 18419, 123
+        conn = Mock()
+        conn.recv.return_value = b"".join(
+            (
+                response(0x0100, 0, changeset),
+                *(response(0x0100 | n, index, n) for n in range(5)),
+            )
+        )
+        session = vbus.VBusSession(conn)
+        words = tuple(range(5))
+        self.assertEqual(
+            session.write_packed_verified(ADDRESS, index, words, words, changeset),
+            words,
+        )
+        for before, wanted in (((), ()), ((0,), (0, 1)), ((0,) * 129, (0,) * 129)):
+            with self.assertRaises(vbus.VBusError):
+                session.write_packed_verified(ADDRESS, index, before, wanted, changeset)
+        self.assertEqual(conn.sendall.call_count, 6)
+
     def test_bulk_packed_stage_failure_stops_without_rollback_or_commit(self):
         index, changeset = 18419, 123
         before, wanted = (-1, -1, -1), (0x50482820, 0x10203040, -1)
@@ -166,7 +228,7 @@ class VBusTests(unittest.TestCase):
                     response(0x1301, value=8),
                     response(0x1401),
                     response(0x1600, index),
-                    TimeoutError() if lost_response else response(0x1601, index, 1),
+                    TimeoutError() if lost_response else response(0x1601, index, -1),
                 ]
 
                 def on_send(
@@ -206,7 +268,7 @@ class VBusTests(unittest.TestCase):
                         response(0x1401),
                         *(response(0x1600 | n, index) for n in range(3)),
                         response(0x0100, 0, changeset + changed),
-                        response(0x1403, value=1),
+                        response(0x1403, value=-1),
                     )
                 )
                 with self.assertRaisesRegex(vbus.VBusError, "write outcome uncertain"):
@@ -569,6 +631,37 @@ class VBusTests(unittest.TestCase):
             vbus.Datagram.decode(call.args[0]) for call in conn.sendall.call_args_list
         ]
         self.assertEqual([p.command for p in sent], [0x0400, 0x0300, 0x0300])
+
+    def test_scalar_write_subindex_correlates_ack_and_readback(self):
+        for save in (False, True):
+            conn = Mock()
+            conn.recv.return_value = (
+                response(0x0100, 1321, 17)
+                + response(0x0105, 1322, 17)
+                + response(0x0105, 1321, 17)
+                + response(0x0100, 0, 12345)
+                + response(0x0105, 1321, 17)
+            )
+            session = vbus.VBusSession(conn)
+            self.assertEqual(
+                session.write_verified(
+                    ADDRESS, 1321, 17, 12345, save=save, subindex=5
+                ),
+                17,
+            )
+            sent = [
+                vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list
+            ]
+            self.assertEqual(
+                [p.command for p in sent],
+                [0x0405 if save else 0x0205, 0x0300, 0x0305],
+            )
+            for invalid in (-1, 128, True, 1.5):
+                with self.assertRaises(vbus.VBusError):
+                    session.write_verified(
+                        ADDRESS, 1321, 17, 12345, subindex=invalid
+                    )
+            self.assertEqual(conn.sendall.call_count, 3)
 
     def test_persistent_save_timeout_never_retries(self):
         conn = Mock()
