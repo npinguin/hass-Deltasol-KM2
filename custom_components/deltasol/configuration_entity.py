@@ -114,7 +114,7 @@ class ConfigurationEntity(CoordinatorEntity):
     @property
     def extra_state_attributes(self):
         capability = self.capability
-        return {
+        attributes = {
             "parameter": self.setting.name,
             "native_function_slot": (
                 self.setting.native_slot[0] if self.setting.native_slot else None
@@ -122,6 +122,14 @@ class ConfigurationEntity(CoordinatorEntity):
             "storage_action": "save" if self.setting.save else "volatile",
             "changeset": f"{capability.changeset:08X}" if capability else None,
         }
+        if self.setting.weekly_slot is not None:
+            attributes.update(
+                weekly_program=self.setting.weekly_slot,
+                observed_references=list(capability.owners) if capability else [],
+                active_references=list(capability.active_owners) if capability else [],
+                reference_coverage="known_live_links_full_check_on_edit",
+            )
+        return attributes
 
     async def async_set_value(self, value):
         await self.coordinator.async_set_configuration(self.unique_id, value)
