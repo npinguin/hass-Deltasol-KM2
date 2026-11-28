@@ -2042,14 +2042,26 @@ async def qualify(directory, phase):
         # Accelerate only pacing here; earlier and later lifecycle tests use
         # production delays and real socket timeout behavior.
         soak_definitions = tuple(
-            Definition(f"Soak{n}", 10000 + n, "volatile", None, {}) for n in range(3200)
+            Definition(f"Soak{n}", 30000 + n, "volatile", None, {}) for n in range(3200)
         )
-        for n in range(0, 3200, 2):
-            Peer.extra_lookups[semantic_hash(f"Soak{n}")] = 10000 + n
-            Peer.extra_values[10000 + n] = n
+        soak_lookups = {
+            semantic_hash(f"Soak{n}"): 30000 + n for n in range(0, 3200, 2)
+        }
+        soak_values = {30000 + n: n for n in range(0, 3200, 2)}
+        # A discovery stress fixture must not overwrite native BX Plus
+        # settings, function selectors or timer references. Restore the peer
+        # dictionaries after the soak, even when an assertion fails.
+        assert not soak_lookups.keys() & Peer.extra_lookups.keys()
+        assert not soak_values.keys() & (
+            Peer.extra_values.keys() | Peer.settings.keys() | Peer.weekly_words.keys()
+        )
+        native_lookups = dict(Peer.extra_lookups)
+        native_values = dict(Peer.extra_values)
         soak = Catalog("isolated-soak", soak_definitions)
         sessions_before = Peer.sessions
         with (
+            patch.dict(Peer.extra_lookups, soak_lookups),
+            patch.dict(Peer.extra_values, soak_values),
             patch("custom_components.deltasol.load_catalog", return_value=soak),
             patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 0.02),
             patch("custom_components.deltasol.parameters.SESSION_GAP_SECONDS", 0.05),
@@ -2081,6 +2093,11 @@ async def qualify(directory, phase):
             assert Peer.writes == 7 and Peer.saves == 2
             assert hass.states.get(select).state == "Auto"
             assert float(hass.states.get(sensor).state) == 42
+
+        assert Peer.extra_lookups == native_lookups
+        assert Peer.extra_values == native_values
+        assert Peer.extra_values[11266] == 4  # native circulation function
+        assert Peer.extra_values[11346] == 2  # allocated timer reference
 
         # Release loss, late unrelated traffic and repeated acquisition
         # failures are exercised through the actual coordinator, not mocks.
