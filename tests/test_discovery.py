@@ -1534,7 +1534,8 @@ class DiscoveryTests(unittest.TestCase):
                 "menu",
                 row.metadata.get("menu_refs"),
                 "storage references",
-                [hex(rva) for rva in direct],
+                len(direct),
+                [hex(rva) for rva in direct[:8]],
             )
             self.assertEqual(flags, review_families[family][1])
             self.assertEqual(values[representative], row.index)
@@ -1549,6 +1550,35 @@ class DiscoveryTests(unittest.TestCase):
                 )
                 print(
                     "Native change callback RVA:", representative, hex(callback - base)
+                )
+
+        # Narrow menu metadata review for the three non-Boolean families.
+        # Keep the source of truth in the exact catalogue, not guessed values.
+        for name, row in parsed.items():
+            if (
+                name.startswith("Heizung_Heizkreis1_Fernzugriff")
+                or name == "Heizung_Heizkreis1_OFernzugriff"
+                or name == "Solar_Losreissimpuls"
+                or name.startswith("Anlage_WTUmwaelzpumpe_Aktiviert")
+            ):
+                print(
+                    "Native selected metadata:",
+                    name,
+                    row.index,
+                    {
+                        key: row.metadata.get(key)
+                        for key in (
+                            "type_chain",
+                            "value_text",
+                            "unit",
+                            "minimum",
+                            "maximum",
+                            "quant",
+                            "storeFactor",
+                            "rpt_storage",
+                            "menu_refs",
+                        )
+                    },
                 )
 
         def fingerprint(start, length, calls, relocation_count, expected):
