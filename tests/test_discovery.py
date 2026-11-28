@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import io
 import os
+import struct
 import sys
 import types
 import unittest
@@ -1114,17 +1115,17 @@ class DiscoveryTests(unittest.TestCase):
 
     @unittest.skipUnless(os.environ.get("RPT_ARCHIVE"), "real archive not provided")
     def test_researched_firmware_members_match_registered_archive(self):
-        """Reconcile the two ZIP containers without changing runtime trust."""
+        """Compare registered and researched PE content, not ZIP packaging."""
         archive_path = Path(os.environ["RPT_ARCHIVE"])
         self.assertEqual(
             hashlib.sha256(archive_path.read_bytes()).hexdigest(),
             catalog.BX_PLUS_SHA256,
         )
-        # Member fingerprints from the owner-supplied 2.08 research archive.
-        # No vendor material is embedded; the registered ZIP remains pinned.
+        # Exact registered fingerprints observed in source run 46133111124.
+        # XML and image match the supplied archive; the DLL file hash differs.
         expected = {
             "BXPLUS_2.08/DeltaSol_BXPlus_208.dll": (
-                "2e850d5a6764488efc4405f88c1249b1bbaae1cfead416c5edc95e91873f7e43"
+                "a5b6ecc469c65fdd45b49a1c3f1543973677720a8fcf40f1ea363c483982a71c"
             ),
             "BXPLUS_2.08/bxplus_208.xml": (
                 "dcd82d53056e78b8a26209b9b4012f3b3787d12e2f835bf270cc7b616968ccd3"
@@ -1145,8 +1146,57 @@ class DiscoveryTests(unittest.TestCase):
                 sorted(name for name in archive.namelist() if not name.endswith("/")),
                 sorted(expected),
             )
+            binary = archive.read("BXPLUS_2.08/DeltaSol_BXPlus_208.dll")
         print("RPT registered archive member fingerprints:", actual)
         self.assertEqual(actual, expected)
+        # Compare mapped sections against the supplied DLL rather than assuming
+        # that an identical descriptor establishes identical executable logic.
+        pe = struct.unpack_from("<I", binary, 60)[0]
+        self.assertEqual(binary[pe : pe + 4], b"PE\x00\x00")
+        count = struct.unpack_from("<H", binary, pe + 6)[0]
+        optional_size = struct.unpack_from("<H", binary, pe + 20)[0]
+        optional = pe + 24
+        self.assertEqual(struct.unpack_from("<H", binary, optional)[0], 0x10B)
+        self.assertEqual(
+            struct.unpack_from("<I", binary, optional + 28)[0], 0x71400000
+        )
+        sections = {}
+        end_of_sections = 0
+        for i in range(count):
+            offset = optional + optional_size + i * 40
+            name, size, address, raw_size, raw_offset = struct.unpack_from(
+                "<8sIIII", binary, offset
+            )
+            flags = struct.unpack_from("<I", binary, offset + 36)[0]
+            end_of_sections = max(end_of_sections, raw_offset + raw_size)
+            sections[name.rstrip(b"\x00").decode("ascii")] = (
+                size,
+                address,
+                flags,
+                hashlib.sha256(binary[raw_offset : raw_offset + raw_size]).hexdigest(),
+            )
+        print("RPT registered PE sections:", sections)
+        print(
+            "RPT registered PE file size, overlay size and header SHA256:",
+            len(binary),
+            len(binary) - end_of_sections,
+            hashlib.sha256(binary[:0x400]).hexdigest(),
+        )
+        researched_hashes = {
+            ".text": "42f91b3df3a921178ae20655d8da37ee63ec7bef2ec08f10cac18048c7105aff",
+            ".data": "cce4f99d8f757fc6df3e2286eb957ecc0ec7792520da59ab92722130a6178494",
+            ".rdata": "d2ebcd0ef63e39d16c6a7dc677765fae17c8286ab90fee4a5e499c95150323ff",
+            ".bss": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            ".edata": "0af854fd5412e58bd15e1261f560da1934d0ad2bd421eb563a2ac9229d81d780",
+            ".idata": "c793572bd2ffbae88803614b5638764623f02024ee34f5fbd63845a716db2c81",
+            ".CRT": "7eb8ef57b7fee3e41f7c25cd1e909e1c441d0af6dce66093e03f9c566228a939",
+            ".tls": "076a27c79e5ace2a3d47f9dd2e83e4ff6ea8872b3c2218f66c92b89b55f36560",
+            ".reloc": "5ecd10776920685754aea5987bb98527d011866dd5bbc5bd8c6899605e093c6e",
+        }
+        self.assertEqual(
+            {name: section[3] for name, section in sections.items()},
+            researched_hashes,
+        )
 
     @unittest.skipUnless(os.environ.get("RPT_ARCHIVE"), "real archive not provided")
     def test_exact_vendor_archive(self):
