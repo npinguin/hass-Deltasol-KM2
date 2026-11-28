@@ -24,7 +24,13 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .catalog import CatalogError, configuration_evidence, is_sensitive
-from .configuration import ActorReferences, format_weekly_day, parse_weekly_day
+from .configuration import (
+    WEEKLY_REVIEW,
+    ActorReferences,
+    WeeklyReview,
+    format_weekly_day,
+    parse_weekly_day,
+)
 from .const import CONF_DASHBOARD, CONF_ENGINEERING, DOMAIN
 from .diagnostics import async_get_config_entry_diagnostics, menu_parameter_reason
 
@@ -404,9 +410,7 @@ def dashboard_objects(hass, user):
                         else []
                     ),
                     "reference_token": (
-                        sha256(
-                            repr((cap.owners, cap.active_owners)).encode()
-                        ).hexdigest()
+                        cap.weekly_review_token
                         if cap and setting and setting.weekly_slot is not None
                         else None
                     ),
@@ -670,13 +674,29 @@ async def ws_action(hass, connection, msg):
             or msg.get("reference_token") != row["reference_token"]
         ):
             raise HomeAssistantError("Weekly program changed; review again")
-        await hass.services.async_call(
-            kind,
-            service,
-            {"entity_id": row["entity_id"], **data},
-            blocking=True,
-            context=Context(user_id=connection.user.id),
-        )
+        review = None
+        token = None
+        if row["schedule"]:
+            registered = er.async_get(hass).async_get(row["entity_id"])
+            if registered is None:
+                raise HomeAssistantError("Weekly program is no longer available")
+            review = WeeklyReview(
+                registered.unique_id, msg["expected"], msg["reference_token"]
+            )
+            token = WEEKLY_REVIEW.set(review)
+        try:
+            await hass.services.async_call(
+                kind,
+                service,
+                {"entity_id": row["entity_id"], **data},
+                blocking=True,
+                context=Context(user_id=connection.user.id),
+            )
+            if review is not None and not review.consumed:
+                raise HomeAssistantError("Weekly review was not validated by the owner")
+        finally:
+            if token is not None:
+                WEEKLY_REVIEW.reset(token)
         state = hass.states.get(row["entity_id"])
         result = observed_result(kind, state, data.get("value", msg["value"]))
         connection.send_result(

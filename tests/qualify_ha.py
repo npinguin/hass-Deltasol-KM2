@@ -3647,15 +3647,24 @@ async def qualify(directory, phase):
             reference_token=review["reference_token"],
         )
         assert not stale["success"] and Peer.bulk_saves == 0
-        saved = await dashboard_request(
-            admin,
-            "deltasol/dashboard/action",
-            **request,
-            expected=review["expected"],
-            references=review["references"],
-            reference_token=review["reference_token"],
+        # Two independently authenticated dashboard clients review the same
+        # old day. Exactly one may commit, even when both request the same value.
+        competing = await asyncio.gather(
+            *(
+                dashboard_request(
+                    admin,
+                    "deltasol/dashboard/action",
+                    **request,
+                    expected=review["expected"],
+                    references=review["references"],
+                    reference_token=review["reference_token"],
+                )
+                for _ in range(2)
+            )
         )
-        assert saved["success"] and saved["result"]["outcome"] == "observed"
+        successful = [result for result in competing if result["success"]]
+        assert len(successful) == 1, competing
+        assert successful[0]["result"]["outcome"] == "observed"
         assert hass.states.get(schedule).state == "08:30-10:00, 18:00-20:00"
         assert Peer.weekly_words[18419] == [0x50482822, -1, -1]
         assert Peer.bulk_saves == 1

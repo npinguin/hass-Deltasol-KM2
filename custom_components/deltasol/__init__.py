@@ -45,7 +45,7 @@ from .catalog import (
     load_catalog,
     source_for,
 )
-from .configuration import encode_action
+from .configuration import WEEKLY_REVIEW, encode_action
 from .const import (
     CONF_DASHBOARD,
     CONF_VBUS_PASSWORD,
@@ -791,6 +791,13 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             ):
                 raise HomeAssistantError("Configuration capability is unavailable")
             capability = self.data.configuration[unique_id]
+            review = WEEKLY_REVIEW.get()
+            if review is not None and not review.consumed:
+                review.consumed = True
+                try:
+                    review.validate(capability)
+                except ValueError as error:
+                    raise HomeAssistantError(str(error)) from error
             try:
                 encode_action(capability.setting, value)
             except VBusError as error:

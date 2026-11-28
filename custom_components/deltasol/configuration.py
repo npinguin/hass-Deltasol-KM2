@@ -9,8 +9,10 @@ indices. No site-specific settings or proprietary catalogue are bundled.
 
 import re
 import struct
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from decimal import Decimal
+from hashlib import sha256
 from operator import eq, ge, gt, le, lt, ne
 
 from .catalog import (
@@ -1190,6 +1192,31 @@ def observed_function_assignments(setting, values):
     return tuple(sorted(relations))
 
 
+@dataclass
+class WeeklyReview:
+    """One native text service invocation, not a second command or state store."""
+
+    unique_id: str
+    expected: str
+    reference_token: str
+    consumed: bool = False
+
+    def validate(self, capability):
+        """Reject stale review before any I/O, while the owner lock is held."""
+        if (
+            capability.unique_id != self.unique_id
+            or capability.setting.weekly_slot is None
+            or capability.value != self.expected
+            or capability.weekly_review_token != self.reference_token
+        ):
+            raise ValueError("Weekly program changed; review again")
+
+
+# HA's blocking native service dispatch inherits the calling task context.
+# The one-shot review cannot constrain follow-up automations/state listeners.
+WEEKLY_REVIEW = ContextVar("deltasol_weekly_review", default=None)
+
+
 @dataclass(frozen=True)
 class ConfigurationCapability:
     """A live, device-bound setting with verified semantic write evidence."""
@@ -1215,6 +1242,10 @@ class ConfigurationCapability:
     @property
     def value(self):
         return self.setting.decode(self.raw)
+
+    @property
+    def weekly_review_token(self):
+        return sha256(repr((self.owners, self.active_owners)).encode()).hexdigest()
 
 
 @dataclass(frozen=True)

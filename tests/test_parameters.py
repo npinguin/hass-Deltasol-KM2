@@ -4406,6 +4406,78 @@ class ParameterTests(unittest.TestCase):
         self.session.write_verified.assert_not_called()
 
 
+class WeeklyReviewTests(unittest.IsolatedAsyncioTestCase):
+    async def test_review_is_checked_inside_existing_coordinator_lock(self):
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "custom_components/deltasol/__init__.py"
+        )
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        method = next(
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AsyncFunctionDef)
+            and node.name == "_async_set_configuration"
+        )
+        # Exercise the real guard with a controlled stop at the native I/O boundary.
+        namespace = {
+            "WEEKLY_REVIEW": parameters_configuration.WEEKLY_REVIEW,
+            "HomeAssistantError": ValueError,
+            "VBusError": parameters.VBusError,
+            "encode_action": Mock(side_effect=RuntimeError("reached native I/O")),
+        }
+        exec(  # noqa: S102
+            compile(ast.Module(body=[method], type_ignores=[]), str(path), "exec"),
+            namespace,
+        )
+        cap = SimpleNamespace(
+            unique_id="week",
+            setting=SimpleNamespace(weekly_slot=1),
+            value="08:00-10:00",
+            weekly_review_token="owners",
+        )
+        coordinator = SimpleNamespace(
+            _lock=asyncio.Lock(),
+            closing=False,
+            last_update_success=True,
+            telemetry=SimpleNamespace(last_update_success=True),
+            data=SimpleNamespace(configuration={"week": cap}),
+        )
+        review = parameters_configuration.WeeklyReview(
+            "week", "08:00-10:00", "owners"
+        )
+        context = parameters_configuration.WEEKLY_REVIEW
+        token = context.set(review)
+        try:
+            async with coordinator._lock:
+                task = asyncio.create_task(
+                    namespace["_async_set_configuration"](
+                        coordinator, "week", "09:00-10:00"
+                    )
+                )
+                await asyncio.sleep(0)
+                cap.value = "07:00-10:00"
+            with self.assertRaisesRegex(ValueError, "review again"):
+                await task
+            namespace["encode_action"].assert_not_called()
+            self.assertTrue(review.consumed)
+        finally:
+            context.reset(token)
+
+    def test_review_rejects_changed_ownership_and_accepts_same_context(self):
+        review = parameters_configuration.WeeklyReview("week", "", "owners")
+        cap = SimpleNamespace(
+            unique_id="week",
+            setting=SimpleNamespace(weekly_slot=1),
+            value="",
+            weekly_review_token="owners",
+        )
+        review.validate(cap)
+        cap.weekly_review_token = "different"
+        with self.assertRaisesRegex(ValueError, "review again"):
+            review.validate(cap)
+
+
 class RelayRecoveryTests(unittest.IsolatedAsyncioTestCase):
     def coordinator(self, operation):
         async def execute(function, *args):
