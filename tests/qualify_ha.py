@@ -1319,9 +1319,7 @@ async def qualify_native_browser(hass, user, entry_id, *, heating_mode=None):
     from aiohttp import ClientSession
 
     origin = "http://127.0.0.1:18123"
-    refresh = await hass.auth.async_create_refresh_token(
-        user, client_id=origin + "/"
-    )
+    refresh = await hass.auth.async_create_refresh_token(user, client_id=origin + "/")
     token_data = {
         "hassUrl": origin,
         "clientId": origin + "/",
@@ -1341,15 +1339,15 @@ async def qualify_native_browser(hass, user, entry_id, *, heating_mode=None):
             async def cdp(method, **params):
                 nonlocal counter
                 counter += 1
-                await ws.send_json(
-                    {"id": counter, "method": method, "params": params}
-                )
+                await ws.send_json({"id": counter, "method": method, "params": params})
                 async with asyncio.timeout(20):
                     while True:
                         result = await ws.receive_json()
                         if result.get("id") == counter:
                             if "error" in result:
-                                raise AssertionError(f"Browser command failed: {method}")
+                                raise AssertionError(
+                                    f"Browser command failed: {method}"
+                                )
                             return result["result"]
 
             async def evaluate(expression):
@@ -1381,7 +1379,13 @@ async def qualify_native_browser(hass, user, entry_id, *, heating_mode=None):
 
             async def ready(expression):
                 async with asyncio.timeout(90):
-                    while not await panel(expression):
+                    while True:
+                        try:
+                            if await panel(expression):
+                                return
+                        except AssertionError:
+                            # The document may be replaced during navigation.
+                            pass
                         await asyncio.sleep(0.25)
 
             await cdp("Page.enable")
@@ -1453,9 +1457,7 @@ async def qualify_native_browser(hass, user, entry_id, *, heating_mode=None):
                         "p.shadowRoot.querySelector('[data-tab=heating]').click();"
                         "return true;"
                     )
-                    await ready(
-                        f"return !!p?.shadowRoot.querySelector({selector});"
-                    )
+                    await ready(f"return !!p?.shadowRoot.querySelector({selector});")
                     assert await panel(
                         f"const input=p.shadowRoot.querySelector({selector});"
                         "input.value='Day';"
@@ -1463,7 +1465,7 @@ async def qualify_native_browser(hass, user, entry_id, *, heating_mode=None):
                     )
                     await ready(
                         "return !!p && !p.pending && "
-                        f"p.hass.states[{json.dumps(heating_mode)}]?.state==='Day';"
+                        f"p._hass.states[{json.dumps(heating_mode)}]?.state==='Day';"
                     )
                     assert hass.states.get(heating_mode).state == "Day"
             finally:
@@ -1471,7 +1473,9 @@ async def qualify_native_browser(hass, user, entry_id, *, heating_mode=None):
                     "Page.removeScriptToEvaluateOnNewDocument",
                     identifier=script["identifier"],
                 )
-                await evaluate("localStorage.removeItem('hassTokens');true")
+                await evaluate(
+                    "if(location.protocol==='http:')localStorage.removeItem('hassTokens');true"
+                )
                 await cdp("Page.navigate", url="about:blank")
 
 
@@ -1498,6 +1502,14 @@ async def qualify(directory, phase):
     }
     if phase in ("upgrade", "restart"):
         config.update({"http": {"server_port": 18123}, "frontend": {}})
+        # The baseline fixture already represents a commissioned installation.
+        # Complete only the isolated HA onboarding metadata, not product state.
+        from homeassistant.components.onboarding.const import STEPS
+        from homeassistant.helpers.storage import Store
+
+        await Store(hass, 4, "onboarding", private=True).async_save(
+            {"done": list(STEPS)}
+        )
     # Load the installed candidate's own catalogue types from the actual
     # isolated HA config directory, before entry setup can start Discovery.
     sys.path.insert(0, str(directory))
