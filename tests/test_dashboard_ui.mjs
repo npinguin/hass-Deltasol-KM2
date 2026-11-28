@@ -302,20 +302,27 @@ test("native meter, solar and controller preferences localize without changing t
   assert.equal(p.capabilityLabel({native_label:"Heating demand 1 minimum runtime"}),"Demande de chauffage 1 · Durée minimale de fonctionnement");
 });
 
-test("all typed BX Plus profile labels and option families are enumerated for localization",()=>{
+test("all typed BX Plus profile labels and option values have EN/NL/FR coverage",()=>{
   const code=`
-import importlib, json, pathlib, re, sys, types
+import importlib, json, pathlib, sys, types
 package = types.ModuleType("_resol_label_inventory")
 package.__path__ = [str(pathlib.Path("custom_components/deltasol").resolve())]
 sys.modules[package.__name__] = package
 profile = importlib.import_module(f"{package.__name__}.bx_plus")
-rows = sorted({re.sub(r"\\d+", "#", s.label.lower()) for s in profile.SETTINGS})
+labels = sorted({s.label for s in profile.SETTINGS})
 options = sorted({name for s in profile.SETTINGS for name, _ in s.options})
-print(json.dumps({"labels": rows, "options": options}))
+print(json.dumps({"labels": labels, "options": options}))
 `;
   const result=spawnSync("python",["-c",code],{encoding:"utf8"});
   assert.equal(result.status,0,result.stderr);
   const inventory=JSON.parse(result.stdout);
   assert.ok(inventory.labels.length>100);
-  console.log("RESOL_LABEL_INVENTORY "+JSON.stringify(inventory));
+  const p=model(true,true);
+  for(const lang of ["en","nl","fr"]){
+    p._hass.language=lang;
+    const missing=inventory.labels.filter(label=>!p.nativeLabelTranslation(label));
+    assert.deepEqual(missing,[],lang+" native labels");
+    assert.deepEqual(inventory.options.filter(value=>!p.optionTranslation(value)),[],lang+" native options");
+  }
+  console.log("RESOL_LOCALIZATION_PASS "+inventory.labels.length+" labels / "+inventory.options.length+" options");
 });
