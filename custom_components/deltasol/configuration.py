@@ -1156,6 +1156,40 @@ def bind_setting(setting, definitions):
     return setting
 
 
+def observed_function_assignments(setting, values):
+    """Project already-read references without inferring wiring or activity.
+
+    Sensor numbers belong to the native input registry, not automatically
+    to a VBus telemetry field. Only a resolved actor can establish an
+    output relation. No additional read or write is performed here.
+    """
+    slot = setting.native_slot
+    if slot is None:
+        return ()
+    prefix = slot[0] + "_"
+    relations = set()
+    for name in setting.expected:
+        raw = values.get(name)
+        if (
+            name.startswith(prefix)
+            and re.search(r"_Sensor(?:[0-9]+|Schalter|Einstrahlung)_?Nr$", name)
+            and type(raw) is int
+            and 1 <= raw <= 65
+        ):
+            relations.add(("sensor_reference", name, raw))
+    for reference in setting.actor_references():
+        if not reference.name.startswith(prefix) or not reference.matches(values):
+            continue
+        for kind, number in reference.owner_outputs(values):
+            relations.add((kind + "_assignment", reference.name, number))
+        for name, _ in reference.references:
+            output = reference.decode_reference(values.get(name))
+            if output:
+                kind, number = output
+                relations.add((kind + "_dependency", name, number))
+    return tuple(sorted(relations))
+
+
 @dataclass(frozen=True)
 class ConfigurationCapability:
     """A live, device-bound setting with verified semantic write evidence."""
@@ -1169,6 +1203,7 @@ class ConfigurationCapability:
     active_owners: tuple[str, ...] = ()
     program_reference: int | None = None
     reference_context: tuple[tuple[str, int | None], ...] = ()
+    assignment_observations: tuple[tuple[str, str, int], ...] = ()
 
     @property
     def unique_id(self):

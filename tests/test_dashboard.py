@@ -28,6 +28,7 @@ class DashboardTests(unittest.TestCase):
             "capability_role",
             "capability_availability",
             "inherit_object_section",
+            "project_assignments",
             "object_kind",
             "observed_result",
             "scoped_control",
@@ -191,6 +192,23 @@ class DashboardTests(unittest.TestCase):
             availability(state, setting, None, True, True),
             "requirements_not_confirmed",
         )
+        self.assertEqual(availability(state, None, None, True, False), "available")
+
+    def test_assignments_deduplicate_and_reject_conflicting_native_observations(self):
+        project = self.ns["project_assignments"]
+        observations = [
+            ("relay_assignment", "actor", 15),
+            ("relay_assignment", "actor", 15),
+            ("sensor_reference", "sensor", 3),
+            ("sensor_reference", "conflict", 4),
+            ("sensor_reference", "conflict", 5),
+        ]
+        rows = project(observations, {15: "module"}, False)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["source_object"], "module")
+        self.assertNotIn("parameter", rows[0])
+        self.assertEqual(rows[1]["resolution"], "native_reference_only")
+        self.assertIsNone(rows[1]["source_object"])
         self.assertEqual(
-            availability(state, None, None, True, False), "available"
+            project(observations, {}, True)[0]["parameter"], "actor"
         )

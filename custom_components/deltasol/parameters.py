@@ -56,6 +56,7 @@ from .configuration import (
     bind_setting,
     encode_action,
     native_menu_review_reason,
+    observed_function_assignments,
     weekly_settings_for,
 )
 from .vbus import (
@@ -649,6 +650,7 @@ def _read_settings(
                 if setting.timer_reference
                 else None
             ),
+            assignment_observations=observed_function_assignments(setting, values),
             reference_context=tuple(
                 sorted(
                     {

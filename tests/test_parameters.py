@@ -4487,3 +4487,53 @@ class RelayRecoveryTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(parameters.VBusError):
             await parameters.refresh_relay_modes(self.coordinator(operation))
         operation.assert_called_once()
+
+
+class AssignmentProjectionTests(unittest.TestCase):
+    def test_native_sensor_reference_does_not_become_a_telemetry_mapping(self):
+        config = parameters_configuration
+        setting = SimpleNamespace(
+            native_slot=("Anlage_Wf1", "Anlage_Wf", 1),
+            expected={
+                "Anlage_Wf1_Sensor1_Nr": 1,
+                "Anlage_Wf2_Sensor1_Nr": 2,
+                "Anlage_Wf1_Sensor2_Nr": 3,
+            },
+            actor_references=lambda: (),
+        )
+        self.assertEqual(
+            config.observed_function_assignments(
+                setting,
+                {
+                    "Anlage_Wf1_Sensor1_Nr": 3,
+                    "Anlage_Wf2_Sensor1_Nr": 4,
+                    "Anlage_Wf1_Sensor2_Nr": 0,
+                },
+            ),
+            (("sensor_reference", "Anlage_Wf1_Sensor1_Nr", 3),),
+        )
+
+    def test_actor_relation_requires_positive_native_role_match(self):
+        config = parameters_configuration
+        ref = config.ActorReferences("Anlage_Wf1_Aktor1_Nr", 100, ())
+        setting = SimpleNamespace(
+            native_slot=("Anlage_Wf1", "Anlage_Wf", 1),
+            expected=ref.expected,
+            actor_references=lambda: (ref,),
+        )
+        values = {
+            "Anlage_Wf1_Aktor1_Nr": 1,
+            "Anlage_Wf1_Aktor1_Funktion": 2,
+            "Aktor1_Funktion": 2,
+            "Aktor1_RelaisNr": 15,
+            "Aktor1_AusgangNr": 0,
+            "Relais_Modul1_R1_AktorFunktion": 2,
+            "Modul1_Aktiviert": 1,
+            "Modul1_Vorhanden": 1,
+        }
+        self.assertEqual(
+            config.observed_function_assignments(setting, values),
+            (("relay_assignment", ref.name, 15),),
+        )
+        values["Relais_Modul1_R1_AktorFunktion"] = 3
+        self.assertEqual(config.observed_function_assignments(setting, values), ())

@@ -24,7 +24,7 @@ from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
 from .catalog import CatalogError, is_sensitive
-from .configuration import format_weekly_day, parse_weekly_day
+from .configuration import ActorReferences, format_weekly_day, parse_weekly_day
 from .const import CONF_DASHBOARD, CONF_ENGINEERING, DOMAIN
 from .diagnostics import async_get_config_entry_diagnostics
 
@@ -156,6 +156,50 @@ def inherit_object_section(asset):
             row["section"] = section
 
 
+def project_assignments(observations, output_sources, engineering):
+    """One read-only relation per native reference, with no new entity."""
+    grouped = {}
+    for kind, name, number in observations:
+        grouped.setdefault((kind, name), set()).add(number)
+    result = []
+    for (kind, name), numbers in sorted(grouped.items()):
+        # Conflicting reads never resolve by registry order.
+        if len(numbers) != 1:
+            continue
+        number = next(iter(numbers))
+        source = output_sources.get(number) if kind.startswith("relay_") else None
+        result.append(
+            {
+                "kind": kind,
+                "number": number,
+                "source_object": source,
+                "resolution": "linked" if source else "native_reference_only",
+                **({"parameter": name} if engineering else {}),
+            }
+        )
+    return result
+
+
+def relay_output_sources(relays, inventory, visible_devices):
+    """Map exact native relay layouts to readable, currently observed devices."""
+    result = {}
+    for number in range(1, 46):
+        role = next(iter(ActorReferences.output_layout(("relay", number))), None)
+        matches = [
+            cap
+            for cap in relays.values()
+            if cap.group.parameter(cap.number, "AktorFunktion") == role
+            and cap.matches(inventory)
+        ]
+        if len(matches) != 1:
+            continue
+        device = matches[0].device
+        ids = visible_devices.get(f"{device.serial}_{device.source}", set())
+        if len(ids) == 1:
+            result[number] = next(iter(ids))
+    return result
+
+
 def weekly_owner_label(name):
     """Human-readable label for a positively observed native schedule reference."""
     match = re.fullmatch(
@@ -232,6 +276,8 @@ def dashboard_objects(hass, user):
             else {}
         )
         objects = {}
+        assignments = {}
+        visible_devices = {}
         for row in er.async_entries_for_config_entry(registry, entry.entry_id):
             if (
                 row.platform != DOMAIN
@@ -270,8 +316,7 @@ def dashboard_objects(hass, user):
                 state, setting, cap, telemetry_current, parameter_current
             )
             if availability != "available" and not (
-                row.entity_id.startswith("button.")
-                and availability == "unknown"
+                row.entity_id.startswith("button.") and availability == "unknown"
             ):
                 control = False
             section = capability_section(setting, state)
@@ -288,8 +333,15 @@ def dashboard_objects(hass, user):
                     "object_confirmed": False,
                 },
             )
+            for domain, identifier in device.identifiers:
+                if domain == DOMAIN:
+                    visible_devices.setdefault(identifier, set()).add(device.id)
             kind = object_kind(setting)
             confirmed = bool(cap and availability == "available")
+            if confirmed:
+                assignments.setdefault(device.id, set()).update(
+                    cap.assignment_observations
+                )
             if kind and (
                 not asset["object_kind"]
                 or (confirmed and not asset["object_confirmed"])
@@ -355,8 +407,18 @@ def dashboard_objects(hass, user):
                     ),
                 }
             )
+        output_sources = (
+            relay_output_sources(
+                relays, entry.runtime_data.coordinator.observed_inventory, visible_devices
+            )
+            if telemetry_current and parameter_current and assignments
+            else {}
+        )
         for asset in objects.values():
             inherit_object_section(asset)
+            asset["relations"] = project_assignments(
+                assignments.get(asset["id"], ()), output_sources, engineering
+            )
         if objects:
             installations.append(
                 {

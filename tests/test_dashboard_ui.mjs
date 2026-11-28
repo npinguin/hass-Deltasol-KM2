@@ -140,3 +140,14 @@ test("recorded numeric trends preserve gaps and do not invent readings",()=>{
   assert.equal((chart.match(/<polyline/g)||[]).length,2);
   assert.equal(p.historyChart([{lu:1,s:"Auto"},{lu:2,s:"Off"}],""),"");
 });
+
+test("object relations use a readable source object and do not fabricate sensor readings",()=>{
+  const p=model(true,true);
+  const asset=p.current().objects[0];
+  p.current().objects.push({id:"module",name:"EM 1",capabilities:[]});
+  asset.relations=[{kind:"relay_assignment",number:15,source_object:"module",resolution:"linked"},{kind:"sensor_reference",number:3,resolution:"native_reference_only"}];
+  const html=p.relationView(asset);
+  assert.ok(html.includes('data-source-object="module"'));
+  assert.ok(html.includes("bronmeting niet bevestigd"));
+  assert.ok(!html.includes("42 °C"));
+});
