@@ -1867,6 +1867,44 @@ async def qualify(directory, phase):
             blocking=True,
         )
         assert Peer.bulk_saves == 1
+
+        async def rejected_schedule(value):
+            try:
+                await hass.services.async_call(
+                    "text", "set_value", {"entity_id": schedule, "value": value},
+                    blocking=True,
+                )
+            except HomeAssistantError as error:
+                return str(error)
+            raise AssertionError("Invalid or uncertain weekly action accepted")
+
+        await rejected_schedule("08:01-10:00")
+        assert Peer.bulk_saves == 1
+        # The allocation expires after the last displayed snapshot.
+        Peer.extra_values[18414] = 0
+        await rejected_schedule("09:00-10:00")
+        assert Peer.bulk_saves == 1
+        assert hass.states.get(schedule).state == "unavailable"
+        Peer.extra_values[18414] = 1
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert entity("Wsu1_Schaltuhr_Woche_TagMo_Daten", "text") == schedule
+        assert hass.states.get(schedule).state == "08:30-10:00, 18:00-20:00"
+
+        # Lose the first stage acknowledgement after it changed the day.
+        # The requested third interval lives in word two, which is never sent.
+        Peer.fail_bulk_subindex = 0
+        error = await rejected_schedule("06:00-07:00, 09:00-10:00, 11:00-12:00")
+        assert "outcome uncertain: partial" in error
+        assert Peer.bulk_saves == 1
+        assert Peer.weekly_words[18419] == [0x28241C18, -1, -1]
+        assert hass.states.get(schedule).state == "06:00-07:00, 09:00-10:00"
+        # Explicit subsequent operator action, never an automatic retry.
+        await hass.services.async_call(
+            "text", "set_value",
+            {"entity_id": schedule, "value": "08:30-10:00, 18:00-20:00"},
+            blocking=True,
+        )
+        assert Peer.bulk_saves == 2
         assert json.loads(Peer.weekly_file.read_text(encoding="utf-8"))["18419"] == [
             0x50482822,
             -1,
