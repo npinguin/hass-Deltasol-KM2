@@ -180,14 +180,49 @@ BX_PLUS_SOLAR_SYSTEMS = frozenset(
 
 
 @dataclass(frozen=True)
-class AnyDependencies:
-    """At least one complete positively verified native assignment group."""
+class PeerComparison:
+    """Compare two observed parameters in the same verified encoding."""
 
-    groups: tuple[tuple[Dependency | RangeDependency, ...], ...]
+    name: str
+    index: int
+    other: str
+    other_index: int
+    operation: str
 
     @property
     def expected(self):
-        return {dep.name: dep.index for group in self.groups for dep in group}
+        return {self.name: self.index, self.other: self.other_index}
+
+    def matches(self, values):
+        left, right = values.get(self.name), values.get(self.other)
+        compare = {"gt": gt, "ne": ne}.get(self.operation)
+        return (
+            compare is not None
+            and type(left) is int
+            and type(right) is int
+            and compare(left, right)
+        )
+
+
+def _dependency_layout(dependencies):
+    result = {}
+    for dep in dependencies:
+        if isinstance(dep, (PeerComparison, AnyDependencies)):
+            result.update(dep.expected)
+        else:
+            result[dep.name] = dep.index
+    return result
+
+
+@dataclass(frozen=True)
+class AnyDependencies:
+    """At least one complete positively verified native assignment group."""
+
+    groups: tuple[tuple[Dependency | RangeDependency | PeerComparison, ...], ...]
+
+    @property
+    def expected(self):
+        return _dependency_layout(dep for group in self.groups for dep in group)
 
     def matches(self, values):
         return any(all(dep.matches(values) for dep in group) for group in self.groups)
@@ -250,7 +285,7 @@ class RequestedCondition:
     """Require at least one live condition for a particular requested value."""
 
     raw: int
-    alternatives: tuple[Dependency | RangeDependency, ...]
+    alternatives: tuple[Dependency | RangeDependency | PeerComparison | AnyDependencies, ...]
 
     def matches(self, raw, values):
         return raw != self.raw or any(dep.matches(values) for dep in self.alternatives)
@@ -428,7 +463,7 @@ class Setting:
             result[parent] = index
             result[child] = child_index
         for condition in self.requested_conditions:
-            result.update({dep.name: dep.index for dep in condition.alternatives})
+            result.update(_dependency_layout(condition.alternatives))
         if self.optional_role:
             result[self.optional_role.name] = self.optional_role.index
         return result
@@ -2292,6 +2327,180 @@ def _installed_program_options():
 
 
 BX_PLUS_PROGRAM_OPTIONS = tuple(_installed_program_options())
+
+
+def _thermal_option_settings():
+    """Native installed thermal predicates, with valid companion settings."""
+    for slot in range(1, 17):
+        ao = (slot - 1) * 251
+        ho = (slot - 1) * 151
+        arrangement = f"Anlage_Wf{slot}"
+        root = arrangement + "_Funktionsblock"
+        heating = f"Heizung_Wf{slot}"
+        arrangement_activity = _installed_activity(
+            arrangement, 6566 + ao, 6568 + ao
+        )
+        output = RangeDependency(arrangement + "_Relais1_Nr", 6592 + ao, 1, 100)
+        sensors = tuple(
+            RangeDependency(
+                f"{arrangement}_Sensor{sensor}_Nr",
+                6576 + ao + 4 * (sensor - 1),
+                1,
+                65,
+            )
+            for sensor in range(1, 5)
+        )
+        for selector, temperature_alias, diff_alias, factor in (
+            (0, "_C", "_K", 1),
+            (1, "_F", "_R", 2),
+        ):
+            selected = Dependency("TemperatureHysteresisSelector", 60, (selector,))
+            thermal_groups = []
+            for number in (1, 2):
+                index = 6716 + ao + (number - 1) * 6
+                on = f"{root}_TTh{number}Ein"
+                off = f"{root}_TTh{number}Aus"
+                high = 2500 if selector == 0 else 4820
+                companions = (
+                    (on, index, temperature_alias, -400, high, 10 * factor),
+                    (off, index + 3, temperature_alias, -400, high, 10 * factor),
+                )
+                thermal_groups.append(
+                    (
+                        f"OThermostat{number}",
+                        6704 + ao + number,
+                        f"thermostat {number}",
+                        (sensors[number - 1],),
+                        companions,
+                        (PeerComparison(on, index, off, index + 3, "ne"),),
+                    )
+                )
+            on, off, target, rise = (
+                root + "_dTEin",
+                root + "_dTAus",
+                root + "_dTSoll",
+                root + "_Anstieg",
+            )
+            companions = (
+                (on, 6707 + ao, diff_alias, 10 * factor, 500 * factor, 5 * factor),
+                (off, 6710 + ao, diff_alias, 5 * factor, 495 * factor, 5 * factor),
+                (target, 6713 + ao, diff_alias, 20 * factor, 1000 * factor, 10 * factor),
+                (rise, 6732 + ao, diff_alias, 5 * factor, 200 * factor, 5 * factor),
+            )
+            thermal_groups.append(
+                (
+                    "ODifferenz",
+                    6704 + ao,
+                    "differential",
+                    sensors[2:],
+                    companions,
+                    (
+                        PeerComparison(on, 6707 + ao, off, 6710 + ao, "gt"),
+                        PeerComparison(target, 6713 + ao, on, 6707 + ao, "gt"),
+                    ),
+                )
+            )
+            for suffix, index, label, inputs, companions, relations in thermal_groups:
+                remaining = AnyDependencies(
+                    tuple(
+                        (
+                            Dependency(root + "_" + other, other_index, (1,)),
+                            *other_inputs,
+                            *(
+                                _raw_steps(name, idx, lo, hi, step)
+                                for name, idx, _, lo, hi, step in other_companions
+                            ),
+                            *other_relations,
+                        )
+                        for (
+                            other, other_index, _, other_inputs,
+                            other_companions, other_relations,
+                        ) in thermal_groups
+                        if other != suffix
+                    )
+                )
+                yield Setting(
+                    root + "_" + suffix,
+                    index,
+                    f"Function block {slot} {label} enabled",
+                    "switch",
+                    True,
+                    installed_by=Dependency(arrangement + "_Type", 6559 + ao, (9,)),
+                    dependencies=(arrangement_activity, output, *inputs, selected),
+                    compound_mirrors=tuple(
+                        (name, idx, name + alias, idx + selector + 1)
+                        for name, idx, alias, _, _, _ in companions
+                    ),
+                    requested_conditions=(
+                        *(
+                            RequestedCondition(1, (_raw_steps(name, idx, lo, hi, step),))
+                            for name, idx, _, lo, hi, step in companions
+                        ),
+                        *(RequestedCondition(1, (rule,)) for rule in relations),
+                        RequestedCondition(0, (remaining,)),
+                    ),
+                )
+
+            prefix = arrangement + "_Feststoffkessel"
+            target = prefix + "_Zieltemperatur_TZiel"
+            index = 6682 + ao
+            minimum, maximum = (300, 850) if selector == 0 else (860, 1860)
+            yield Setting(
+                prefix + "_OZieltemperatur",
+                6681 + ao,
+                f"Arrangement function {slot} solid fuel target temperature enabled",
+                "switch",
+                True,
+                installed_by=Dependency(arrangement + "_Type", 6559 + ao, (6,)),
+                dependencies=(arrangement_activity, output, *sensors[:3], selected),
+                compound_mirrors=(
+                    (target, index, target + temperature_alias, index + selector + 1),
+                ),
+                requested_conditions=(
+                    RequestedCondition(
+                        1, (_raw_steps(target, index, minimum, maximum, 10 * factor),)
+                    ),
+                ),
+            )
+
+            prefix = heating + "_BwVorerwaermung"
+            on, off = prefix + "_dTEin", prefix + "_dTAus"
+            on_index, off_index = 11399 + ho, 11402 + ho
+            yield Setting(
+                prefix + "_ODifferenz",
+                11398 + ho,
+                f"Heating function {slot} DHW preheat differential enabled",
+                "switch",
+                True,
+                installed_by=Dependency(heating + "_Type", 11266 + ho, (3,)),
+                dependencies=(
+                    _installed_activity(heating, 11273 + ho, 11275 + ho),
+                    RangeDependency(heating + "_Relais1_Nr", 11321 + ho, 1, 100),
+                    RangeDependency(heating + "_Sensor1_Nr", 11290 + ho, 1, 65),
+                    RangeDependency(heating + "_Sensor2_Nr", 11294 + ho, 1, 65),
+                    RangeDependency(heating + "_Sensor3_Nr", 11298 + ho, 1, 65),
+                    RangeDependency(heating + "_SensorDurchfluss1_Nr", 11315 + ho, 1, 65),
+                    selected,
+                ),
+                compound_mirrors=(
+                    (on, on_index, on + diff_alias, on_index + selector + 1),
+                    (off, off_index, off + diff_alias, off_index + selector + 1),
+                ),
+                requested_conditions=(
+                    RequestedCondition(
+                        1, (_raw_steps(on, on_index, 10 * factor, 500 * factor, 5 * factor),)
+                    ),
+                    RequestedCondition(
+                        1, (_raw_steps(off, off_index, 5 * factor, 495 * factor, 5 * factor),)
+                    ),
+                    RequestedCondition(
+                        1, (PeerComparison(on, on_index, off, off_index, "gt"),)
+                    ),
+                ),
+            )
+
+
+BX_PLUS_THERMAL_OPTIONS = tuple(_thermal_option_settings())
 
 
 def _heating_operating_settings():
