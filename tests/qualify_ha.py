@@ -49,6 +49,7 @@ CONFIG_SELECTORS = {
     "Anlage_Wf8_Relais1_Nr": (8349, 1),
     "Anlage_Wf8_Sensor1_Nr": (8333, 2),
     "Anlage_Wf8_Sensor2_Nr": (8337, 3),
+    "Heizung_Wf3_BwVorerwaermung_OVentil": (11690, 0),
     "Heizung_Wf3_Relais1_Nr": (11623, 4),
     "Heizung_Wf3_SensorDurchfluss1_Nr": (11617, 4),
     "Heizung_Wf3_Sensor3_Nr": (11600, 3),
@@ -129,7 +130,6 @@ CONFIG_SELECTORS = {
     "Anlage_Wf5_Relais1_Nr": (7596, 4),
     "Heizung_Heizkreis1_System": (13697, 2),
     "Heizung_Heizkreis1_ONachheizung": (13705, 1),
-    "Heizung_Heizkreis1_Nachheizung_Modus": (13706, 0),
     "Heizung_Heizkreis1_Nachheizung_Aktiviert_Modus": (13708, 1),
     "Heizung_Heizkreis1_Sensor4_Nr": (13804, 4),
     "Heizung_Heizkreis1_Sensor5_Nr": (13808, 5),
@@ -140,12 +140,9 @@ CONFIG_SELECTORS = {
     "Heizung_RelaisPumpe1_Type": (11166, 2),
     "Heizung_RelaisPumpe1_Aktiviert_Modus": (11169, 1),
     "Heizung_RelaisPumpe1_Relais1_Nr": (11171, 4),
-    "Heizung_RelaisPumpe1_Anlauf_Modus": (11178, 2),
-    "Heizung_RelaisPumpe1_Nachlauf_Modus": (11183, 1),
     "Heizung_RelaisPumpe1_AnlaufNachlauf_Sensor1_Nr": (11189, 6),
     "Heizung_Heizkreis1_Sensor2_Nr": (13800, 3),
     "Heizung_Heizkreis1_Raumthermostat1_Option": (13819, 1),
-    "Heizung_Heizkreis1_Raumthermostat1_Aktiviert": (13820, 1),
     "Heizung_Heizkreis1_Raumthermostat1_OSchaltuhr": (13821, 1),
     "Heizung_Heizkreis1_Raumthermostat1_Typ": (13823, 0),
     "Heizung_Heizkreis1_Raumthermostat1_Sensor1_Nr": (13834, 4),
@@ -187,6 +184,16 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
+    "Heizung_Heizkreis1_Nachheizung_Modus": (13706, 0, 0, 2),
+    "Heizung_RelaisPumpe1_Anlauf_Modus": (11178, 2, 0, 2),
+    "Heizung_RelaisPumpe1_Nachlauf_Modus": (11183, 1, 0, 2),
+    "Heizung_Heizkreis1_Raumthermostat1_Aktiviert": (13820, 1, 0, 2),
+    "Heizung_Heizkreis1_RTH_HKaus": (14041, 0, 0, 1),
+    "Heizung_Heizkreis1_Raumthermostat1_TRaum": (13824, 200, 100, 300),
+    "Heizung_Heizkreis1_Raumthermostat1_dTRaum": (13827, 10, 5, 200),
+    "Heizung_RelaisPumpe1_Anlauf_TAnlauf": (11179, 450, 100, 900),
+    "Heizung_Wf3_BwVorerwaermung_TMax": (11691, 600, 200, 900),
+    "Heizung_Wf3_BwVorerwaermung_dTMax": (11696, 50, 5, 100),
     "Heizung_Wf2_ThBwErwaermung_Modus": (11529, 0, 0, 1),
     "Heizung_Wf2_OBetriebsartenschalterAus": (11438, 0, 0, 1),
     "Heizung_Wf2_ThBwErwaermung_OManuelleAufheizung": (11538, 0, 0, 1),
@@ -337,6 +344,8 @@ CONFIG_SETTINGS = {
 # This peer deliberately models the selected-unit parent contract. It is
 # independent software evidence, not a physical observation of this encoding.
 COMPOUND_NAMES = (
+    "Heizung_Heizkreis1_Raumthermostat1_dTRaum",
+    "Heizung_Wf3_BwVorerwaermung_dTMax",
     "Heizung_Wf3_BwVorerwaermung_dTAus",
     "Heizung_Wf3_BwVorerwaermung_dTEin",
     "Anlage_Wf5_Funktionsblock_Anstieg",
@@ -376,6 +385,9 @@ COMPOUND_ALIASES = {
 }
 COMPOUND_PARENTS = {CONFIG_SETTINGS[name][0] for name in COMPOUND_NAMES}
 TEMPERATURE_NAMES = (
+    "Heizung_Heizkreis1_Raumthermostat1_TRaum",
+    "Heizung_RelaisPumpe1_Anlauf_TAnlauf",
+    "Heizung_Wf3_BwVorerwaermung_TMax",
     "Anlage_Wf2_Feststoffkessel_Zieltemperatur_TZiel",
     "Anlage_Wf5_Funktionsblock_TTh2Aus",
     "Anlage_Wf5_Funktionsblock_TTh2Ein",
@@ -447,6 +459,7 @@ class Peer:
         18419: [0x50482820, -1, -1],
         18420: [-48326, -1, -1],
         **{index: [-1, -1, -1] for index in range(18432, 18439)},
+        **{index: [-1, -1, -1] for index in range(18445, 18452)},
     }
     bulk_saves = 0
     fail_bulk_subindex = None
@@ -511,6 +524,16 @@ def additional_relays():
 # byte evidence. The peer models the candidate word order, not proof of a
 # physical controller's multiword mapping or persistence.
 TIMER_VALUES = {
+    "Heizung_Heizkreis1_Raumthermostat1_SchaltuhrNr": (13849, 3),
+    "Wsu3_Belegt": (18440, 1),
+    "Wsu3_Schaltuhr_Woche_Initialisiert": (18444, 1),
+    "Wsu3_Schaltuhr_Woche_TagMo_Daten": (18445, -1),
+    "Wsu3_Schaltuhr_Woche_TagDi_Daten": (18446, -1),
+    "Wsu3_Schaltuhr_Woche_TagMi_Daten": (18447, -1),
+    "Wsu3_Schaltuhr_Woche_TagDo_Daten": (18448, -1),
+    "Wsu3_Schaltuhr_Woche_TagFr_Daten": (18449, -1),
+    "Wsu3_Schaltuhr_Woche_TagSa_Daten": (18450, -1),
+    "Wsu3_Schaltuhr_Woche_TagSo_Daten": (18451, -1),
     "Anlage_Wf8_SchaltuhrNr": (8377, 2),
     "Wsu2_Belegt": (18427, 1),
     "Wsu2_Schaltuhr_Woche_Initialisiert": (18431, 1),
@@ -832,7 +855,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert proposed[13750] >= proposed[13747] + 5
                     elif index == 13830:
                         assert Peer.extra_values[13819] == 1
-                        assert Peer.extra_values[13820] == 1
+                        assert Peer.settings[13820] == 1
                         assert Peer.extra_values[13821] == 1
                         assert Peer.extra_values[13823] == 0
                         assert Peer.extra_values[13834] > 0
@@ -855,7 +878,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[11166] == 2
                         assert Peer.extra_values[11169] == 1
                         assert Peer.extra_values[11171] > 0
-                        assert Peer.extra_values[11183] == 1
+                        assert Peer.settings[11183] == 1
                         assert Peer.extra_values[11189] > 0
                     elif index in (13741, 13744):
                         assert Peer.settings[13739] == 1
@@ -921,7 +944,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert all(Peer.extra_values[i] == 0 for i in range(18228, 18233))
                 if index in (13991, 14174, 14175):
                     assert Peer.extra_values[13819] == 1
-                    assert Peer.extra_values[13820] == 1
+                    assert Peer.settings[13820] == 1
                     assert Peer.extra_values[13823] == 0
                     assert Peer.extra_values[13834] > 0
                     assert Peer.extra_values[13796] > 0
@@ -959,10 +982,10 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert Peer.extra_values[13705] == Peer.extra_values[13708] == 1
                     assert Peer.extra_values[14003] > 0
                     assert Peer.extra_values[13804] > 0
-                    if Peer.extra_values[13706] == 1:
+                    if Peer.settings[13706] == 1:
                         assert Peer.extra_values[13808] > 0
                     else:
-                        assert Peer.extra_values[13706] == 0
+                        assert Peer.settings[13706] == 0
                     if index == 13715:
                         assert Peer.settings[13714] == 1
                     elif index == 13717:
@@ -982,7 +1005,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert Peer.extra_values[11166] == 2
                     assert Peer.extra_values[11169] == 1
                     assert Peer.extra_values[11171] > 0
-                    assert Peer.extra_values[11178] == 2
+                    assert Peer.settings[11178] == 2
                 if index in (13700, 13701):
                     assert Peer.settings[13739] == Peer.settings[13740] == 1
                     assert Peer.extra_values[13800] > 0 and value % 15 == 0
@@ -2264,7 +2287,8 @@ async def qualify(directory, phase):
         assert Peer.settings[1974] == 40 and Peer.settings[1975] == 70
         assert Peer.saves == 17
         await set_mode(display, "°C")
-        minimum, maximum = TEMPERATURE_NAMES[1], TEMPERATURE_NAMES[0]
+        minimum = "Anlage_Wf2_Feststoffkessel_TMin"
+        maximum = "Anlage_Wf2_Feststoffkessel_TMax"
         minimum_entity = entity(minimum, "number")
         assert float(hass.states.get(minimum_entity).state) == 60
         await number(minimum, 70)
@@ -2834,6 +2858,29 @@ async def qualify(directory, phase):
             assert Peer.settings[index] == 1
             assert Peer.saves == before_coordination + 1
 
+        room_activation = entity(
+            "Heizung_Heizkreis1_Raumthermostat1_Aktiviert", "select"
+        )
+        assert room_activation
+        before_room = Peer.saves
+        await set_mode(room_activation, "Deactivated")
+        assert Peer.settings[13820] == 0
+        assert Peer.settings[13830] > 0
+        await set_mode(room_activation, "Activated")
+        assert Peer.settings[13820] == 1
+        assert Peer.saves == before_room + 2
+        for native, choices, index in (
+            ("Heizung_RelaisPumpe1_Anlauf_Modus", ("Temperature", "Time"), 11178),
+            ("Heizung_Heizkreis1_Nachheizung_Modus", ("On/Off", "Thermostat"), 13706),
+        ):
+            mode_entity = entity(native, "select")
+            assert mode_entity
+            before = Peer.saves
+            original = Peer.settings[index]
+            for choice in choices:
+                await set_mode(mode_entity, choice)
+            assert Peer.settings[index] == original
+            assert Peer.saves == before + 2
         dhw_mode = entity("Heizung_Wf2_ThBwErwaermung_Modus", "select")
         cooling_mode = entity("Heizung_Heizkreis1_Kuehlung_Modus", "select")
         assert dhw_mode and cooling_mode
