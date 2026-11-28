@@ -720,12 +720,23 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 if changed and self.data.profile
                 else set()
             )
+            affected_owners = (
+                {
+                    owner.name
+                    for owner in WEEKLY_OWNERS
+                    if verified.setting.name in owner.expected
+                }
+                if changed
+                else set()
+            )
             timer = verified.setting.timer_reference if changed else None
+            if timer:
+                affected_owners.add(timer.name)
             remaining = {
                 uid: cap
                 for uid, cap in self.data.configuration.items()
                 if cap.setting.name not in dependents
-                and not (timer and timer.name in cap.owners)
+                and not affected_owners.intersection(cap.owners)
             }
             self.async_set_updated_data(
                 replace(
@@ -733,7 +744,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                     configuration={**remaining, unique_id: verified},
                 )
             )
-            return bool(dependents or timer)
+            return bool(dependents or affected_owners)
 
     async def async_set_mode(self, unique_id, option):
         """Do not accept calls that bypass entity availability."""
