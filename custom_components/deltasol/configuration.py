@@ -2877,6 +2877,43 @@ def _solar_loading_logic_settings():
             dependencies=deps,
         )
 
+    # Native option bits are ordinary persisted preferences, not assignments.
+    # Reuse the corresponding Number's conditions and validate the stored
+    # companion before enabling it; disabling leaves its configured value.
+    for name, index, label, deps, companion in (
+        (
+            "Solar_OPausendrehzahl",
+            3420,
+            "Solar loading break speed enabled",
+            sequence,
+            RangeDependency("Solar_Pausendrehzahl", 3421, 20, 100),
+        ),
+        (
+            "Solar_OPumpenverzoegerung",
+            3422,
+            "Solar pump delay enabled",
+            base,
+            Dependency("Solar_Pumpenverzoegerung", 3423, tuple(range(5, 601, 5))),
+        ),
+    ):
+        systems = tuple(
+            sorted(
+                system
+                for system in BX_PLUS_SOLAR_SYSTEMS
+                if name != "Solar_OPausendrehzahl" or (system // 100) % 100 >= 2
+            )
+        )
+        yield Setting(
+            name,
+            index,
+            label,
+            "switch",
+            True,
+            installed_by=installed,
+            dependencies=(*deps, Dependency("Solar_SystemId", 3416, systems)),
+            requested_conditions=(RequestedCondition(1, (companion,)),),
+        )
+
     # Native volatile eligibility bit, not a guessed relay/topology mapping.
     # At least two actually active and assigned stores in the selected native
     # system must be present, including systems where store 1 is disabled.
@@ -2935,6 +2972,31 @@ def _solar_loading_logic_settings():
                 Dependency("TemperatureHysteresisSelector", 60, (selector,)),
             ),
             compound_mirrors=((name, 3425, name + alias, 3426 + selector),),
+        )
+
+        # The option itself has stable identity across the selected unit.
+        # The companion uses the same exact native parent/child contract.
+        minimum, maximum, step = (200, 900, 10) if selector == 0 else (400, 1800, 20)
+        yield Setting(
+            "Solar_OSpreizladung",
+            3424,
+            "Solar spread loading enabled",
+            "switch",
+            True,
+            installed_by=installed,
+            dependencies=(
+                RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
+                Dependency("Solar_ParallelbeladungMoeglich", 3439, (1,)),
+                pairs,
+                Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+            ),
+            compound_mirrors=((name, 3425, name + alias, 3426 + selector),),
+            requested_conditions=(
+                RequestedCondition(
+                    1,
+                    (Dependency(name, 3425, tuple(range(minimum, maximum + 1, step))),),
+                ),
+            ),
         )
 
 
