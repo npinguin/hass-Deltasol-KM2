@@ -91,6 +91,99 @@ class ParameterTests(unittest.TestCase):
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
 
+    def test_weekly_schedule_uses_existing_owner_and_reconciles_partial_write(self):
+        config = parameters_configuration
+        self.session.read.return_value = 0x2734DABC
+        definitions = {}
+        for owner in config.WEEKLY_OWNERS:
+            self.values[owner.name] = (owner.index, 0)
+            for name, index in owner.expected.items():
+                kind = "WochenschaltuhrNr" if name == owner.name else "Boolean"
+                definitions[name] = config.Definition(
+                    name, index, "unspecified", kind, {"type_chain": [kind]}
+                )
+        owner = next(o for o in config.WEEKLY_OWNERS if o.name == "Anlage_Wf1_SchaltuhrNr")
+        self.values[owner.name] = (owner.index, 1)
+        for condition in owner.conditions:
+            self.values[condition.name] = (condition.index, condition.allowed[0])
+        day = "Wsu1_Schaltuhr_Woche_TagMo_Daten"
+        flags = {"Wsu1_Belegt": 18414, "Wsu1_Schaltuhr_Woche_Initialisiert": 18418}
+        for name, index in flags.items():
+            definitions[name] = config.Definition(
+                name, index, "unspecified", "Boolean", {"type_chain": ["Boolean"]}
+            )
+            self.values[name] = (index, 1)
+        definitions[day] = config.Definition(
+            day, 18419, "unspecified", "Blob",
+            {"type_chain": ["Blob"], "size_bytes": 12, "rpt_storage": "preferences"},
+        )
+        catalogue = SimpleNamespace(matches=lambda *_: True, by_name=definitions)
+        words = config.parse_weekly_day("08:00-10:00, 18:00-20:00")
+        state = list(words)
+
+        def observe(address, names, changeset, **kwargs):
+            self.values[day] = (18419, state[0])
+            result = self.observe_parameters(address, names, changeset, **kwargs)
+            if day in (kwargs.get("packed") or {}):
+                result[day] = parameters.ParameterObservation(
+                    18419, state[0], "read", tuple(state)
+                )
+            return result
+
+        self.session.read_parameter_observations.side_effect = observe
+        hints = {
+            name: parameters.ParameterObservation(index, value, "read")
+            for name, (index, value) in self.values.items()
+        }
+
+        def capability():
+            return next(
+                cap for cap in self.api.discover(telemetry(), hints, catalogue).configuration.values()
+                if cap.setting.name == day
+            )
+
+        cap = capability()
+        self.assertEqual(cap.value, "08:00-10:00, 18:00-20:00")
+        self.assertEqual(cap.owners, (owner.name,))
+        for invalid in ("24:00-24:00", "08:01-09:00", "09:00-08:00",
+                        "08:00-10:00, 09:00-11:00"):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), cap, invalid, catalogue)
+        self.session.write_packed_verified.assert_not_called()
+
+        def write(address, index, before, wanted, changeset):
+            self.assertEqual((address, index, changeset), (0x7112, 18419, 0x2734DABC))
+            self.assertEqual(before, tuple(state))
+            state[:] = wanted
+
+        self.session.write_packed_verified.side_effect = write
+        updated = self.api.set_configuration(
+            telemetry(), cap, "08:30-10:00, 18:00-20:00", catalogue
+        )
+        self.assertEqual(updated.value, "08:30-10:00, 18:00-20:00")
+        self.assertEqual(updated.unique_id, cap.unique_id)
+        self.api.set_configuration(telemetry(), updated, updated.value, catalogue)
+        self.session.write_packed_verified.assert_called_once()
+        other = next(o for o in config.WEEKLY_OWNERS if o.name != owner.name)
+        self.values[other.name] = (other.index, 1)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), updated, "", catalogue)
+        self.values[other.name] = (other.index, 0)
+        self.session.write_packed_verified.assert_called_once()
+
+        def partial(address, index, before, wanted, changeset):
+            state[0] = wanted[0]
+            raise parameters.VBusError("VBus write outcome uncertain")
+
+        self.session.write_packed_verified.side_effect = partial
+        with self.assertRaisesRegex(parameters.VBusError, "outcome uncertain: partial"):
+            self.api.set_configuration(
+                telemetry(), updated,
+                "06:00-07:00, 09:00-10:00, 11:00-12:00", catalogue
+            )
+        self.assertEqual(self.session.write_packed_verified.call_count, 2)
+        self.session.write_verified.assert_not_called()
+
     def test_compound_differential_requires_live_parent_child_and_unit(self):
         self.session.read.return_value = 0x2734DABC
         variants = [
