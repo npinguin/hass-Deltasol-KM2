@@ -1501,6 +1501,31 @@ def _operating_pair(
 
 def _additional_operating_settings():
     """Adjust documented, installed functions; preserve output and safety options."""
+    pump = "Anlage_WTUmwaelzpumpe"
+    pump_installed = RangeDependency(f"{pump}_Relais_Nr", 10614, 1, 100)
+    pump_active = Dependency(f"{pump}_Aktiviert_Modus", 10607, (1, 2))
+    for suffix, index, limits, unit, label, extra in (
+        ("SollDrehzahl", 10646, ("20", "100", "1", "1"), "%", "speed", ()),
+        (
+            "Nachlaufzeit", 10648, ("0", "60", "1", "1"), "s", "overrun",
+            (Dependency(f"{pump}_ONachlauf", 10647, (1,)),),
+        ),
+        (
+            "RuhemodusDauer", 10651, ("0.5", "24", "0.5", "0.1"), "h", "idle duration",
+            (Dependency(f"{pump}_ORuhemodus", 10650, (1,)),),
+        ),
+    ):
+        yield Setting(
+            f"{pump}_{suffix}",
+            index,
+            f"Heat exchanger circulation pump {label}",
+            "number",
+            True,
+            limits=limits,
+            unit=unit,
+            installed_by=pump_installed,
+            dependencies=(pump_active, *extra),
+        )
     for slot in range(1, 17):
         ao = (slot - 1) * 251
         ho = (slot - 1) * 151
@@ -1714,6 +1739,84 @@ def _heating_operating_settings():
         active = Dependency(f"{root}_Aktiviert_Modus", 13689 + offset, (1, 2))
         heating = Dependency(f"{root}_System", 13697 + offset, (0, 2))
         constant = Dependency(f"{root}_Heizsystem", 13978 + offset, (2,))
+        prefix = f"{root}_Nachheizung"
+        # The zone mode uses two sensors; the thermostat mode uses only
+        # sensor 4. Mutually exclusive variants preserve the same native ID.
+        for mode in (0, 1):
+            supplementary = (
+                active,
+                heating,
+                Dependency(f"{root}_ONachheizung", 13705 + offset, (1,)),
+                Dependency(f"{prefix}_Modus", 13706 + offset, (mode,)),
+                Dependency(f"{prefix}_Aktiviert_Modus", 13708 + offset, (1, 2)),
+                RangeDependency(f"{root}_Relais6_Nr", 14003 + offset, 1, 100),
+                RangeDependency(f"{root}_Sensor4_Nr", 13804 + offset, 1, 65),
+                *(
+                    (RangeDependency(f"{root}_Sensor5_Nr", 13808 + offset, 1, 65),)
+                    if mode == 1
+                    else ()
+                ),
+            )
+            yield from _operating_pair(
+                f"{prefix}_dTEin",
+                13747 + offset,
+                f"{prefix}_dTAus",
+                13750 + offset,
+                f"Heating circuit {circuit} supplementary heating differential",
+                installed,
+                supplementary,
+                (
+                    (
+                        0, "_K", "K",
+                        ("-15", "44.5", "0.5", "0.1"),
+                        ("-14.5", "45", "0.5", "0.1"),
+                    ),
+                    (
+                        1, "_R", "°R",
+                        ("-30", "89", "1", "0.1"),
+                        ("-29", "90", "1", "0.1"),
+                    ),
+                ),
+                rising=False,
+            )
+            for suffix, index, flag, flag_index, label in (
+                ("tFruehstart", 13715, "OFruehstart", 13714, "early start"),
+                ("tBlockierung", 13717, "OBlockierung", 13716, "blocking"),
+            ):
+                yield Setting(
+                    f"{prefix}_{suffix}",
+                    index + offset,
+                    f"Heating circuit {circuit} supplementary heating {label}",
+                    "number",
+                    True,
+                    limits=("0", "300", "1", "1"),
+                    unit="min",
+                    installed_by=installed,
+                    dependencies=(
+                        *supplementary,
+                        Dependency(f"{prefix}_{flag}", flag_index + offset, (1,)),
+                    ),
+                )
+        for suffix, index, label in (
+            ("tEin", 14099, "start"),
+            ("tAus", 14100, "end"),
+        ):
+            yield Setting(
+                f"{root}_Kuehlung_Timer_{suffix}",
+                index + offset,
+                f"Heating circuit {circuit} cooling timer {label}",
+                "number",
+                True,
+                limits=("0", "1425", "15", "1"),
+                unit="min",
+                installed_by=installed,
+                dependencies=(
+                    active,
+                    Dependency(f"{root}_System", 13697 + offset, (1, 2)),
+                    Dependency(f"{root}_Kuehlung_OTimer", 14098 + offset, (1,)),
+                    RangeDependency(f"{root}_Kuehlung_Relais1_Nr", 14059 + offset, 1, 100),
+                ),
+            )
         minimum = f"{root}_TVorlaufMin"
         maximum = f"{root}_TVorlaufMax"
         target = f"{root}_TVorlaufVorgabe"
