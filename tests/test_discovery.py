@@ -1599,6 +1599,26 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertIn("Boolean", target.metadata["type_chain"])
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
+        room_controls = configuration.BX_PLUS_ROOM_THERMAL_CONTROLS
+        self.assertEqual(len({setting.name for setting in room_controls}), 85)
+        self.assertEqual(len(room_controls), 117)
+        for setting in room_controls:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertTrue(target.metadata["menu_refs"])
+            self.assertTrue(setting.save)
+            if setting.kind == "select":
+                self.assertEqual(
+                    set(catalog.ordinal_options(target)),
+                    set(setting.native_options or dict(setting.options).values()),
+                )
+            elif setting.kind == "switch":
+                self.assertIn("Boolean", target.metadata["type_chain"])
+            else:
+                self.assertEqual(setting.kind, "number")
+                self.assertTrue(target.metadata["compound_parent_read_candidate"])
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
         self.assertEqual(len(bound), len(profile.settings) + 350)
         self.assertEqual(len([s for s in bound if s.weekly_slot is not None]), 350)
         # Report the remaining catalogue/menu review surface as part of the
