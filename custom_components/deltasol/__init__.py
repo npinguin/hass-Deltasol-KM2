@@ -44,7 +44,7 @@ from .catalog import (
     load_catalog,
     source_for,
 )
-from .configuration import encode_action
+from .configuration import WEEKLY_OWNERS, encode_action
 from .const import (
     CONF_VBUS_PASSWORD,
     DEFAULT_NAME,
@@ -72,6 +72,7 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.NUMBER,
     Platform.SWITCH,
+    Platform.TEXT,
 ]
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA_BASE.extend(
@@ -566,11 +567,14 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         profile, controller = find_profile(device_inventory(self.telemetry.data))
         if not profile:
             return {}
+        contracts = profile.settings_for(
+            profile.configuration_changeset, self._configuration_catalog()
+        )
         selectors = {
-            setting.installed_by.name
-            for setting in profile.settings_for(profile.configuration_changeset)
-            if setting.installed_by
+            setting.installed_by.name for setting in contracts if setting.installed_by
         }
+        if any(setting.weekly_slot is not None for setting in contracts):
+            selectors.update(owner.name for owner in WEEKLY_OWNERS)
         hints = {}
         # The previous completed capture avoids temporarily losing controls
         # during a new scan. The newer observations replace previous hints.
@@ -645,7 +649,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
 
     async def _async_action_failed(self, error):
         """Refresh capabilities, not the failed command; preserve real errors."""
-        if isinstance(error, VBusTransientError) or str(error) in (
+        if str(error).startswith("VBus write outcome uncertain") or isinstance(error, VBusTransientError) or str(error) in (
             "VBus write outcome uncertain",
             "VBus write acknowledgement differs",
             "VBus write readback differs",
