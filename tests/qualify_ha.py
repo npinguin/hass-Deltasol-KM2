@@ -3069,9 +3069,7 @@ async def qualify(directory, phase):
             )
             await hass.async_block_till_done()
             assert Peer.settings[10798] == expected
-            assert (
-                hass.states.get(duration).state == "unavailable"
-            ) == (expected == 0)
+            assert (hass.states.get(duration).state == "unavailable") == (expected == 0)
             assert Peer.settings[10799] == original_duration
         assert Peer.saves == before + 2
 
