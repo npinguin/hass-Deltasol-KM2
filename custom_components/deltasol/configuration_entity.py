@@ -52,6 +52,8 @@ def configuration_device_info(capability):
         "Solar_Bypass": "Solar bypass",
         "Solar_CsBypass": "Solar CS bypass",
         "Solar_Zieltemperatur": "Solar target temperature",
+        "Solar_Roehrenkollektor": "Solar tube collector",
+        "Solar_ExtWT": "Solar external heat exchanger",
         "Heizung_Wf": "Heating optional function",
         "Heizung_Heizkreis": "Heating circuit",
     }[family]
