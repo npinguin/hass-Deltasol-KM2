@@ -2251,6 +2251,17 @@ async def qualify(directory, phase):
             patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 0.02)
         )
         print("ISOLATED_HA native semantic matrix started", flush=True)
+        from time import monotonic
+
+        matrix_start = monotonic()
+
+        def matrix_checkpoint(label):
+            print(
+                f"ISOLATED_HA matrix {label}: "
+                f"{monotonic() - matrix_start:.1f}s "
+                f"sessions={Peer.sessions} writes={Peer.writes} saves={Peer.saves}",
+                flush=True,
+            )
 
         # Discover the actual installed-function selectors through TCP, not
         # direct runtime injection. Then operate native Number/Select/Switch
@@ -2753,6 +2764,7 @@ async def qualify(directory, phase):
         assert hass.states.get(logging_method).state == "Cyclic (overwrite oldest)"
         assert float(hass.states.get(constant).state) == 50
 
+        matrix_checkpoint("thermal/cooling PASS")
         before_priority = Peer.saves
         await number("Solar_Sp1_Vorrang", 2)
         await number("Anlage_Wf6_Waermeaustausch_HMinMax", 5)
@@ -2801,6 +2813,7 @@ async def qualify(directory, phase):
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert float(hass.states.get(interval).state) == 35
 
+        matrix_checkpoint("priority/analogue PASS")
         before_spread = Peer.saves
         name = "Solar_Spreizladung_dTDifferenz"
         await number(name, 70)
@@ -2809,17 +2822,37 @@ async def qualify(directory, phase):
         Peer.extra_values[3439] = 0
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert hass.states.get(spread).state == "unavailable"
+        # HA may skip a service on an already unavailable entity without
+        # raising. Test the service's observable no-op separately from the
+        # integration owner's mandatory rejection of an unavailable command.
+        before_rejected = (Peer.writes, Peer.saves, Peer.settings[3425])
         try:
-            await number(name, 80)
+            await hass.services.async_call(
+                "number",
+                "set_value",
+                {"entity_id": spread, "value": 80},
+                blocking=True,
+            )
         except HomeAssistantError:
             pass
+        assert hass.states.get(spread).state == "unavailable"
+        assert (Peer.writes, Peer.saves, Peer.settings[3425]) == before_rejected
+        uid = registry.async_get(spread).unique_id
+        try:
+            await entry.runtime_data.relay_coordinator.async_set_configuration(
+                uid, 80
+            )
+        except HomeAssistantError as error:
+            assert "unavailable" in str(error)
         else:
             raise AssertionError("Unavailable native parallel loading accepted")
+        assert (Peer.writes, Peer.saves, Peer.settings[3425]) == before_rejected
         assert Peer.saves == before_spread + 1
         Peer.extra_values[3439] = 1
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert float(hass.states.get(spread).state) == 70
 
+        matrix_checkpoint("spread eligibility PASS")
         # The existing mask is a function number, not the arrangement slot.
         for name, index in (
             ("Heizung_Wf2_OFeststoffkesselAus", 11436),
@@ -2924,6 +2957,7 @@ async def qualify(directory, phase):
             assert hass.states.get(target).state == "on"
             assert hass.states.get(number_id).state == original
 
+        matrix_checkpoint("persistent flags PASS")
         # Never remove the last proven function-block predicate.
         first = entity("Anlage_Wf5_Funktionsblock_OThermostat1", "switch")
         second = entity("Anlage_Wf5_Funktionsblock_OThermostat2", "switch")
@@ -3005,6 +3039,7 @@ async def qualify(directory, phase):
         assert hass.states.get(independent).state == "unavailable"
         assert entity("Heizung_Heizkreis1_Betriebsart", "select") == heating_mode
 
+        matrix_checkpoint("heating modes PASS")
         # Operational flags are persisted through the existing writer. A
         # disabled parent hides its child without rewriting that preference.
         for name, index in (
@@ -3095,6 +3130,7 @@ async def qualify(directory, phase):
             assert Peer.saves == before + 3
             assert hass.states.get(target).state == previous_value
 
+        matrix_checkpoint("activity variants PASS")
         delay_root = "Anlage_Wf5_Funktionsblock"
         delay_flag = entity(delay_root + "_OMindestausschaltzeit", "switch")
         delay = entity(delay_root + "_dtMindestausschaltzeit", "number")
@@ -3272,6 +3308,7 @@ async def qualify(directory, phase):
         assert Peer.extra_values[2612] == 2
         assert Peer.writes == before_manual + 2 and Peer.saves == before_save
 
+        matrix_checkpoint("remaining native options PASS")
         timer = entity("Anlage_Wf8_OSchaltuhr", "switch")
         assert timer and hass.states.get(timer).state == "off"
         assert hass.states.get(timer).attributes["weekly_program_reference"] == 2
@@ -3362,6 +3399,7 @@ async def qualify(directory, phase):
         assert entity("Wsu1_Schaltuhr_Woche_TagMo_Daten", "text") == schedule
         assert hass.states.get(schedule).state == "08:30-10:00, 18:00-20:00"
 
+        matrix_checkpoint("weekly program PASS")
         # Restore production pacing before the uncertain packed write and
         # active capture shutdown/restart lifecycle cases.
         semantic_pacing.close()
