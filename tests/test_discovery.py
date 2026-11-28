@@ -499,12 +499,35 @@ class DiscoveryTests(unittest.TestCase):
             with self.subTest(windows=windows), self.assertRaises(ValueError):
                 discovery.encode_native_day(windows)
 
+    def test_blob_size_inherits_maximum_and_rejects_invalid_evidence(self):
+        for derived, expected in (("8", 12), ("16", 16), ("invalid", None)):
+            with self.subTest(derived=derived):
+                xml = (
+                    '<root><type id="Blob" isBuiltIn="true"/>'
+                    '<type id="BaseBlob" base="Blob"><size>12</size></type>'
+                    f'<value id="Day" index="10" idHash="{vbus.parameter_hash("Day")}">'
+                    f'<type id="DayBlob" base="BaseBlob"><size>{derived}</size></type>'
+                    '</value></root>'
+                ).encode()
+                definition = catalog.parse_menu(xml, "test").by_name["Day"]
+                self.assertEqual(definition.metadata.get("size_bytes"), expected)
+                self.assertEqual(
+                    definition.metadata.get("size_unverified", False),
+                    expected is None,
+                )
+
     def test_weekly_program_candidate_requires_complete_verified_source(self):
         import struct
 
         source = catalog.source_for(0x7112, catalog.BX_PLUS_CHANGESET)
         definitions = tuple(
-            catalog.Definition(name, index, "unspecified", kind, {"type_chain": [kind]})
+            catalog.Definition(
+                name,
+                index,
+                "unspecified",
+                kind,
+                {"type_chain": [kind], **({"size_bytes": 12} if kind == "Blob" else {})},
+            )
             for name, index, kind in (
                 ("Wsu1_Belegt", 18414, "Boolean"),
                 ("Wsu1_Schaltuhr_Woche_Initialisiert", 18418, "Boolean"),
@@ -527,7 +550,15 @@ class DiscoveryTests(unittest.TestCase):
         exported = capture.weekly_program_evidence()
         result = exported["programs"]["Wsu1"]["days"]["Mo"]
         self.assertFalse(result["payload_verified"])
+        self.assertEqual(result["size_bytes"], 12)
         self.assertEqual(result["candidate_windows"][0]["start_minute"], 480)
+        for bad_size in (None, 8, 16):
+            day.metadata["size_bytes"] = bad_size
+            self.assertNotIn(
+                "candidate_windows",
+                capture.weekly_program_evidence()["programs"]["Wsu1"]["days"]["Mo"],
+            )
+        day.metadata["size_bytes"] = 12
         self.assertEqual(result["candidate_status"], "wire_word_mapping_unverified")
         self.assertEqual(
             exported["references"][reference.name]["candidate_program"], "Wsu1"
@@ -623,7 +654,13 @@ class DiscoveryTests(unittest.TestCase):
 
     def test_packed_day_checkpoint_preserves_scalar_compatibility(self):
         rows = tuple(
-            catalog.Definition(name, index, "unspecified", None, {"type_chain": [kind]})
+            catalog.Definition(
+                name,
+                index,
+                "unspecified",
+                None,
+                {"type_chain": [kind], **({"size_bytes": 12} if kind == "Blob" else {})},
+            )
             for name, index, kind in (
                 ("Wsu2_Belegt", 10, "Boolean"),
                 ("Wsu2_Schaltuhr_Woche_Initialisiert", 11, "Boolean"),
@@ -1082,6 +1119,8 @@ class DiscoveryTests(unittest.TestCase):
                 row = definitions[prefix + suffix]
                 self.assertEqual(row.index, base + offset)
                 self.assertIn(kind, row.metadata["type_chain"])
+                if kind == "Blob":
+                    self.assertEqual(row.metadata.get("size_bytes"), 12)
                 self.assertIsNone(row.excluded)
         # Corroborate the generic Solar function instance selector separately
         # from its type-specific storage. No ordinal-to-instance assumption.

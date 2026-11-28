@@ -455,7 +455,11 @@ class ConfigurationCapture:
                 r"(Wsu[0-9]+)_Schaltuhr_Woche_Tag(Mo|Di|Mi|Do|Fr|Sa|So)_Daten",
                 definition.name,
             )
-            if not match or "Blob" not in definition.metadata.get("type_chain", ()):
+            if (
+                not match
+                or "Blob" not in definition.metadata.get("type_chain", ())
+                or definition.metadata.get("size_bytes") != 12
+            ):
                 continue
             flags = (
                 definitions.get(f"{match[1]}_Belegt"),
@@ -608,6 +612,7 @@ class ConfigurationCapture:
                 week["days"][match[2]] = {
                     "parameter": definition.name,
                     "reference_index": definition.index,
+                    "size_bytes": definition.metadata.get("size_bytes"),
                     "observation": observed.status if observed else "not_scanned",
                     "scalar_observed": self._observed_raw(definition) is not None,
                     "observed_words": (
@@ -641,7 +646,11 @@ class ConfigurationCapture:
             if native_codec and allocated == 1 and initialized == 1:
                 for day in week["days"].values():
                     words = day["observed_words"]
-                    if len(words) != 3 or any(type(word) is not int for word in words):
+                    if (
+                        day["size_bytes"] != 12
+                        or len(words) != 3
+                        or any(type(word) is not int for word in words)
+                    ):
                         continue
                     if not all(-(2**31) <= word < 2**31 for word in words):
                         continue

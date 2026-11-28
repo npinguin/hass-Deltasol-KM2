@@ -167,7 +167,11 @@ def _metadata(type_node, types):
         if base and type_node is None:
             unresolved = base
     result = {}
+    declared_sizes = []
     for node in reversed(chain):
+        size = node.find("size")
+        if size is not None:
+            declared_sizes.append(_integer((size.text or "").strip()))
         if node.get("unit") is not None:
             result["unit"] = node.get("unit")
         if node.get("selectorValueRef") is not None:
@@ -203,6 +207,14 @@ def _metadata(type_node, types):
                 for option in options
             ]
     result["type_chain"] = [node.get("id") for node in chain]
+    # RPT TypeInfo inherits the maximum declared size. An invalid
+    # declaration or unresolved ancestry cannot establish a Blob layout.
+    if declared_sizes and not unresolved and all(
+        type(size) is int and 0 <= size <= 512 for size in declared_sizes
+    ):
+        result["size_bytes"] = max(declared_sizes)
+    elif declared_sizes:
+        result["size_unverified"] = True
     if unresolved:
         result["unresolved_base"] = unresolved
     # Do not infer implicit enumeration ordinals or defaults.
