@@ -1499,7 +1499,11 @@ class ParameterTests(unittest.TestCase):
             "Blob",
             {"type_chain": ["Blob"], "size_bytes": 12, "rpt_storage": "preferences"},
         )
-        catalogue = SimpleNamespace(matches=lambda *_: True, by_name=definitions)
+        catalog_module = importlib.import_module(f"{PACKAGE}.catalog")
+        source = catalog_module.source_for(0x7112, 0x2734DABC)
+        catalogue = catalog_module.Catalog(
+            source.digest, tuple(definitions.values()), source
+        )
         words = config.parse_weekly_day("08:00-10:00, 18:00-20:00")
         state = list(words)
 
