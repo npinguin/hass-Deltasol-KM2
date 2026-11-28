@@ -260,8 +260,8 @@ CONFIG_SETTINGS = {
     "Heizung_Wf2_ThBwErwaermung_Modus": (11529, 0, 0, 1),
     "Heizung_Wf2_OBetriebsartenschalterAus": (11438, 0, 0, 1),
     "Heizung_Wf2_ThBwErwaermung_OManuelleAufheizung": (11538, 0, 0, 1),
-    "Heizung_Wf2_ThBwErwaermung_TEin": (11530, 450, 0, 940),
-    "Heizung_Wf2_ThBwErwaermung_TAus": (11533, 550, 10, 950),
+    "Heizung_Wf2_ThBwErwaermung_TEin": (11530, 400, 0, 940),
+    "Heizung_Wf2_ThBwErwaermung_TAus": (11533, 600, 10, 950),
     "Heizung_Heizkreis1_Kuehlung_Modus": (14066, 0, 0, 2),
     "Solar_Kol1_Omin": (3533, 0, 0, 1),
     "Solar_Kol1_Tmin": (3539, 200, 100, 900),
@@ -315,7 +315,7 @@ CONFIG_SETTINGS = {
     "SDKarte_Logging_Intervall": (18234, 60, 1, 1200),
     "SDKarte_Logging_Methode": (18235, 0, 0, 1),
     "Anlage_Wf1_Mischer_TZiel": (6629, 600, 0, 1300),
-    "Heizung_Heizkreis1_Kuehlung_Aussen_TAussen": (14072, 240, 200, 400),
+    "Heizung_Heizkreis1_Kuehlung_Aussen_TAussen": (14072, 200, 200, 400),
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf": (14076, 200, 50, 250),
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TAussen1": (14080, 300, 150, 450),
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf1": (14083, 200, 50, 250),
@@ -351,7 +351,7 @@ CONFIG_SETTINGS = {
     "Heizung_RelaisPumpe1_Anlauf_dtAnlauf": (11182, 60, 0, 300),
     "Heizung_RelaisPumpe1_Nachlauf_TNachlauf": (11184, 500, 100, 900),
     "Heizung_Heizkreis1_TSommerTag": (13741, 200, 0, 400),
-    "Heizung_Heizkreis1_TSommerNacht": (13744, 140, 0, 400),
+    "Heizung_Heizkreis1_TSommerNacht": (13744, 0, 0, 400),
     "Heizung_Heizkreis1_tSommerTagEin": (13700, 540, 0, 1425),
     "Heizung_Heizkreis1_tSommerTagAus": (13701, 1260, 0, 1425),
     "Heizung_Heizkreis1_Raumthermostat1_dTAbsenkung": (13830, 50, 10, 200),
@@ -403,7 +403,7 @@ CONFIG_SETTINGS = {
     "Solar_Wf1_Bypass_dTaus": (3911, 40, 5, 195),
     "Solar_Wf1_CsBypass_Einstrahlung": (3991, 200, 100, 500),
     "Solar_Wf1_CsBypass_Verzoegerung": (3992, 120, 10, 300),
-    "Solar_Wf1_Zieltemperatur_Zieltemperatur": (4344, 650, 200, 1100),
+    "Solar_Wf1_Zieltemperatur_Zieltemperatur": (4344, 600, 200, 1100),
     "Solar_Wf1_Zieltemperatur_Anstieg": (4347, 20, 10, 200),
     "Heizung_Wf1_Zirkulation_TEin": (11408, 400, 100, 590),
     "Heizung_Wf1_Zirkulation_TAus": (11411, 600, 110, 600),
@@ -882,7 +882,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                             assert Peer.extra_values[10773] == 1
                             assert Peer.extra_values[10775] > 0
                     elif index == 3425:
-                        assert Peer.extra_values[3439] == Peer.extra_values[3424] == 1
+                        assert Peer.extra_values[3439] == Peer.settings[3424] == 1
                         assert Peer.extra_values[3416] == 20201
                         assert (
                             Peer.extra_values[3452] > 0 and Peer.extra_values[3536] > 0
@@ -939,8 +939,11 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
                         assert Peer.extra_values[3576] > 0 and Peer.settings[3604] == 1
-                    else:
+                    elif index in (6914, 6917, 6920):
                         assert proposed[6917] < proposed[6914] < proposed[6920]
+                    elif index == 13827:
+                        assert Peer.extra_values[13819] == 1
+                        assert Peer.settings[13820] == 1
                 if index in TEMPERATURE_PARENTS:
                     if index in (11408, 11411):
                         assert Peer.extra_values[11266] == 4
@@ -991,7 +994,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[13796] > 0
                         if index != 13991:
                             assert Peer.extra_values[13800] > 0
-                    else:
+                    elif index in (6923, 6926, 6933):
                         assert Peer.extra_values[6810] == 6
                         assert Peer.extra_values[6817] == 1
                     if Peer.settings[60]:
@@ -1151,14 +1154,14 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert Peer.extra_values[3576] > 0
                     assert Peer.settings[3604] == 1
                     if index == 3423:
-                        assert Peer.extra_values[3422] == 1
+                        assert Peer.settings[3422] == 1
                         assert value % 5 == 0
                     else:
                         assert Peer.extra_values[3612] > 0
                         assert Peer.settings[3640] == 1
                         assert Peer.settings[3417] == 0
                         if index == 3421:
-                            assert Peer.extra_values[3420] == 1
+                            assert Peer.settings[3420] == 1
                 Peer.settings[index] = stored_value
                 Peer.saves += 1
                 Peer.events.append("save")
