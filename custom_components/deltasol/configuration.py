@@ -2994,6 +2994,211 @@ def _coordination_options():
 BX_PLUS_COORDINATION_OPTIONS = tuple(_coordination_options())
 
 
+def _operating_mode_options():
+    """Installed mode choices and options backed by assigned external inputs."""
+    for slot in range(1, 17):
+        offset = (slot - 1) * 151
+        root = f"Heizung_Wf{slot}"
+        installed = Dependency(root + "_Type", 11266 + offset, (2,))
+        prefix = root + "_ThBwErwaermung"
+        mode, mi = prefix + "_Modus", 11378 + offset
+        secondary = RangeDependency(root + "_Sensor2_Nr", 11294 + offset, 1, 65)
+        base = (
+            _installed_activity(root, 11273 + offset, 11275 + offset),
+            RangeDependency(root + "_NhRelais1_Nr", 11337 + offset, 1, 100),
+            RangeDependency(root + "_Sensor1_Nr", 11290 + offset, 1, 65),
+            AnyDependencies(
+                (
+                    (Dependency(prefix + "_OLadepumpe", 11375 + offset, (0,)),),
+                    (
+                        Dependency(prefix + "_OLadepumpe", 11375 + offset, (1,)),
+                        RangeDependency(root + "_Relais2_Nr", 11329 + offset, 1, 100),
+                    ),
+                )
+            ),
+        )
+        on, off = prefix + "_TEin", prefix + "_TAus"
+        oi, ai = 11379 + offset, 11382 + offset
+        for unit, alias, low, high, step in (
+            (0, "_C", 0, 950, 10),
+            (1, "_F", 320, 2040, 20),
+        ):
+            yield Setting(
+                mode,
+                mi,
+                f"Heating function {slot} DHW heating mode",
+                "select",
+                True,
+                options=(("Thermostat", 0), ("Zone", 1)),
+                installed_by=installed,
+                dependencies=(
+                    *base,
+                    Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                    _raw_steps(on, oi, low, high - step, step),
+                    _raw_steps(off, ai, low + step, high, step),
+                    AnyDependencies(((PeerComparison(off, ai, on, oi, "gt"),),)),
+                ),
+                compound_mirrors=(
+                    (on, oi, on + alias, oi + unit + 1),
+                    (off, ai, off + alias, ai + unit + 1),
+                ),
+                requested_conditions=(RequestedCondition(1, (secondary,)),),
+            )
+        for name, index, label, input_name, input_index in (
+            (
+                root + "_OBetriebsartenschalterAus",
+                11287,
+                "operating mode switch off option",
+                root + "_SensorBetriebsartenschalter1_Nr",
+                11307,
+            ),
+            (
+                prefix + "_OManuelleAufheizung",
+                11387,
+                "manual heating input option",
+                root + "_SensorSchalter1_Nr",
+                11311,
+            ),
+        ):
+            yield Setting(
+                name,
+                index + offset,
+                f"Heating function {slot} {label}",
+                "switch",
+                True,
+                installed_by=installed,
+                dependencies=(
+                    *base,
+                    AnyDependencies(
+                        (
+                            (Dependency(mode, mi, (0,)),),
+                            (Dependency(mode, mi, (1,)), secondary),
+                        )
+                    ),
+                    RangeDependency(input_name, input_index + offset, 1, 65),
+                ),
+            )
+
+    for circuit in range(1, 8):
+        offset = (circuit - 1) * 495
+        root = f"Heizung_Heizkreis{circuit}"
+        installed = Dependency(root + "_Type", 13684 + offset, (1,))
+        active = _installed_activity(root, 13689 + offset, 13691 + offset)
+        flow = RangeDependency(root + "_Sensor1_Nr", 13796 + offset, 1, 65)
+        outdoor = RangeDependency(root + "_Sensor2_Nr", 13800 + offset, 1, 65)
+        pump = RangeDependency(root + "_Relais1_Nr", 13764 + offset, 1, 100)
+        reference = WeeklyProgram(root + "_SchaltuhrNr", 13817 + offset)
+        correction = root + "_dTNachtkorrektur"
+        ci = 13730 + offset
+        coupling = (
+            (Dependency(root + "_Kopplung", 14039 + offset, (0,)),)
+            if circuit != 1
+            else ()
+        )
+        for unit, alias, factor in ((0, "_K", 1), (1, "_R", 2)):
+            yield Setting(
+                root + "_ModusSchaltuhr",
+                13704 + offset,
+                f"Heating circuit {circuit} weekly timer mode",
+                "select",
+                True,
+                options=(("Day/Night", 0), ("Day/Off", 1)),
+                installed_by=installed,
+                dependencies=(
+                    active,
+                    flow,
+                    pump,
+                    *coupling,
+                    Dependency(root + "_System", 13697 + offset, (0, 2)),
+                    Dependency(root + "_Heizsystem", 13978 + offset, (1, 2, 3, 5)),
+                    Dependency(root + "_OSchaltuhr", 13703 + offset, (1,)),
+                    Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                    reference,
+                ),
+                requested_conditions=(
+                    RequestedCondition(0, (replace(reference, require_days=True),)),
+                    RequestedCondition(1, (replace(reference, require_days=True),)),
+                    RequestedCondition(
+                        0,
+                        (_raw_steps(correction, ci, -200 * factor, 300 * factor, 10 * factor),),
+                    ),
+                    RequestedCondition(
+                        0,
+                        (PeerComparison(correction, ci, correction + alias, ci + unit + 1, "eq"),),
+                    ),
+                ),
+            )
+        cooling = root + "_Kuehlung"
+        threshold = cooling + "_Aussen_TAussen"
+        ti = 14072 + offset
+        outside = AnyDependencies(
+            tuple(
+                (
+                    outdoor,
+                    Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                    _raw_steps(threshold, ti, lo, hi, step),
+                    PeerComparison(threshold, ti, threshold + alias, ti + unit + 1, "eq"),
+                )
+                for unit, alias, lo, hi, step in (
+                    (0, "_C", 200, 400, 10),
+                    (1, "_F", 680, 1040, 20),
+                )
+            )
+        )
+        external = RangeDependency(cooling + "_ExtSchalter_Sensor1_Nr", 14068 + offset, 1, 65)
+        yield Setting(
+            cooling + "_Modus",
+            14066 + offset,
+            f"Heating circuit {circuit} cooling trigger",
+            "select",
+            True,
+            options=(("Outdoor", 0), ("External switch", 1), ("Both", 2)),
+            installed_by=installed,
+            dependencies=(
+                active,
+                flow,
+                Dependency(root + "_System", 13697 + offset, (1, 2)),
+                RangeDependency(cooling + "_Relais1_Nr", 14059 + offset, 1, 100),
+            ),
+            requested_conditions=(
+                RequestedCondition(0, (outside,)),
+                RequestedCondition(1, (external,)),
+                RequestedCondition(2, (outside,)),
+                RequestedCondition(2, (external,)),
+            ),
+        )
+
+    for slot in range(1, 4):
+        offset = (slot - 1) * 14
+        root = f"Solar_Kol{slot}"
+        target, ti = root + "_Tmin", 3539 + offset
+        systems = tuple(sorted(s for s in BX_PLUS_SOLAR_SYSTEMS if s // 10000 >= slot))
+        for unit, alias, lo, hi, step in (
+            (0, "_C", 100, 900, 10),
+            (1, "_F", 500, 1940, 20),
+        ):
+            yield Setting(
+                root + "_Omin",
+                3533 + offset,
+                f"Solar collector {slot} minimum temperature enabled",
+                "switch",
+                True,
+                installed_by=RangeDependency(root + "_Sensor1_Nr", 3536 + offset, 1, 65),
+                dependencies=(
+                    Dependency("Solar_SystemId", 3416, systems),
+                    RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
+                    Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                ),
+                compound_mirrors=((target, ti, target + alias, ti + unit + 1),),
+                requested_conditions=(
+                    RequestedCondition(1, (_raw_steps(target, ti, lo, hi, step),)),
+                ),
+            )
+
+
+BX_PLUS_OPERATING_MODE_OPTIONS = tuple(_operating_mode_options())
+
+
 def _heating_operating_settings():
     """Documented operating controls; existing flow protection is read-only.
 
