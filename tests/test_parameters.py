@@ -247,6 +247,126 @@ class ParameterTests(unittest.TestCase):
                         bad = {**values, prefix + "_dtLaufzeit": 181}
                         self.assertFalse(setting.accepts(bad, 1))
 
+    def test_dedicated_solar_activity_checks_live_context_and_companions(self):
+        config = parameters_configuration
+        base = {
+            "Solar_SystemId": 20201,
+            "Solar_Relais1_Nr": 1,
+            "Solar_Kol1_Sensor1_Nr": 1,
+            "Solar_Kol2_Sensor1_Nr": 2,
+            "Solar_Sp1_Sensor1_Nr": 3,
+            "Solar_Sp1_Aktiviert_Modus": 1,
+            "TemperatureHysteresisSelector": 0,
+        }
+        for kind, count, suffixes in (
+            (
+                "Roehrenkollektor",
+                3,
+                {
+                    "KollektorMaske": 3,
+                    "tBeginn": 360,
+                    "tEnde": 420,
+                    "Laufzeit": 30,
+                    "Pausezeit": 10,
+                },
+            ),
+            (
+                "Bypass",
+                3,
+                {
+                    "KollektorMaske": 3,
+                    "Sensor1_Nr": 4,
+                    "Relais1_Nr": 2,
+                    "Variante": 0,
+                    "dTein": 60,
+                    "dTein_K": 60,
+                    "dTaus": 40,
+                    "dTaus_K": 40,
+                },
+            ),
+            (
+                "CsBypass",
+                1,
+                {
+                    "KollektorMaske": 3,
+                    "SensorEinstrahlung_Nr": 5,
+                    "Einstrahlung": 200,
+                    "Verzoegerung": 120,
+                },
+            ),
+            (
+                "Zieltemperatur",
+                1,
+                {
+                    "Sensor1_Nr": 4,
+                    "Zieltemperatur": 650,
+                    "Zieltemperatur_C": 650,
+                    "Anstieg": 20,
+                    "Anstieg_K": 20,
+                },
+            ),
+        ):
+            for slot in range(1, count + 1):
+                with self.subTest(kind=kind, slot=slot):
+                    root = f"Solar_Wf{slot}_{kind}"
+                    mode = root + "_Aktiviert_Modus"
+                    values = {
+                        **base,
+                        mode: 0,
+                        **{root + "_" + key: val for key, val in suffixes.items()},
+                    }
+                    (setting,) = [
+                        s for s in config.BX_PLUS_ACTIVITY_SETTINGS if s.name == mode
+                    ]
+                    self.assertTrue(setting.accepts(values, 0))
+                    self.assertTrue(setting.accepts(values, 1))
+                    self.assertFalse(setting.accepts(values, 2))
+                    self.assertTrue(
+                        setting.accepts(
+                            {**values, root + "_Aktiviert_SensorSchalter_Nr": 6}, 2
+                        )
+                    )
+                    self.assertFalse(setting.accepts({**values, "Solar_SystemId": 1}, 1))
+                    self.assertFalse(setting.accepts({**values, "Solar_Relais1_Nr": 0}, 1))
+                    for key in suffixes:
+                        missing = dict(values)
+                        del missing[root + "_" + key]
+                        self.assertFalse(setting.accepts(missing, 1), key)
+                    if "KollektorMaske" in suffixes:
+                        self.assertFalse(
+                            setting.accepts(
+                                {**values, root + "_KollektorMaske": 4}, 1
+                            )
+                        )
+                        self.assertFalse(
+                            setting.accepts({**values, "Solar_Kol2_Sensor1_Nr": 0}, 1)
+                        )
+
+    def test_function_block_restart_delay_option_all_slots(self):
+        config = parameters_configuration
+        for slot in range(1, 17):
+            root = f"Anlage_Wf{slot}"
+            name = root + "_Funktionsblock_OMindestausschaltzeit"
+            delay = root + "_Funktionsblock_dtMindestausschaltzeit"
+            setting = next(s for s in config.BX_PLUS_TIMING_SETTINGS if s.name == name)
+            values = {
+                root + "_Type": 9,
+                root + "_Aktiviert_Modus": 1,
+                root + "_Relais1_Nr": 2,
+                name: 0,
+                delay: 60,
+            }
+            with self.subTest(slot=slot):
+                self.assertTrue(setting.accepts(values, 1))
+                self.assertTrue(setting.accepts({**values, delay: 0}, 0))
+                self.assertFalse(setting.accepts({**values, delay: 0}, 1))
+                self.assertFalse(setting.accepts({**values, delay: 1440}, 1))
+                self.assertFalse(setting.accepts({**values, root + "_Relais1_Nr": 0}, 1))
+                values[root + "_Aktiviert_Modus"] = 2
+                self.assertFalse(setting.accepts(values, 1))
+                values[root + "_Aktiviert_SensorSchalter_Nr"] = 3
+                self.assertTrue(setting.accepts(values, 1))
+
     def test_room_activation_preserves_required_sensor_and_timer(self):
         config = parameters_configuration
         root = "Heizung_Heizkreis1"

@@ -126,7 +126,6 @@ CONFIG_SELECTORS = {
     "Anlage_Wf6_Relais1_Nr": (7847, 4),
     "Anlage_Wf5_Type": (7563, 9),
     "Anlage_Wf5_Aktiviert_Modus": (7570, 1),
-    "Anlage_Wf5_Funktionsblock_OMindestausschaltzeit": (7747, 1),
     "Anlage_Wf5_Relais1_Nr": (7596, 4),
     "Heizung_Heizkreis1_System": (13697, 2),
     "Heizung_Heizkreis1_ONachheizung": (13705, 1),
@@ -155,8 +154,11 @@ CONFIG_SELECTORS = {
     "Relais_Modul1_R1_AktorFunktion": (2167, 2),
     "Solar_SystemId": (3416, 20201),
     "Solar_ParallelbeladungMoeglich": (3439, 1),
-    "Solar_Wf1_Roehrenkollektor_Aktiviert_Modus": (3834, 1),
     "Solar_Wf1_Roehrenkollektor_KollektorMaske": (3839, 3),
+    "Solar_Wf1_Roehrenkollektor_Aktiviert_SensorSchalter_Nr": (3836, 4),
+    "Solar_Wf1_Bypass_Aktiviert_SensorSchalter_Nr": (3890, 4),
+    "Solar_Wf1_CsBypass_Aktiviert_SensorSchalter_Nr": (3983, 4),
+    "Solar_Wf1_Zieltemperatur_Aktiviert_SensorSchalter_Nr": (4337, 4),
     "Solar_Wf1_ExtWT_SpeicherMaske": (4089, 3),
     "Solar_Wf1_ExtWT_Sensor1_Nr": (4094, 4),
     "Solar_Wf1_ExtWT_Sensor2_Nr": (4098, 5),
@@ -170,15 +172,12 @@ CONFIG_SELECTORS = {
     "Solar_Beladungstyp": (3417, 0),
     "Solar_Wf1_Bypass_Sensor1_Nr": (3896, 4),
     "Solar_Wf1_Bypass_Relais1_Nr": (3900, 2),
-    "Solar_Wf1_Bypass_Aktiviert_Modus": (3888, 1),
     "Solar_Wf1_Bypass_Variante": (3894, 0),
     "Solar_Wf1_Bypass_KollektorMaske": (3893, 3),
     "Solar_Kol2_Sensor1_Nr": (3550, 5),
     "Solar_Wf1_CsBypass_SensorEinstrahlung_Nr": (3988, 6),
-    "Solar_Wf1_CsBypass_Aktiviert_Modus": (3981, 1),
     "Solar_Wf1_CsBypass_KollektorMaske": (3986, 1),
     "Solar_Wf1_Zieltemperatur_Sensor1_Nr": (4341, 7),
-    "Solar_Wf1_Zieltemperatur_Aktiviert_Modus": (4335, 1),
     "Heizung_Wf1_Type": (11266, 4),
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
     "Heizung_Wf1_Aktiviert_SensorSchalter_Nr": (11275, 4),
@@ -190,6 +189,11 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_dtVerzoegerung": (11414, 0),
 }
 CONFIG_SETTINGS = {
+    "Solar_Wf1_Zieltemperatur_Aktiviert_Modus": (4335, 1, 0, 2),
+    "Solar_Wf1_CsBypass_Aktiviert_Modus": (3981, 1, 0, 2),
+    "Solar_Wf1_Bypass_Aktiviert_Modus": (3888, 1, 0, 2),
+    "Solar_Wf1_Roehrenkollektor_Aktiviert_Modus": (3834, 1, 0, 2),
+    "Anlage_Wf5_Funktionsblock_OMindestausschaltzeit": (7747, 1, 0, 1),
     "Anlage_Wf1_Aktiviert_Modus": (6566, 1, 0, 2),
     "Heizung_Wf1_Aktiviert_Modus": (11273, 1, 0, 2),
     "Heizung_Heizkreis1_Nachheizung_Modus": (13706, 0, 0, 2),
@@ -845,7 +849,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         )
                         assert proposed[7261] > proposed[7264]
                     elif index in (3908, 3911):
-                        assert Peer.extra_values[3888] == 1
+                        assert Peer.settings[3888] == 1
                         assert Peer.extra_values[3894] in (0, 1)
                         assert Peer.extra_values[3896] > 0
                         assert Peer.extra_values[3900] > 0
@@ -869,7 +873,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[13823] == 0
                         assert Peer.extra_values[13834] > 0
                     elif index == 4347:
-                        assert Peer.extra_values[4335] == 1
+                        assert Peer.settings[4335] == 1
                         assert Peer.extra_values[4341] > 0
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
@@ -899,7 +903,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.settings[4091] == 1
                         assert Peer.extra_values[4098] > 0
                     elif index == 4344:
-                        assert Peer.extra_values[4335] == 1
+                        assert Peer.settings[4335] == 1
                         assert Peer.extra_values[4341] > 0
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
@@ -985,7 +989,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 if index == 7748:
                     assert Peer.extra_values[7563] == 9
                     assert Peer.extra_values[7570] == 1
-                    assert Peer.extra_values[7747] == 1
+                    assert Peer.settings[7747] == 1
                     assert Peer.extra_values[7596] > 0
                 if index in (13747, 13750, 13715, 13717):
                     assert Peer.extra_values[13705] == Peer.extra_values[13708] == 1
@@ -1035,7 +1039,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         )
                 if index in (3840, 3841, 3842, 3843):
                     assert Peer.extra_values[3416] == 20201
-                    assert Peer.extra_values[3834] == 1
+                    assert Peer.settings[3834] == 1
                     assert Peer.extra_values[3839] == 3
                     assert Peer.extra_values[3536] > 0
                     assert Peer.extra_values[3550] > 0
@@ -1054,7 +1058,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert Peer.extra_values[3576] > 0 and Peer.extra_values[3612] > 0
                     assert Peer.extra_values[3604] == Peer.extra_values[3640] == 1
                 if index in (3991, 3992):
-                    assert Peer.extra_values[3981] == 1
+                    assert Peer.settings[3981] == 1
                     assert Peer.extra_values[3988] > 0
                     assert Peer.extra_values[3986] == 1
                     assert Peer.extra_values[3536] > 0 and Peer.extra_values[3452] > 0
@@ -2915,6 +2919,44 @@ async def qualify(directory, phase):
         Peer.extra_values[11405] = 0
         await entry.runtime_data.relay_coordinator.async_refresh()
         await hass.async_block_till_done()
+        # Existing dedicated solar functions use the same activity owner.
+        for root, index, companion in (
+            ("Solar_Wf1_Roehrenkollektor", 3834, "_Laufzeit"),
+            ("Solar_Wf1_Bypass", 3888, "_dTein"),
+            ("Solar_Wf1_CsBypass", 3981, "_Einstrahlung"),
+            ("Solar_Wf1_Zieltemperatur", 4335, "_Zieltemperatur"),
+        ):
+            activity = entity(root + "_Aktiviert_Modus", "select")
+            target = entity(root + companion, "number")
+            assert activity and target
+            before = Peer.saves
+            previous_value = hass.states.get(target).state
+            await set_mode(activity, "Deactivated")
+            assert Peer.settings[index] == 0
+            assert hass.states.get(target).state == "unavailable"
+            await set_mode(activity, "External switch")
+            assert Peer.settings[index] == 2
+            await set_mode(activity, "Activated")
+            await set_mode(activity, "Activated")
+            assert Peer.saves == before + 3
+            assert hass.states.get(target).state == previous_value
+
+        delay_root = "Anlage_Wf5_Funktionsblock"
+        delay_flag = entity(delay_root + "_OMindestausschaltzeit", "switch")
+        delay = entity(delay_root + "_dtMindestausschaltzeit", "number")
+        assert delay_flag and delay
+        before = Peer.saves
+        original_duration = Peer.settings[7748]
+        for service, raw in (("turn_off", 0), ("turn_on", 1), ("turn_on", 1)):
+            await hass.services.async_call(
+                "switch", service, {"entity_id": delay_flag}, blocking=True
+            )
+            await hass.async_block_till_done()
+            assert Peer.settings[7747] == raw
+            assert (hass.states.get(delay).state == "unavailable") == (raw == 0)
+            assert Peer.settings[7748] == original_duration
+        assert Peer.saves == before + 2
+
         room_activation = entity(
             "Heizung_Heizkreis1_Raumthermostat1_Aktiviert", "select"
         )

@@ -1279,6 +1279,15 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(flags, 7)
             pairs.add((first, second))
         self.assertEqual(len(pairs), 1)
+        delay_pairs = set()
+        for slot in range(1, 17):
+            root = f"Anlage_Wf{slot}_Funktionsblock"
+            flag = descriptor(root + "_OMindestausschaltzeit")
+            duration = descriptor(root + "_dtMindestausschaltzeit")
+            self.assertEqual(flag[1], 0xFFFC)
+            self.assertEqual(flag[0] - duration[0], 42)
+            delay_pairs.add(flag[2:])
+        self.assertEqual(len(delay_pairs), 1)
         prefix = bytes.fromhex("5589e583ec388b450c8845e4807de400747a8b45")
         matches = []
         position = text_offset
@@ -1647,8 +1656,8 @@ class DiscoveryTests(unittest.TestCase):
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
         activity = configuration.BX_PLUS_ACTIVITY_SETTINGS
-        self.assertEqual(len({setting.name for setting in activity}), 55)
-        self.assertEqual(len(activity), 142)
+        self.assertEqual(len({setting.name for setting in activity}), 63)
+        self.assertEqual(len(activity), 150)
         for setting in activity:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
@@ -1979,7 +1988,7 @@ class DiscoveryTests(unittest.TestCase):
                         catalog.numeric_encoding(definitions[alias]),
                         tuple(Decimal(v) for v in setting.limits),
                     )
-        self.assertEqual(len(configuration.BX_PLUS_TIMING_SETTINGS), 144)
+        self.assertEqual(len(configuration.BX_PLUS_TIMING_SETTINGS), 160)
         for setting in configuration.BX_PLUS_TIMING_SETTINGS:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
@@ -1992,7 +2001,7 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertIn("Boolean", target.metadata["type_chain"])
                 self.assertTrue(
                     any(
-                        ref.get("menu") == setting.name.removesuffix("_ONachlaufzeit")
+                        ref.get("menu") == setting.name.rsplit("_", 1)[0]
                         and "BooleanNop" in ref.get("mask", "")
                         for ref in target.metadata["menu_refs"]
                     )

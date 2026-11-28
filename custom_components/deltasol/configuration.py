@@ -1664,6 +1664,44 @@ def _timing_settings():
                 installed_by=Dependency(f"{arrangement}_Type", 6559 + ao, (1,)),
             )
         yield Setting(
+            f"{arrangement}_Funktionsblock_OMindestausschaltzeit",
+            6743 + ao,
+            f"Arrangement function {slot} restart delay enabled",
+            "switch",
+            True,
+            installed_by=Dependency(f"{arrangement}_Type", 6559 + ao, (9,)),
+            dependencies=(
+                AnyDependencies(
+                    (
+                        (Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (1,)),),
+                        (
+                            Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (2,)),
+                            RangeDependency(
+                                f"{arrangement}_Aktiviert_SensorSchalter_Nr",
+                                6568 + ao,
+                                1,
+                                65,
+                            ),
+                        ),
+                    )
+                ),
+                RangeDependency(f"{arrangement}_Relais1_Nr", 6592 + ao, 1, 100),
+            ),
+            requested_conditions=(
+                RequestedCondition(
+                    1,
+                    (
+                        RangeDependency(
+                            f"{arrangement}_Funktionsblock_dtMindestausschaltzeit",
+                            6744 + ao,
+                            1,
+                            1439,
+                        ),
+                    ),
+                ),
+            ),
+        )
+        yield Setting(
             f"{arrangement}_Funktionsblock_dtMindestausschaltzeit",
             6744 + ao,
             f"Arrangement function {slot} restart delay",
@@ -3891,7 +3929,92 @@ def _installed_function_activity():
         )
 
 
-BX_PLUS_ACTIVITY_SETTINGS = tuple(_installed_function_activity())
+def _dedicated_solar_activity():
+    """Activity of assigned native solar functions, never install or reassign."""
+    topology = Dependency("Solar_SystemId", 3416, tuple(sorted(BX_PLUS_SOLAR_SYSTEMS)))
+    output = RangeDependency("Solar_Relais1_Nr", 3452, 1, 100)
+    for slot in range(1, 4):
+        offset = (slot - 1) * 18
+        root = f"Solar_Wf{slot}_Roehrenkollektor"
+        mask = root + "_KollektorMaske"
+        setting = _activity_setting(
+            root,
+            3834 + offset,
+            RangeDependency(mask, 3839 + offset, 1, 7),
+            (
+                output,
+                _raw_steps(root + "_tBeginn", 3840 + offset, 0, 1410, 30),
+                _raw_steps(root + "_tEnde", 3841 + offset, 0, 1410, 30),
+                PeerComparison(
+                    root + "_tEnde", 3841 + offset, root + "_tBeginn", 3840 + offset, "gt"
+                ),
+                _raw_steps(root + "_Laufzeit", 3842 + offset, 5, 600, 5),
+                RangeDependency(root + "_Pausezeit", 3843 + offset, 1, 60),
+            ),
+        )
+        yield replace(setting, dependencies=(SolarSelection(mask, 3839 + offset),))
+
+        offset = (slot - 1) * 31
+        root = f"Solar_Wf{slot}_Bypass"
+        setting = _activity_setting(
+            root,
+            3888 + offset,
+            RangeDependency(root + "_Sensor1_Nr", 3896 + offset, 1, 65),
+            (
+                output,
+                RangeDependency(root + "_Relais1_Nr", 3900 + offset, 1, 100),
+                Dependency(root + "_Variante", 3894 + offset, (0, 1)),
+                _activity_thermal(
+                    root,
+                    (
+                        ("dTein", 3908 + offset, (10, 200, 5), (20, 400, 10), True),
+                        ("dTaus", 3911 + offset, (5, 195, 5), (10, 390, 10), True),
+                    ),
+                    (("dTein", 3908 + offset, "dTaus", 3911 + offset),),
+                ),
+            ),
+        )
+        yield replace(
+            setting,
+            dependencies=(SolarSelection(root + "_KollektorMaske", 3893 + offset),),
+        )
+
+    root = "Solar_Wf1_CsBypass"
+    setting = _activity_setting(
+        root,
+        3981,
+        RangeDependency(root + "_SensorEinstrahlung_Nr", 3988, 1, 65),
+        (
+            output,
+            _raw_steps(root + "_Einstrahlung", 3991, 100, 500, 50),
+            RangeDependency(root + "_Verzoegerung", 3992, 10, 300),
+        ),
+    )
+    yield replace(setting, dependencies=(SolarSelection(root + "_KollektorMaske", 3986),))
+
+    root = "Solar_Wf1_Zieltemperatur"
+    setting = _activity_setting(
+        root,
+        4335,
+        RangeDependency(root + "_Sensor1_Nr", 4341, 1, 65),
+        (
+            output,
+            RangeDependency("Solar_Kol1_Sensor1_Nr", 3536, 1, 65),
+            RangeDependency("Solar_Sp1_Sensor1_Nr", 3576, 1, 65),
+            _installed_activity("Solar_Sp1", 3604, 3606),
+            _activity_thermal(
+                root,
+                (
+                    ("Zieltemperatur", 4344, (200, 1100, 10), (680, 2300, 20), False),
+                    ("Anstieg", 4347, (10, 200, 5), (20, 400, 10), True),
+                ),
+            ),
+        ),
+    )
+    yield replace(setting, dependencies=(topology,))
+
+
+BX_PLUS_ACTIVITY_SETTINGS = (*_installed_function_activity(), *_dedicated_solar_activity())
 
 
 def _heating_operating_settings():
