@@ -1524,6 +1524,24 @@ class DiscoveryTests(unittest.TestCase):
                     self.assertEqual(
                         definitions[dependency.name].index, dependency.index
                     )
+        thermal = configuration.BX_PLUS_THERMAL_OPTIONS
+        self.assertEqual(len({setting.name for setting in thermal}), 80)
+        self.assertEqual(len(thermal), 160)
+        for setting in thermal:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertEqual(target.metadata["rpt_storage"], "preferences")
+            self.assertIn("Boolean", target.metadata["type_chain"])
+            self.assertTrue(
+                any(
+                    "BooleanNop" in ref.get("mask", "")
+                    for ref in target.metadata["menu_refs"]
+                )
+            )
+            self.assertTrue(setting.save)
+            self.assertEqual(setting.kind, "switch")
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
         self.assertEqual(len(bound), len(profile.settings) + 350)
         self.assertEqual(len([s for s in bound if s.weekly_slot is not None]), 350)
         # Report the remaining catalogue/menu review surface as part of the
