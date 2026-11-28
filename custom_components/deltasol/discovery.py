@@ -18,8 +18,7 @@ from .catalog import (
     is_sensitive,
     ordinal_options,
 )
-from .configuration import decode_native_day
-from .configuration import encode_native_day as encode_native_day
+from .configuration import decode_native_day, encode_native_day
 from .parameters import device_inventory, find_profile
 from .vbus import ERROR_CODES, ParameterObservation, VBusError, VBusTransientError
 
@@ -633,7 +632,7 @@ class ConfigurationCapture:
                     if not all(-(2**31) <= word < 2**31 for word in words):
                         continue
                     candidate = decode_native_day(struct.pack("<iii", *words))
-                    if candidate is not None:
+                    if candidate is not None and encode_native_day(candidate) == struct.pack("<iii", *words):
                         day["candidate_windows"] = candidate
                         day["candidate_encoding"] = "native_set_quarter_hour_pairs"
                         day["candidate_status"] = "wire_word_mapping_verified"
