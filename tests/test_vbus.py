@@ -374,6 +374,33 @@ class VBusTests(unittest.TestCase):
             pass
         self.assertEqual(session.release_attempts, 1)
 
+    def test_acquisition_distinguishes_silence_from_rejected_offers(self):
+        other_offer = response(0x0500, source=0x7111)
+        wrong_destination = vbus.Datagram(0x21, ADDRESS, 0x0500).encode()
+        non_offer = response(0x0100, 1, 2)
+        traffic = live_packet() + other_offer + wrong_destination + non_offer
+        for chunks in ([], [traffic[:7], traffic[7:]]):
+            with self.subTest(traffic=bool(chunks)):
+                conn = Mock()
+                conn.recv.side_effect = [*chunks, TimeoutError()]
+                session = vbus.VBusSession(conn)
+                with self.assertRaisesRegex(vbus.VBusTransientError, "acquisition"):
+                    with session.bus(ADDRESS):
+                        self.fail("Unexpected bus ownership")
+                self.assertEqual(
+                    session.acquisition_stats,
+                    {
+                        "received_bytes": len(traffic) if chunks else 0,
+                        "controller_live_headers": int(bool(chunks)),
+                        "other_live_headers": 0,
+                        "non_offer_datagrams": int(bool(chunks)),
+                        "other_source_offers": int(bool(chunks)),
+                        "other_destination_offers": int(bool(chunks)),
+                        "accepted_offers": 0,
+                    },
+                )
+                conn.sendall.assert_not_called()
+
     def test_release_unconfirmed_preserves_failure(self):
         conn = Mock()
         conn.recv.side_effect = [response(0x0500), TimeoutError(), TimeoutError()]

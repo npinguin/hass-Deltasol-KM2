@@ -541,6 +541,8 @@ class RelayParameters:
             "failure_counts": {},
             "phase_timings": {},
             "last_failure": None,
+            "last_acquisition": None,
+            "last_failed_acquisition": None,
         }
 
     def transport_health(self):
@@ -581,8 +583,19 @@ class RelayParameters:
                 "phase": getattr(error, "phase", None),
                 "observed_at": datetime.now(UTC).isoformat(),
             }
+        acquisition = (
+            session.acquisition_stats
+            if real_session and isinstance(session.acquisition_stats, dict)
+            else None
+        )
         self._health = {
             **previous,
+            "last_acquisition": acquisition or previous["last_acquisition"],
+            "last_failed_acquisition": (
+                acquisition
+                if acquisition is not None and not acquisition["accepted_offers"]
+                else previous["last_failed_acquisition"]
+            ),
             "sessions": previous["sessions"] + 1,
             "successful_sessions": previous["successful_sessions"] + (error is None),
             "failed_sessions": previous["failed_sessions"] + (error is not None),

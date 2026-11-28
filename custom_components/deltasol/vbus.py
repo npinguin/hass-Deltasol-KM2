@@ -156,6 +156,8 @@ class VBusSession:
         self.release_attempts = 0
         self.other_live_packets = 0
         self.release_failed = False
+        self.acquisition_stats = None
+        self._acquiring = False
 
     def _receive(self, deadline):
         remaining = deadline - monotonic()
@@ -165,6 +167,8 @@ class VBusSession:
         data = self.connection.recv(4096)
         if not data:
             raise VBusTransientError("VBus connection closed", "receive")
+        if self._acquiring:
+            self.acquisition_stats["received_bytes"] += len(data)
         return data
 
     def _line(self, deadline):
@@ -199,6 +203,25 @@ class VBusSession:
             elif start:
                 del self.buffer[:start]
             if len(self.buffer) >= 6 and self.buffer[5] != 0x20:
+                # During acquisition distinguish a silent TCP stream from
+                # live VBus traffic without a usable offer. Count validated
+                # headers only; no payloads or device addresses are exported.
+                if self._acquiring and self.buffer[5] == 0x10:
+                    if len(self.buffer) < 10:
+                        self.buffer.extend(self._receive(deadline))
+                        continue
+                    header = self.buffer[:10]
+                    if (
+                        all(byte < 128 for byte in header[1:])
+                        and (sum(header[1:]) & 127) == 127
+                    ):
+                        source = int.from_bytes(header[3:5], "little")
+                        key = (
+                            "controller_live_headers"
+                            if source == self._acquisition_address
+                            else "other_live_headers"
+                        )
+                        self.acquisition_stats[key] += 1
                 del self.buffer[0]
                 continue
             if len(self.buffer) >= 16:
@@ -338,20 +361,39 @@ class VBusSession:
     def bus(self, address):
         """Acquire only the expected controller's offer; release in all cases."""
         started = monotonic()
+        self._acquisition_address = address
+        self.acquisition_stats = {
+            "received_bytes": len(self.buffer),
+            "controller_live_headers": 0,
+            "other_live_headers": 0,
+            "non_offer_datagrams": 0,
+            "other_source_offers": 0,
+            "other_destination_offers": 0,
+            "accepted_offers": 0,
+        }
+
+        def offered(packet):
+            if packet.command != 0x0500:
+                key = "non_offer_datagrams"
+            elif packet.source != address:
+                key = "other_source_offers"
+            elif packet.destination not in (0, SELF_ADDRESS):
+                key = "other_destination_offers"
+            else:
+                self.acquisition_stats["accepted_offers"] += 1
+                return True
+            self.acquisition_stats[key] += 1
+            return False
+
+        self._acquiring = True
         try:
-            self.receive_matching(
-                lambda packet: (
-                    packet.source == address
-                    and packet.destination in (0, SELF_ADDRESS)
-                    and packet.command == 0x0500
-                ),
-                20,
-            )
+            self.receive_matching(offered, 20)
         except (OSError, VBusError) as error:
             raise VBusTransientError(
                 "VBus bus acquisition failed", "acquire"
             ) from error
         finally:
+            self._acquiring = False
             self.phase_seconds["acquire"] = monotonic() - started
         started = monotonic()
         try:
