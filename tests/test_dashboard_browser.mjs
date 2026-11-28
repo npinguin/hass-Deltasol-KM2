@@ -33,6 +33,14 @@ function journey(){
     check(root.textContent.includes("Solid-fuel heating"),"No native function object");
     check(root.textContent.includes("Historical discovery needs attention"),"Missing checkpoint warning");
     check(root.textContent.includes("12 / 16"),"Missing live discovery coverage");
+    check(root.textContent.includes("Daily controls"),"Missing resident daily controls");
+    check(root.querySelectorAll('[data-input="select.mode"]').length===1,"Duplicate mode editor on overview");
+    check(root.textContent.includes("No current attention items"),"Missing operational attention summary");
+    hass.states["sensor.temp"]=state("unavailable");
+    panel.hass=hass;panel.render();
+    check(root.textContent.includes("Check the native source device"),"Missing actionable unavailable state");
+    hass.states["sensor.temp"]=state("42",{unit_of_measurement:"°C"});
+    panel.hass=hass;panel.render();
     click('[data-tab="heating"]');
     check(root.textContent.includes("Heating mode"),"Missing routine control");
     choose('[data-input="select.mode"]',"Off");
