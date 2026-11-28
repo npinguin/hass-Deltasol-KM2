@@ -11,5 +11,5 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/npinguin/hass-Deltasol-KM2/issues",
   "requirements": [],
-  "version": "1.2.17"
+  "version": "1.2.18"
 }

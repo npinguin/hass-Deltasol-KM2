@@ -12,6 +12,7 @@ import socketserver
 import struct
 import sys
 import threading
+import time
 from contextlib import ExitStack, nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1313,6 +1314,167 @@ class HttpHandler(BaseHTTPRequestHandler):
         pass
 
 
+async def qualify_native_browser(hass, user, entry_id, *, heating_mode=None):
+    """Exercise the installed panel in a real HA frontend, not mocked callWS."""
+    from aiohttp import ClientSession
+
+    origin = "http://127.0.0.1:18123"
+    refresh = await hass.auth.async_create_refresh_token(
+        user, client_id=origin + "/"
+    )
+    token_data = {
+        "hassUrl": origin,
+        "clientId": origin + "/",
+        "access_token": hass.auth.async_create_access_token(refresh),
+        "refresh_token": refresh.token,
+        "expires_in": 1800,
+        "expires": int(time.time() * 1000) + 1800000,
+        "token_type": "Bearer",
+    }
+    async with ClientSession() as session:
+        async with session.get("http://127.0.0.1:9222/json/list") as response:
+            pages = await response.json()
+        page = next(item for item in pages if item["type"] == "page")
+        async with session.ws_connect(page["webSocketDebuggerUrl"]) as ws:
+            counter = 0
+
+            async def cdp(method, **params):
+                nonlocal counter
+                counter += 1
+                await ws.send_json(
+                    {"id": counter, "method": method, "params": params}
+                )
+                async with asyncio.timeout(20):
+                    while True:
+                        result = await ws.receive_json()
+                        if result.get("id") == counter:
+                            if "error" in result:
+                                raise AssertionError(f"Browser command failed: {method}")
+                            return result["result"]
+
+            async def evaluate(expression):
+                result = await cdp(
+                    "Runtime.evaluate",
+                    expression=expression,
+                    returnByValue=True,
+                    awaitPromise=True,
+                )
+                if "exceptionDetails" in result:
+                    raise AssertionError("Browser panel evaluation failed")
+                return result["result"].get("value")
+
+            find_panel = """const find = root => {
+              const direct = root.querySelector('deltasol-dashboard');
+              if (direct) return direct;
+              for (const node of root.querySelectorAll('*')) {
+                if (node.shadowRoot) {
+                  const found = find(node.shadowRoot);
+                  if (found) return found;
+                }
+              }
+              return null;
+            };
+            const p = find(document);"""
+
+            async def panel(expression):
+                return await evaluate("(()=>{" + find_panel + expression + "})()")
+
+            async def ready(expression):
+                async with asyncio.timeout(90):
+                    while not await panel(expression):
+                        await asyncio.sleep(0.25)
+
+            await cdp("Page.enable")
+            # Seed only this isolated browser's native HA authentication
+            # storage. Never log or persist these test credentials in GitHub.
+            script = await cdp(
+                "Page.addScriptToEvaluateOnNewDocument",
+                source=(
+                    f"if(location.origin==={json.dumps(origin)})"
+                    "localStorage.setItem('hassTokens',"
+                    f"{json.dumps(json.dumps(token_data))});"
+                ),
+            )
+            try:
+                await cdp("Page.navigate", url=origin + "/resol")
+                await ready(
+                    "return !!p?.loaded && !!p.shadowRoot && "
+                    f"p.current()?.id==={json.dumps(entry_id)};"
+                )
+                assert await panel(
+                    "return p.current().engineering==="
+                    + json.dumps(user.is_admin)
+                    + " && p.current().settings==="
+                    + json.dumps(user.is_admin)
+                    + ";"
+                )
+                for width in (390, 768, 1280):
+                    await cdp(
+                        "Emulation.setDeviceMetricsOverride",
+                        width=width,
+                        height=900,
+                        deviceScaleFactor=1,
+                        mobile=width == 390,
+                    )
+                    await panel("p.render();return true;")
+                    assert await panel(
+                        "return p.shadowRoot.querySelector('main').scrollWidth"
+                        "<=p.getBoundingClientRect().width+2;"
+                    ), f"Native HA panel overflows at width {width}"
+                assert await panel(
+                    "return !!p.shadowRoot.querySelector('[data-tab=energy]');"
+                )
+                await panel(
+                    "p.shadowRoot.querySelector('[data-tab=energy]').click();"
+                    "return true;"
+                )
+                assert await panel(
+                    "return p.tab==='energy' && "
+                    "!!p.shadowRoot.querySelector('[data-history]');"
+                )
+                if user.is_admin:
+                    await panel(
+                        "p.shadowRoot.querySelector('[data-tab=engineering]').click();"
+                        "return true;"
+                    )
+                    await ready("return !!p?.report && p.tab==='engineering';")
+                    assert await panel(
+                        "return !!p.shadowRoot.querySelector('#inventory');"
+                    )
+                else:
+                    assert await panel(
+                        "return !p.shadowRoot.querySelector('[data-tab=engineering]')"
+                        " && !p.shadowRoot.querySelector('[data-tab=settings]');"
+                    )
+                if heating_mode:
+                    selector = json.dumps(f'[data-input="{heating_mode}"]')
+                    apply = json.dumps(f'[data-apply="{heating_mode}"]')
+                    await panel(
+                        "p.shadowRoot.querySelector('[data-tab=heating]').click();"
+                        "return true;"
+                    )
+                    await ready(
+                        f"return !!p?.shadowRoot.querySelector({selector});"
+                    )
+                    assert await panel(
+                        f"const input=p.shadowRoot.querySelector({selector});"
+                        "input.value='Day';"
+                        f"p.shadowRoot.querySelector({apply}).click();return true;"
+                    )
+                    await ready(
+                        "return !!p && !p.pending && "
+                        f"p.hass.states[{json.dumps(heating_mode)}]?.state==='Day';"
+                    )
+                    assert hass.states.get(heating_mode).state == "Day"
+            finally:
+                await cdp(
+                    "Page.removeScriptToEvaluateOnNewDocument",
+                    identifier=script["identifier"],
+                )
+                await evaluate("localStorage.removeItem('hassTokens');true")
+                await cdp("Page.navigate", url="about:blank")
+
+
 async def qualify(directory, phase):
     from homeassistant import bootstrap, loader
     from homeassistant.config_entries import ConfigEntry, ConfigEntryState
@@ -2537,6 +2699,8 @@ async def qualify(directory, phase):
             resident, "deltasol/dashboard/engineering", entry_id=entry.entry_id
         )
         assert not denied["success"]
+        await qualify_native_browser(hass, admin, entry.entry_id)
+        print("ISOLATED_HA actual admin frontend browser PASS", flush=True)
         response = await dashboard_request(
             admin,
             "deltasol/dashboard/action",
@@ -3332,6 +3496,13 @@ async def qualify(directory, phase):
             value="Day",
         )
         assert not denied["success"] and Peer.saves == before
+        # The resident actually changes the mode from the installed HA UI.
+        await qualify_native_browser(
+            hass, resident, entry.entry_id, heating_mode=heating_mode
+        )
+        assert Peer.saves == before + 1 and Peer.settings[14014] == 1
+        print("ISOLATED_HA actual resident frontend action PASS", flush=True)
+        # Repeat via the authenticated endpoint: it must remain a no-op.
         changed = await dashboard_request(
             resident,
             "deltasol/dashboard/action",
