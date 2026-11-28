@@ -433,6 +433,27 @@ The per-circuit OUrlaub flag is specifically automatic entry from Auto into Holi
 
 The exact archive test covers all 51 definitions and applicable dependencies; focused regressions reject invalid steps, missing assignments, wrong heating mode and unassigned switch-controlled activity. The independent HA fixture is extended with representative switches, Day/Day-Night select, no-op, companion visibility and restart assertions. Qualification remains pending until the complete V1 batch is Feature Complete. The remaining parallel reference-output resolution, schedule allocation/option lifecycle, DrainBack and separate manual overrides remain open; no blanket exclusion or scope reduction.
 
+
+### 4.27 Installed thermal-function predicates
+
+The local owner-supplied ZIP digest is the Appendix A fingerprint (385c12e6…); the exact XML/native sorted-index/descriptor-table join was repeated for all eighty option IDs. Each has preferences storage (no explicit storage attribute), a BooleanNop menu entry, and the native Boolean callback pair 0x4f2e8/0x4f3aa. Independent registered-archive tests confirm layout and type binding for each slot and both unit variants.
+
+| Native option | First index / stride | Count | Installed conditions |
+| --- | --- | ---: | --- |
+| Arrangement function block thermostat A | 6705 / 251 | 16 | Type 9, assigned output and sensor 1 |
+| Arrangement function block thermostat B | 6706 / 251 | 16 | Type 9, assigned output and sensor 2 |
+| Arrangement function block differential | 6704 / 251 | 16 | Type 9, assigned output and source/sink sensors 3/4 |
+| Arrangement solid-fuel target temperature | 6681 / 251 | 16 | Type 6, assigned pump and boiler/store/target sensors |
+| Heating DHW preheat differential | 11398 / 151 | 16 | Type 3, pump, temperature and flow inputs, source/sink sensors |
+
+The BX Plus 2.07 manual p.59 describes function-block conditions as a conjunction, with independently configured on/off thresholds and reference outputs. The earlier manual p.53 also explicitly distinguishes both thermostat orientations and disallows equal thresholds. The exact 2.08 XML defines thermostat limits −40..250°C / −40..482°F, steps 1/2; differential on 1..50 K, off 0.5..49.5 K, target 2..100 K, rise 0.5..20 K (native °R variant has doubled values and steps). The solid-fuel target channel 6682 uses 30..85°C / 86..186°F; the DHW differential uses the same on/off ranges. The selected-unit parent/child must agree, existing values must be representable, and the differential order is off < on < target (where applicable). This preserves the already authorized numeric contracts, without writes to companion settings or changes to output/sensor assignments. Switch-controlled activity requires its configured input.
+
+A function-block predicate is not a direct relay command. Removing the last positively corroborated condition can change output logic materially; all-off runtime behavior has not been proven. Therefore disabling an enabled thermal predicate currently requires another enabled, assigned, valid thermal predicate with selected-unit mirror agreement; unchanged Off is a no-op. This is an explicit unresolved applicability gap for blocks where the remaining predicate is a timer, reference output or flow function, NOT a final exclusion. Resolve those native ownership/validity contracts before Feature Complete, including the genuine all-off behavior. A small shared peer comparison reuses the existing requested-condition checks rather than introducing a second writer or a raw service.
+
+Independent HA fixture coverage is prepared for all five option families, save/disable/re-enable, dependent Number visibility, restart and last-predicate rejection. The actual lifecycle has not been run; complete V1 qualification is still required. Room thermostat activation/option semantics remain a separate open review: the native ActivityMode callback 0x4e2cc/0x4e3a2 establishes 0/1/2 and labels Deactivated/Activated/Switch, but does not alone establish the switch-controlled runtime relationship or whether disabling the Option flag changes ownership/allocation. The weekly timer's Boolean flag is separate from its allocation/reference lifecycle. Neither is granted write access from menu presence alone.
+
+Reference: [BX Plus firmware 2.07 manual p.59](https://www.manualslib.com/manual/2406566/Resol-Deltasol-Bx-Plus.html?page=59) and [earlier manual p.53](https://www.manualslib.com/manual/1625333/Resol-Deltasol-Bx-Plus.html?page=53); exact firmware layout and encoding remain grounded in the supplied DLL/XML.
+
 ## 5. Architecture: a single native Home Assistant integration
 
 The proposed implementation direction builds on the existing Python components instead of importing RPT into Home Assistant. The native controller remains the authority for actual configuration, telemetry and physical control. RPT and other verified sources provide evidence for how to interpret those capabilities.
