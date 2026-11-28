@@ -150,6 +150,9 @@ class ParameterTests(unittest.TestCase):
                 if cap.setting.name == day
             )
 
+        # No historical allocation hint is needed for a newly linked program.
+        for name in flags:
+            hints.pop(name)
         cap = capability()
         self.assertEqual(cap.value, "08:00-10:00, 18:00-20:00")
         self.assertEqual(cap.owners, (owner.name,))
