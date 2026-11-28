@@ -101,6 +101,7 @@ jobs:
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
           unzip -Z1 "$PACKAGE" | grep -Fx services.yaml
           unzip -Z1 "$PACKAGE" | grep -Fx dashboard.py
+          unzip -Z1 "$PACKAGE" | grep -Fx bx_plus.py
           unzip -Z1 "$PACKAGE" | grep -Fx frontend/dashboard.js
           unzip -Z1 "$PACKAGE" | grep -Fx DASHBOARD-LICENSE.txt
           read -r ROLLBACK_VERSION ROLLBACK_DIGEST < <(

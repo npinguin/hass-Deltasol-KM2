@@ -19,6 +19,7 @@ package.__path__ = [
 sys.modules[PACKAGE] = package
 parameters = importlib.import_module(f"{PACKAGE}.parameters")
 parameters_configuration = importlib.import_module(f"{PACKAGE}.configuration")
+bx_plus = importlib.import_module(f"{PACKAGE}.bx_plus")
 
 NAME = "Relais_Regler_R4_Handbetrieb"
 SPEED = "Relais_Regler_R4_ODrehzahl"
@@ -224,7 +225,7 @@ class ParameterTests(unittest.TestCase):
             root = f"Heizung_Heizkreis{slot}"
             setting = next(
                 s
-                for s in configuration.BX_PLUS_ACTIVITY_SETTINGS
+                for s in bx_plus.BX_PLUS_ACTIVITY_SETTINGS
                 if s.name == root + "_Aktiviert_Modus"
             )
             values = {
@@ -246,7 +247,7 @@ class ParameterTests(unittest.TestCase):
             values[root + "_Relais3_Nr"] = 4
             self.assertFalse(setting.accepts(values, 1))
             self.assertTrue(setting.accepts(values, 0))
-        settings = configuration.BX_PLUS_REMAINING_OPERATING_SETTINGS
+        settings = bx_plus.BX_PLUS_REMAINING_OPERATING_SETTINGS
         for slot in range(1, 5):
             root = f"Ausgang_Regler_A{slot}"
             setting = next(s for s in settings if s.name == root + "_Handbetrieb")
@@ -1203,7 +1204,7 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(setting.accepts(values, 1))
 
     def test_room_thermal_regulation_uses_only_requested_mode_inputs(self):
-        controls = parameters_configuration.BX_PLUS_ROOM_THERMAL_CONTROLS
+        controls = bx_plus.BX_PLUS_ROOM_THERMAL_CONTROLS
         root = "Heizung_RelaisPumpe1"
         mode = root + "_Anlauf_Modus"
         setting = next(s for s in controls if s.name == mode)
@@ -1295,7 +1296,7 @@ class ParameterTests(unittest.TestCase):
             self.assertFalse(setting.accepts({**values, prefix + "_OVentil": 1}, raw))
 
     def test_operating_mode_options_use_requested_native_input_and_companions(self):
-        settings = parameters_configuration.BX_PLUS_OPERATING_MODE_OPTIONS
+        settings = bx_plus.BX_PLUS_OPERATING_MODE_OPTIONS
         root = "Heizung_Wf1"
         prefix = root + "_ThBwErwaermung"
         mode = prefix + "_Modus"
@@ -1689,7 +1690,7 @@ class ParameterTests(unittest.TestCase):
         self.session.read.return_value = 0x2734DABC
         variants = [
             s
-            for s in parameters_configuration.BX_PLUS_DIFFERENTIAL_SETTINGS
+            for s in bx_plus.BX_PLUS_DIFFERENTIAL_SETTINGS
             if s.name == "Anlage_Wf1_Feststoffkessel_dTEin"
         ]
         celsius, fahrenheit = variants
@@ -1762,7 +1763,7 @@ class ParameterTests(unittest.TestCase):
 
     def test_mixer_family_requires_live_installed_type_and_activity(self):
         self.session.read.return_value = 0x2734DABC
-        setting = parameters_configuration.BX_PLUS_MIXER_SETTINGS[0]
+        setting = bx_plus.BX_PLUS_MIXER_SETTINGS[0]
         self.values.update(
             {
                 setting.name: (setting.index, 4),
@@ -1811,7 +1812,7 @@ class ParameterTests(unittest.TestCase):
 
     def test_hqm_display_family_checks_activation_and_typed_factor(self):
         self.session.read.return_value = 0x2734DABC
-        switch, unit, factor = parameters_configuration.BX_PLUS_HQM_SETTINGS[:3]
+        switch, unit, factor = bx_plus.BX_PLUS_HQM_SETTINGS[:3]
         installed = switch.installed_by
         active = switch.dependencies[0]
         self.values.update(
@@ -1981,7 +1982,7 @@ class ParameterTests(unittest.TestCase):
 
     def test_heating_curve_checks_live_mode_and_quantization(self):
         self.session.read.return_value = 0x2734DABC
-        setting = parameters_configuration.BX_PLUS_HEATING_SETTINGS[0]
+        setting = bx_plus.BX_PLUS_HEATING_SETTINGS[0]
         installed = setting.installed_by
         active, mode = setting.dependencies
         self.values.update(
@@ -2023,7 +2024,7 @@ class ParameterTests(unittest.TestCase):
     def test_pump_speed_requires_registered_speed_controlled_pump_and_pair(self):
         self.session.read.return_value = 0x2734DABC
         self.activate_modules()
-        minimum, maximum = parameters_configuration.BX_PLUS_PUMP_SETTINGS[10:12]
+        minimum, maximum = bx_plus.BX_PLUS_PUMP_SETTINGS[10:12]
         role = minimum.optional_role
         self.values.update(
             {
@@ -2117,7 +2118,7 @@ class ParameterTests(unittest.TestCase):
         name = "Anlage_Wf1_Feststoffkessel_TMin"
         target = next(
             setting
-            for setting in parameters_configuration.BX_PLUS_TRANSFER_SETTINGS
+            for setting in bx_plus.BX_PLUS_TRANSFER_SETTINGS
             if setting.name == name and setting.unit == "°C"
         )
         self.values.update(
@@ -2164,7 +2165,7 @@ class ParameterTests(unittest.TestCase):
     def test_optional_transfer_controls_follow_existing_function_options(self):
         block = next(
             s
-            for s in parameters_configuration.BX_PLUS_DIFFERENTIAL_SETTINGS
+            for s in bx_plus.BX_PLUS_DIFFERENTIAL_SETTINGS
             if s.name == "Anlage_Wf1_Funktionsblock_dTEin" and s.unit == "K"
         )
         values = {
@@ -2183,7 +2184,7 @@ class ParameterTests(unittest.TestCase):
 
         mixer = next(
             s
-            for s in parameters_configuration.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS
+            for s in bx_plus.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS
             if s.name == "Anlage_Wf1_Feststoffkessel_Mischer_dtIntervall"
         )
         values.update(
@@ -2198,7 +2199,7 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(mixer.accepts(values))
         target = next(
             s
-            for s in parameters_configuration.BX_PLUS_TRANSFER_SETTINGS
+            for s in bx_plus.BX_PLUS_TRANSFER_SETTINGS
             if s.name == "Anlage_Wf1_Feststoffkessel_Zieltemperatur_TZiel"
             and s.unit == "°C"
         )
@@ -2214,7 +2215,7 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(target.accepts(values))
 
     def test_heating_comfort_requires_applicable_native_configuration(self):
-        settings = parameters_configuration.BX_PLUS_HEATING_COMFORT_SETTINGS
+        settings = bx_plus.BX_PLUS_HEATING_COMFORT_SETTINGS
         night = next(
             s
             for s in settings
@@ -2298,7 +2299,7 @@ class ParameterTests(unittest.TestCase):
     def test_loading_pair_rejects_bad_sibling_and_keeps_topology_unchanged(self):
         setting = next(
             candidate
-            for candidate in parameters_configuration.BX_PLUS_LOADING_SETTINGS
+            for candidate in bx_plus.BX_PLUS_LOADING_SETTINGS
             if candidate.name == "Heizung_Wf1_ThBwErwaermung_TEin"
             and candidate.unit == "°C"
         )
@@ -2324,7 +2325,7 @@ class ParameterTests(unittest.TestCase):
     def test_thermostat_preserves_orientation_and_switch_controlled_mode(self):
         setting = next(
             setting
-            for setting in parameters_configuration.BX_PLUS_THERMOSTAT_SETTINGS
+            for setting in bx_plus.BX_PLUS_THERMOSTAT_SETTINGS
             if setting.name == "Anlage_Wf1_Funktionsblock_TTh1Ein"
             and setting.unit == "°C"
         )
@@ -2349,7 +2350,7 @@ class ParameterTests(unittest.TestCase):
         self.session.read.return_value = 0x2734DABC
         setting = next(
             s
-            for s in parameters_configuration.BX_PLUS_TIMING_SETTINGS
+            for s in bx_plus.BX_PLUS_TIMING_SETTINGS
             if s.name == "Heizung_Wf1_Zirkulation_dtLaufzeit"
         )
         self.values.update(
@@ -2614,7 +2615,7 @@ class ParameterTests(unittest.TestCase):
     def test_constant_flow_setpoint_respects_existing_protection(self):
         setting = next(
             s
-            for s in parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+            for s in bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS
             if s.name == "Heizung_Heizkreis1_TVorlaufVorgabe" and s.unit == "°C"
         )
         values = {
@@ -2638,7 +2639,7 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(setting.accepts(values, setting.encode(48)))
 
     def test_supplementary_heating_cooling_and_circulation_operating_constraints(self):
-        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        settings = bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS
         root = "Heizung_Heizkreis1"
         prefix = root + "_Nachheizung"
         on = next(s for s in settings if s.name == prefix + "_dTEin" and s.unit == "K")
@@ -2688,7 +2689,7 @@ class ParameterTests(unittest.TestCase):
         pump = "Anlage_WTUmwaelzpumpe"
         duration = next(
             s
-            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            for s in bx_plus.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
             if s.name == pump + "_RuhemodusDauer"
         )
         values = {
@@ -2704,7 +2705,7 @@ class ParameterTests(unittest.TestCase):
 
     def test_native_analogue_heating_flow_adjustment_requires_installed_feedback(self):
         root = "Heizung_RelaisAnforderung1"
-        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        settings = bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS
         names = (
             root + "_Ausgang_dTSollVorlauf",
             root + "_Ausgang_Vorlauf_dTHysterese",
@@ -2748,7 +2749,7 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(offset.accepts(values))
 
     def test_native_menu_review_reasons_do_not_grant_access(self):
-        reason = parameters_configuration.native_menu_review_reason
+        reason = bx_plus.native_menu_review_reason
         for name, expected in (
             ("Relais_Modul1_R1_Handbetrieb", "existing_relay_owner"),
             ("Wmz1_WertJahr_Wh", "runtime_or_history_preserved"),
@@ -2850,7 +2851,7 @@ class ParameterTests(unittest.TestCase):
             self.assertNotIn(name, names)
 
     def test_native_mixer_requires_assignments_and_full_hysteresis_margin(self):
-        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        settings = bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS
         root = "Heizung_Heizkreis1"
         name = root + "_Mischer_dTEin"
         on = next(s for s in settings if s.name == name and s.unit == "K")
@@ -2883,7 +2884,7 @@ class ParameterTests(unittest.TestCase):
     def test_native_cooling_settings_and_mixer_target_follow_assignments(self):
         root = "Heizung_Heizkreis1"
         prefix = root + "_Kuehlung"
-        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        settings = bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS
 
         def find(suffix):
             return next(
@@ -2926,7 +2927,7 @@ class ParameterTests(unittest.TestCase):
         root = "Anlage_Wf1"
         target = next(
             s
-            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            for s in bx_plus.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
             if s.name == root + "_Mischer_TZiel" and s.unit == "°C"
         )
         values = {
@@ -2944,7 +2945,7 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(target.accepts(values))
 
     def test_native_sd_logging_requires_usable_card(self):
-        interval, method = parameters_configuration.BX_PLUS_LOGGING_SETTINGS
+        interval, method = bx_plus.BX_PLUS_LOGGING_SETTINGS
         values = {
             "SDKarte_Status_KarteVorhanden": 1,
             "SDKarte_Status_Schreibfehler": 0,
@@ -2971,7 +2972,7 @@ class ParameterTests(unittest.TestCase):
 
     def test_native_linear_and_room_control_follow_installed_mode(self):
         root = "Heizung_Heizkreis1"
-        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        settings = bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS
 
         def find(suffix, unit=None):
             return next(
@@ -3030,7 +3031,7 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(aggregation.accepts(values))
 
     def test_native_demand_runtime_and_function_block_restart_delay(self):
-        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        settings = bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS
         root = "Heizung_RelaisAnforderung1"
         name = root + "_Mindestlaufzeit_tMin"
         relay, analogue = (s for s in settings if s.name == name)
@@ -3056,7 +3057,7 @@ class ParameterTests(unittest.TestCase):
         root = "Anlage_Wf1"
         setting = next(
             s
-            for s in parameters_configuration.BX_PLUS_TIMING_SETTINGS
+            for s in bx_plus.BX_PLUS_TIMING_SETTINGS
             if s.name == root + "_Funktionsblock_dtMindestausschaltzeit"
         )
         values = {
@@ -3072,7 +3073,7 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(setting.accepts(values))
 
     def test_heating_pump_start_and_overrun_follow_native_mode(self):
-        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        settings = bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS
         root = "Heizung_RelaisPumpe2"
         timed = next(s for s in settings if s.name == root + "_Anlauf_dtAnlauf")
         thermal = next(
@@ -3101,7 +3102,7 @@ class ParameterTests(unittest.TestCase):
     def test_energy_saving_requires_enabled_option_and_assigned_sensor(self):
         setting = next(
             s
-            for s in parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+            for s in bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS
             if s.name == "Heizung_Heizkreis1_Energiesparbetrieb_dtPause"
         )
         values = {
@@ -3124,7 +3125,7 @@ class ParameterTests(unittest.TestCase):
         name = "Solar_Sp1_dTein"
         setting = next(
             s
-            for s in parameters_configuration.BX_PLUS_SOLAR_STORE_SETTINGS
+            for s in bx_plus.BX_PLUS_SOLAR_STORE_SETTINGS
             if s.name == name and s.unit == "K"
         )
         self.values.update(
@@ -3179,7 +3180,7 @@ class ParameterTests(unittest.TestCase):
     def test_solar_priority_uses_native_store_count(self):
         settings = {
             setting.name: setting
-            for setting in parameters_configuration.BX_PLUS_SOLAR_STORE_SETTINGS
+            for setting in bx_plus.BX_PLUS_SOLAR_STORE_SETTINGS
             if setting.name.endswith("_Vorrang")
         }
         self.assertEqual(len(settings), 4)
@@ -3207,7 +3208,7 @@ class ParameterTests(unittest.TestCase):
     def test_heat_exchange_hysteresis_requires_selected_unit_and_assignments(self):
         setting = next(
             setting
-            for setting in parameters_configuration.BX_PLUS_TRANSFER_SETTINGS
+            for setting in bx_plus.BX_PLUS_TRANSFER_SETTINGS
             if setting.name == "Anlage_Wf1_Waermeaustausch_HMinMax"
             and setting.unit == "K"
         )
@@ -3309,7 +3310,7 @@ class ParameterTests(unittest.TestCase):
 
         names = {
             s.name
-            for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
+            for s in bx_plus.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
             if s.kind == "number" and s.name != "Solar_Spreizladung_dTDifferenz"
         }
         self.assertTrue(names <= controls().keys())
@@ -3334,7 +3335,7 @@ class ParameterTests(unittest.TestCase):
         self.session.write_verified.assert_called_once()
 
     def test_thermal_options_require_order_and_preserve_remaining_predicate(self):
-        settings = parameters_configuration.BX_PLUS_THERMAL_OPTIONS
+        settings = bx_plus.BX_PLUS_THERMAL_OPTIONS
         root = "Anlage_Wf1"
         prefix = root + "_Funktionsblock"
         flag = prefix + "_OThermostat1"
@@ -3443,7 +3444,7 @@ class ParameterTests(unittest.TestCase):
         )
 
     def test_installed_program_options_preserve_companions_and_context(self):
-        settings = parameters_configuration.BX_PLUS_PROGRAM_OPTIONS
+        settings = bx_plus.BX_PLUS_PROGRAM_OPTIONS
 
         def contracts(name, values):
             return [s for s in settings if s.name == name and s.accepts(values)]
@@ -3713,7 +3714,7 @@ class ParameterTests(unittest.TestCase):
         name = "Solar_Spreizladung_dTDifferenz"
         setting = next(
             s
-            for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
+            for s in bx_plus.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
             if s.name == name and s.unit == "K"
         )
         values = {
@@ -3745,7 +3746,7 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(setting.accepts(values))
         option = next(
             s
-            for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
+            for s in bx_plus.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
             if s.name == "Solar_OSpreizladung"
             and any(
                 d.name == "TemperatureHysteresisSelector" and d.allowed == (0,)
@@ -3817,7 +3818,7 @@ class ParameterTests(unittest.TestCase):
         self.session.write_verified.assert_called_once()
 
     def test_dedicated_solar_target_and_cs_bypass_require_live_references(self):
-        settings = parameters_configuration.BX_PLUS_SOLAR_DEDICATED_SETTINGS
+        settings = bx_plus.BX_PLUS_SOLAR_DEDICATED_SETTINGS
         target = next(
             s
             for s in settings
@@ -3851,7 +3852,7 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(cs.accepts(values))
 
     def test_native_solar_tube_exchanger_dynamic_constraints(self):
-        settings = parameters_configuration.BX_PLUS_SOLAR_DEDICATED_SETTINGS
+        settings = bx_plus.BX_PLUS_SOLAR_DEDICATED_SETTINGS
         tube = "Solar_Wf1_Roehrenkollektor"
         start = next(s for s in settings if s.name == tube + "_tBeginn")
         values = {
@@ -3900,7 +3901,7 @@ class ParameterTests(unittest.TestCase):
         name = prefix + "_RLBeimischung_dTEin"
         setting = next(
             s
-            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            for s in bx_plus.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
             if s.name == name and s.unit == "K"
         )
         self.values.update(
@@ -3958,7 +3959,7 @@ class ParameterTests(unittest.TestCase):
         # The same semantic contract has the corresponding Fahrenheit variant.
         fahrenheit = next(
             s
-            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            for s in bx_plus.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
             if s.name == name and s.unit == "°R"
         )
         values = {key: raw for key, (_, raw) in self.values.items()}
@@ -3995,7 +3996,7 @@ class ParameterTests(unittest.TestCase):
         }
         settings = {
             (s.name, s.unit): s
-            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            for s in bx_plus.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
         }
         for suffix, unit, wanted, invalid in (
             ("dTSoll", "K", -10, 26),
@@ -4020,7 +4021,7 @@ class ParameterTests(unittest.TestCase):
     def test_circulation_temperature_requires_thermal_variant_and_order(self):
         setting = next(
             s
-            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            for s in bx_plus.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
             if s.name == "Heizung_Wf1_Zirkulation_TEin" and s.unit == "°C"
         )
         values = {

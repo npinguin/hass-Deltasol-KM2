@@ -29,6 +29,7 @@ package.__path__ = [
     str(Path(__file__).resolve().parents[1] / "custom_components/deltasol")
 ]
 sys.modules[PACKAGE] = package
+bx_plus = importlib.import_module(f"{PACKAGE}.bx_plus")
 catalog = importlib.import_module(f"{PACKAGE}.catalog")
 discovery = importlib.import_module(f"{PACKAGE}.discovery")
 vbus = importlib.import_module(f"{PACKAGE}.vbus")
@@ -1086,6 +1087,17 @@ class DiscoveryTests(unittest.TestCase):
                     )
                 )
                 self.assertEqual(path.read_bytes(), raw)
+                # A verified local archive is sufficient while offline.
+                with patch.object(catalog, "urlopen", side_effect=OSError("offline")) as offline:
+                    self.assertEqual(catalog.load_catalog(path, source), downloaded)
+                    offline.assert_not_called()
+                    with self.assertRaises(catalog.CatalogError):
+                        catalog.download_catalog(path, source)
+                    self.assertEqual(path.read_bytes(), raw)
+                    missing = path.with_name("missing.zip")
+                    with self.assertRaises(catalog.CatalogError):
+                        catalog.download_catalog(missing, source)
+                    self.assertFalse(missing.exists())
                 response.read.return_value = b"wrong digest"
                 with self.assertRaises(catalog.CatalogError):
                     catalog.download_catalog(path, source)
@@ -1273,7 +1285,7 @@ class DiscoveryTests(unittest.TestCase):
         # contract. The independent build must agree on both the storage
         # relationship and the actual normalized evaluator instructions.
         configuration = importlib.import_module(f"{PACKAGE}.configuration")
-        activity = {setting.name for setting in configuration.BX_PLUS_ACTIVITY_SETTINGS}
+        activity = {setting.name for setting in bx_plus.BX_PLUS_ACTIVITY_SETTINGS}
         pairs = set()
         for name in activity:
             pointer, flags, first, second = descriptor(name)
@@ -2067,7 +2079,7 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertIn(compiled, bound)
                 self.assertEqual(compiled.name, setting.name)
                 self.assertEqual(compiled.expected, setting.expected)
-        options = configuration.BX_PLUS_PROGRAM_OPTIONS
+        options = bx_plus.BX_PLUS_PROGRAM_OPTIONS
         self.assertEqual(len({setting.name for setting in options}), 51)
         for setting in options:
             target = definitions[setting.name]
@@ -2095,7 +2107,7 @@ class DiscoveryTests(unittest.TestCase):
                     self.assertEqual(
                         definitions[dependency.name].index, dependency.index
                     )
-        thermal = configuration.BX_PLUS_THERMAL_OPTIONS
+        thermal = bx_plus.BX_PLUS_THERMAL_OPTIONS
         self.assertEqual(len({setting.name for setting in thermal}), 80)
         self.assertEqual(len(thermal), 160)
         for setting in thermal:
@@ -2113,7 +2125,7 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(setting.kind, "switch")
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
-        timers = configuration.BX_PLUS_WEEKLY_TIMER_OPTIONS
+        timers = bx_plus.BX_PLUS_WEEKLY_TIMER_OPTIONS
         self.assertEqual(len({setting.name for setting in timers}), 74)
         self.assertEqual(len(timers), 106)
         for setting in timers:
@@ -2140,7 +2152,7 @@ class DiscoveryTests(unittest.TestCase):
             for name in days:
                 self.assertEqual(definitions[name].metadata["size_bytes"], 12)
                 self.assertIn("Blob", definitions[name].metadata["type_chain"])
-        coordination = configuration.BX_PLUS_COORDINATION_OPTIONS
+        coordination = bx_plus.BX_PLUS_COORDINATION_OPTIONS
         self.assertEqual(len({setting.name for setting in coordination}), 170)
         for setting in coordination:
             target = definitions[setting.name]
@@ -2156,7 +2168,7 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertIn("FlowProxy", target.metadata["type_chain"])
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
-        modes = configuration.BX_PLUS_OPERATING_MODE_OPTIONS
+        modes = bx_plus.BX_PLUS_OPERATING_MODE_OPTIONS
         self.assertEqual(len({setting.name for setting in modes}), 65)
         self.assertEqual(len(modes), 91)
         for setting in modes:
@@ -2174,7 +2186,7 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertIn("Boolean", target.metadata["type_chain"])
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
-        room_controls = configuration.BX_PLUS_ROOM_THERMAL_CONTROLS
+        room_controls = bx_plus.BX_PLUS_ROOM_THERMAL_CONTROLS
         self.assertEqual(len({setting.name for setting in room_controls}), 85)
         self.assertEqual(len(room_controls), 117)
         for setting in room_controls:
@@ -2194,7 +2206,7 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertTrue(target.metadata["compound_parent_read_candidate"])
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
-        activity = configuration.BX_PLUS_ACTIVITY_SETTINGS
+        activity = bx_plus.BX_PLUS_ACTIVITY_SETTINGS
         self.assertEqual(len({setting.name for setting in activity}), 83)
         self.assertEqual(len(activity), 218)
         for setting in activity:
@@ -2292,14 +2304,14 @@ class DiscoveryTests(unittest.TestCase):
         # Every remaining preference is explicitly accounted for, including
         # open reviews. A read-only scope reason is not a native access bit.
         reasons = Counter(
-            configuration.native_menu_review_reason(name) for name in unbound
+            bx_plus.native_menu_review_reason(name) for name in unbound
         )
         self.assertEqual(sum(reasons.values()), len(unbound))
         print("Native menu review categories:", sorted(reasons.items()))
         pending = Counter(
             re.sub(r"(?<=\D)\d+", "X", name)
             for name in unbound
-            if configuration.native_menu_review_reason(name)
+            if bx_plus.native_menu_review_reason(name)
             in (
                 "program_option_review_required",
                 "native_registration_transition_unverified",
@@ -2360,7 +2372,7 @@ class DiscoveryTests(unittest.TestCase):
                 {ref.get("menu") for ref in master.metadata["menu_refs"]}
             )
         )
-        solar_optional = configuration.BX_PLUS_SOLAR_DEDICATED_SETTINGS
+        solar_optional = bx_plus.BX_PLUS_SOLAR_DEDICATED_SETTINGS
         self.assertEqual(len({s.name for s in solar_optional}), 52)
         for setting in solar_optional:
             target = definitions[setting.name]
@@ -2395,7 +2407,7 @@ class DiscoveryTests(unittest.TestCase):
             {"mask": "UserLevel_EL2", "menu": "Solar_Experte", "menu_type": None},
             definitions[pulse.name].metadata["menu_refs"],
         )
-        for setting in configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS:
+        for setting in bx_plus.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS:
             target = definitions[setting.name]
             self.assertTrue(target.metadata["menu_refs"])
             if setting.kind == "switch":
@@ -2424,7 +2436,7 @@ class DiscoveryTests(unittest.TestCase):
             else:
                 self.assertEqual(target.metadata["unit"].strip(), setting.unit)
                 self.assertEqual(target.storage, "unspecified")
-        for setting in configuration.BX_PLUS_SETTINGS:
+        for setting in bx_plus.BX_PLUS_SETTINGS:
             definition = definitions[setting.name]
             self.assertEqual(definition.index, setting.index)
             self.assertIsNone(definition.excluded)
@@ -2443,7 +2455,7 @@ class DiscoveryTests(unittest.TestCase):
                 labels = [item["label"] for item in definition.metadata["value_text"]]
                 self.assertEqual(len(labels), len(setting.options))
                 self.assertEqual([raw for _, raw in setting.options], [0, 1])
-        for setting in configuration.BX_PLUS_LOGGING_SETTINGS:
+        for setting in bx_plus.BX_PLUS_LOGGING_SETTINGS:
             target = definitions[setting.name]
             self.assertEqual(target.storage, "unspecified")
             self.assertTrue(
@@ -2465,8 +2477,8 @@ class DiscoveryTests(unittest.TestCase):
         # Every generated mixer slot must match the exact firmware layout,
         # documented setting and ordinal semantics. The live Type and
         # ActivityMode checks still gate every native action.
-        self.assertEqual(len(configuration.BX_PLUS_DIFFERENTIAL_SETTINGS), 352)
-        for setting in configuration.BX_PLUS_DIFFERENTIAL_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_DIFFERENTIAL_SETTINGS), 352)
+        for setting in bx_plus.BX_PLUS_DIFFERENTIAL_SETTINGS:
             parent = definitions[setting.name]
             self.assertEqual(parent.index, setting.index)
             self.assertEqual(parent.storage, "abstract")
@@ -2490,7 +2502,7 @@ class DiscoveryTests(unittest.TestCase):
                         catalog.numeric_encoding(child),
                         tuple(Decimal(v) for v in setting.limits),
                     )
-        comfort = configuration.BX_PLUS_HEATING_COMFORT_SETTINGS
+        comfort = bx_plus.BX_PLUS_HEATING_COMFORT_SETTINGS
         self.assertEqual(len(comfort), 288)
         self.assertEqual(len([s for s in comfort if s.kind == "select"]), 7)
         self.assertEqual(
@@ -2525,8 +2537,8 @@ class DiscoveryTests(unittest.TestCase):
                     catalog.numeric_encoding(child),
                     tuple(Decimal(v) for v in setting.limits),
                 )
-        self.assertEqual(len(configuration.BX_PLUS_LOADING_SETTINGS), 128)
-        for setting in configuration.BX_PLUS_LOADING_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_LOADING_SETTINGS), 128)
+        for setting in bx_plus.BX_PLUS_LOADING_SETTINGS:
             parent = definitions[setting.name]
             self.assertEqual(parent.index, setting.index)
             self.assertTrue(parent.metadata["compound_parent_read_candidate"])
@@ -2549,8 +2561,8 @@ class DiscoveryTests(unittest.TestCase):
                     catalog.numeric_encoding(child),
                     tuple(Decimal(v) for v in limits),
                 )
-        self.assertEqual(len(configuration.BX_PLUS_THERMOSTAT_SETTINGS), 128)
-        for setting in configuration.BX_PLUS_THERMOSTAT_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_THERMOSTAT_SETTINGS), 128)
+        for setting in bx_plus.BX_PLUS_THERMOSTAT_SETTINGS:
             parent = definitions[setting.name]
             self.assertEqual(parent.index, setting.index)
             self.assertTrue(parent.metadata["compound_parent_read_candidate"])
@@ -2563,8 +2575,8 @@ class DiscoveryTests(unittest.TestCase):
                         catalog.numeric_encoding(definitions[alias]),
                         tuple(Decimal(v) for v in setting.limits),
                     )
-        self.assertEqual(len(configuration.BX_PLUS_REFERENCE_SETTINGS), 64)
-        for setting in configuration.BX_PLUS_REFERENCE_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_REFERENCE_SETTINGS), 64)
+        for setting in bx_plus.BX_PLUS_REFERENCE_SETTINGS:
             self.assertIn(setting.name, bound_names)
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
@@ -2576,8 +2588,8 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertIn("Boolean", target.metadata["type_chain"])
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
-        self.assertEqual(len(configuration.BX_PLUS_TIMING_SETTINGS), 160)
-        for setting in configuration.BX_PLUS_TIMING_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_TIMING_SETTINGS), 160)
+        for setting in bx_plus.BX_PLUS_TIMING_SETTINGS:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
             self.assertIsNone(target.excluded)
@@ -2611,8 +2623,8 @@ class DiscoveryTests(unittest.TestCase):
                     Decimal(target.metadata["maximum"]), Decimal(setting.limits[1])
                 )
                 self.assertEqual(target.metadata["unit"].strip(), setting.unit)
-        self.assertEqual(len(configuration.BX_PLUS_MIXER_SETTINGS), 16)
-        for setting in configuration.BX_PLUS_MIXER_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_MIXER_SETTINGS), 16)
+        for setting in bx_plus.BX_PLUS_MIXER_SETTINGS:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
             self.assertIsNone(target.excluded)
@@ -2636,8 +2648,8 @@ class DiscoveryTests(unittest.TestCase):
             activity = definitions[setting.dependencies[0].name]
             self.assertEqual(activity.index, setting.dependencies[0].index)
             self.assertEqual(activity.metadata["value_text"][1]["label"], "Aktiviert")
-        self.assertEqual(len(configuration.BX_PLUS_HQM_SETTINGS), 21)
-        for setting in configuration.BX_PLUS_HQM_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_HQM_SETTINGS), 21)
+        for setting in bx_plus.BX_PLUS_HQM_SETTINGS:
             self.assertEqual(
                 setting.owner_address, 0x7130 + int(setting.name.split("_")[0][3:])
             )
@@ -2667,8 +2679,8 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(target.metadata["displayFactor"], "0.0000001")
                 self.assertEqual(target.metadata["quant"], "1")
                 self.assertEqual(setting.encode(0.5000001), 5000001)
-        self.assertEqual(len(configuration.BX_PLUS_HEATING_SETTINGS), 7)
-        for setting in configuration.BX_PLUS_HEATING_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_HEATING_SETTINGS), 7)
+        for setting in bx_plus.BX_PLUS_HEATING_SETTINGS:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
             self.assertIsNone(target.excluded)
@@ -2695,9 +2707,9 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
-        self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 435)
-        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 373)
-        for setting in configuration.BX_PLUS_HEATING_OPERATING_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 435)
+        self.assertEqual(len(bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS), 373)
+        for setting in bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS:
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
             if setting.name.endswith("TVorlaufVorgabe"):
@@ -2714,9 +2726,9 @@ class DiscoveryTests(unittest.TestCase):
                         for ref in definitions[setting.name].metadata["menu_refs"]
                     )
                 )
-        self.assertEqual(len(configuration.BX_PLUS_SOLAR_STORE_SETTINGS), 84)
-        self.assertEqual(len(configuration.BX_PLUS_SOLAR_COLLECTOR_SETTINGS), 6)
-        for setting in configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_SOLAR_STORE_SETTINGS), 84)
+        self.assertEqual(len(bx_plus.BX_PLUS_SOLAR_COLLECTOR_SETTINGS), 6)
+        for setting in bx_plus.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS:
             if setting.name.startswith("Anlage_WTUmwaelzpumpe_"):
                 self.assertEqual(
                     setting.installed_by.name, "Anlage_WTUmwaelzpumpe_Relais_Nr"
@@ -2727,7 +2739,7 @@ class DiscoveryTests(unittest.TestCase):
                 selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
                 setting.name.split("_")[2],
             )
-        for setting in configuration.BX_PLUS_SOLAR_STORE_SETTINGS:
+        for setting in bx_plus.BX_PLUS_SOLAR_STORE_SETTINGS:
             # Topology evidence must be volatile native references, not
             # persistent configuration defaults or a guessed SystemId.
             for ref in (setting.installed_by, *setting.dependencies[:2]):
@@ -2739,11 +2751,11 @@ class DiscoveryTests(unittest.TestCase):
                         definition.metadata["type_chain"]
                     )
                 )
-        self.assertEqual(len(configuration.BX_PLUS_TRANSFER_SETTINGS), 256)
-        self.assertEqual(len(configuration.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS), 80)
+        self.assertEqual(len(bx_plus.BX_PLUS_TRANSFER_SETTINGS), 256)
+        self.assertEqual(len(bx_plus.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS), 80)
         for setting in (
-            *configuration.BX_PLUS_TRANSFER_SETTINGS,
-            *configuration.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS,
+            *bx_plus.BX_PLUS_TRANSFER_SETTINGS,
+            *bx_plus.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS,
         ):
             parent = definitions[setting.name]
             self.assertEqual(parent.index, setting.index)
@@ -2773,8 +2785,8 @@ class DiscoveryTests(unittest.TestCase):
                     catalog.numeric_encoding(child),
                     tuple(Decimal(v) for v in setting.limits),
                 )
-        self.assertEqual(len(configuration.BX_PLUS_PUMP_SETTINGS), 30)
-        for setting in configuration.BX_PLUS_PUMP_SETTINGS:
+        self.assertEqual(len(bx_plus.BX_PLUS_PUMP_SETTINGS), 30)
+        for setting in bx_plus.BX_PLUS_PUMP_SETTINGS:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
             self.assertIsNone(target.excluded)
@@ -2787,7 +2799,7 @@ class DiscoveryTests(unittest.TestCase):
             self.assertFalse(target.metadata.get("selector_ref"))
             role = definitions[setting.optional_role.name]
             self.assertEqual(role.index, setting.optional_role.index)
-            for raw, semantic_id in configuration.PUMP_ROLES:
+            for raw, semantic_id in bx_plus.PUMP_ROLES:
                 self.assertEqual(role.metadata["value_text"][raw]["id"], semantic_id)
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
