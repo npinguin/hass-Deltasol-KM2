@@ -1366,8 +1366,7 @@ class DiscoveryTests(unittest.TestCase):
                 and row.metadata.get("menu_refs")
                 and not row.excluded
                 and not row.metadata.get("compound_ref")
-                and row.metadata.get("rpt_storage")
-                in ("preferences", "persistent")
+                and row.metadata.get("rpt_storage") in ("preferences", "persistent")
             ):
                 review[family].append(row.name)
         for family, names in review.items():
