@@ -1617,9 +1617,12 @@ async def qualify(directory, phase):
         ]
         assert inactive["reference_contract"]["catalogue_binding"] == "verified"
         assert inactive["write_access_reason"] == "live_capability_not_confirmed"
-        assert diagnostic["configuration_discovery"]["parameters"][
-            "Wsu0_Schaltuhr_Woche_TagMo_Daten"
-        ]["write_access_reason"] == "reserved_native_weekly_slot"
+        assert (
+            diagnostic["configuration_discovery"]["parameters"][
+                "Wsu0_Schaltuhr_Woche_TagMo_Daten"
+            ]["write_access_reason"]
+            == "reserved_native_weekly_slot"
+        )
 
         def entity(name, kind):
             return registry.async_get_entity_id(
