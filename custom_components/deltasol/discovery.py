@@ -632,7 +632,9 @@ class ConfigurationCapture:
                     if not all(-(2**31) <= word < 2**31 for word in words):
                         continue
                     candidate = decode_native_day(struct.pack("<iii", *words))
-                    if candidate is not None and encode_native_day(candidate) == struct.pack("<iii", *words):
+                    if candidate is not None and encode_native_day(
+                        candidate
+                    ) == struct.pack("<iii", *words):
                         day["candidate_windows"] = candidate
                         day["candidate_encoding"] = "native_set_quarter_hour_pairs"
                         day["candidate_status"] = "wire_word_mapping_verified"
