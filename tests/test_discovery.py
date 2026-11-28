@@ -6,7 +6,9 @@ import importlib
 import io
 import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
 import types
 import unittest
@@ -1552,38 +1554,103 @@ class DiscoveryTests(unittest.TestCase):
                     "Native change callback RVA:", representative, hex(callback - base)
                 )
 
-        # Narrow menu metadata review for the three non-Boolean families.
-        # Keep the source of truth in the exact catalogue, not guessed values.
-        for name, row in parsed.items():
-            if (
-                name.startswith(
-                    (
-                        "Heizung_Heizkreis1_Fernzugriff",
-                        "Anlage_WTUmwaelzpumpe_Aktiviert",
-                    )
-                )
-                or name == "Heizung_Heizkreis1_OFernzugriff"
-                or name == "Solar_Losreissimpuls"
-            ):
-                print(
-                    "Native selected metadata:",
-                    name,
-                    row.index,
-                    {
-                        key: row.metadata.get(key)
-                        for key in (
-                            "type_chain",
-                            "value_text",
-                            "unit",
-                            "minimum",
-                            "maximum",
-                            "quant",
-                            "storeFactor",
-                            "rpt_storage",
-                            "menu_refs",
+        # Static disassembly of the exact registered archive is an optional
+        # developer evidence probe, not a runtime dependency or write gate.
+        # Log only semantic operands/call edges, never vendor bytes.
+        if shutil.which("objdump"):
+            with TemporaryDirectory() as directory:
+                library = Path(directory) / "reference.dll"
+                library.write_bytes(binary)
+
+                def inspect_region(label, start, end):
+                    output = subprocess.run(
+                        [
+                            "objdump",
+                            "-d",
+                            "-Mintel",
+                            "--no-show-raw-insn",
+                            f"--start-address={base + start}",
+                            f"--stop-address={base + end}",
+                            str(library),
+                        ],
+                        check=True,
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    ).stdout
+                    edges = []
+                    memory = []
+                    immediates = []
+                    for line in output.splitlines():
+                        match = re.match(
+                            r"\\s*([0-9a-f]+):\\s+(\\w+)\\s*(.*)", line
                         )
-                    },
-                )
+                        if not match:
+                            continue
+                        address, mnemonic, operands = match.groups()
+                        rva = int(address, 16) - base
+                        if mnemonic in ("call", "jmp") or mnemonic.startswith("j"):
+                            target = re.match(r"([0-9a-f]+)(?:\\s|$)", operands)
+                            edges.append(
+                                (
+                                    hex(rva),
+                                    mnemonic,
+                                    hex(int(target[1], 16) - base)
+                                    if target
+                                    else "indirect",
+                                )
+                            )
+                        if mnemonic in ("mov", "movzx", "movsx", "and", "or", "test", "cmp"):
+                            if "PTR [" in operands:
+                                memory.append((hex(rva), mnemonic, operands))
+                        if mnemonic in ("mov", "push", "cmp", "test", "and", "or"):
+                            if re.search(r"(?:^|,)0x[0-9a-f]+$", operands):
+                                immediates.append((hex(rva), mnemonic, operands))
+                    print("Native region edges:", label, edges)
+                    print("Native region memory:", label, memory)
+                    print("Native region constants:", label, immediates)
+
+                pulse = descriptor("Solar_Losreissimpuls")[2] - base
+                remote = descriptor("Heizung_Heizkreis1_Fernzugriff_Modus")[2] - base
+                inspect_region("solar startup editor", pulse, pulse + 80)
+                inspect_region("remote mode editor", remote, remote + 100)
+                # Reference addresses point into the periodic translation.
+                inspect_region("remote storage translation", 0x34905, 0x34985)
+                for family in ("Anforderung", "Pumpe", "Ventil"):
+                    name = f"Heizung_Relais{family}1_Aktiviert_Modus"
+                    editor = descriptor(name)[2]
+                    offset = locate(editor, 52, ".text")
+                    callback = struct.unpack_from("<I", binary, offset + 45)[0] - base
+                    inspect_region(name, callback, callback + 120)
+
+        # Only compact exact metadata; large inherited role tables add no
+        # transition evidence.
+        for name in (
+            "Solar_Losreissimpuls",
+            "Heizung_Heizkreis1_Fernzugriff_Modus",
+            "Heizung_Heizkreis1_Fernzugriff_SensorBAS_Nr",
+            "Heizung_Heizkreis1_Fernzugriff_SensorFV_Nr",
+        ):
+            row = parsed[name]
+            print(
+                "Native selected metadata:",
+                name,
+                row.index,
+                {
+                    key: row.metadata.get(key)
+                    for key in (
+                        "type_chain",
+                        "value_text",
+                        "unit",
+                        "minimum",
+                        "maximum",
+                        "quant",
+                        "storeFactor",
+                        "rpt_storage",
+                        "menu_refs",
+                    )
+                },
+            )
 
         def fingerprint(start, length, calls, relocation_count, expected):
             offset = locate(base + start, length, ".text")
