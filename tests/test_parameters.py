@@ -1480,7 +1480,8 @@ class ParameterTests(unittest.TestCase):
         setting = next(
             setting
             for setting in parameters_configuration.BX_PLUS_TRANSFER_SETTINGS
-            if setting.name == "Anlage_Wf1_Waermeaustausch_HMinMax" and setting.unit == "K"
+            if setting.name == "Anlage_Wf1_Waermeaustausch_HMinMax"
+            and setting.unit == "K"
         )
         values = {
             setting.name: 20,

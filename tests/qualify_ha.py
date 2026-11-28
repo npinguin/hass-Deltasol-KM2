@@ -2404,10 +2404,22 @@ async def qualify(directory, phase):
         assert Peer.saves == before_priority + 2
         Peer.extra_values[7835] = 0
         await entry.runtime_data.relay_coordinator.async_refresh()
-        assert hass.states.get(entity("Anlage_Wf6_Waermeaustausch_HMinMax", "number")).state == "unavailable"
+        assert (
+            hass.states.get(
+                entity("Anlage_Wf6_Waermeaustausch_HMinMax", "number")
+            ).state
+            == "unavailable"
+        )
         Peer.extra_values[7835] = 2
         await entry.runtime_data.relay_coordinator.async_refresh()
-        assert float(hass.states.get(entity("Anlage_Wf6_Waermeaustausch_HMinMax", "number")).state) == 5
+        assert (
+            float(
+                hass.states.get(
+                    entity("Anlage_Wf6_Waermeaustausch_HMinMax", "number")
+                ).state
+            )
+            == 5
+        )
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"

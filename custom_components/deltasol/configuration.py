@@ -1217,13 +1217,19 @@ def _transfer_temperature_settings():
                         unit=unit,
                         dependencies=(
                             activity,
-                            Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                            Dependency(
+                                "TemperatureHysteresisSelector", 60, (selector,)
+                            ),
                             RangeDependency(f"{root}_Sensor1_Nr", 6576 + offset, 1, 65),
                             RangeDependency(f"{root}_Sensor2_Nr", 6580 + offset, 1, 65),
-                            RangeDependency(f"{root}_Relais1_Nr", 6592 + offset, 1, 100),
+                            RangeDependency(
+                                f"{root}_Relais1_Nr", 6592 + offset, 1, 100
+                            ),
                         ),
                         installed_by=installed,
-                        compound_mirrors=((name, index, name + suffix, index + selector + 1),),
+                        compound_mirrors=(
+                            (name, index, name + suffix, index + selector + 1),
+                        ),
                     )
             for selector, suffix, unit, low, step in (
                 (0, "_C", "°C", 0, "1"),
@@ -2475,7 +2481,9 @@ def _solar_store_settings():
         # static five-slot catalogue limit. BX Plus has no five-store system.
         if slot <= 4:
             systems = tuple(
-                sorted(s for s in BX_PLUS_SOLAR_SYSTEMS if (s // 100) % 100 >= max(2, slot))
+                sorted(
+                    s for s in BX_PLUS_SOLAR_SYSTEMS if (s // 100) % 100 >= max(2, slot)
+                )
             )
             yield Setting(
                 f"{root}_Vorrang",
@@ -2486,7 +2494,9 @@ def _solar_store_settings():
                 limits=("1", "5", "1", "1"),
                 dependencies=(*deps, Dependency("Solar_SystemId", 3416, systems)),
                 installed_by=installed,
-                relative_constraints=(RelativeConstraint("Solar_SystemId", 3416, "solar_store_priority"),),
+                relative_constraints=(
+                    RelativeConstraint("Solar_SystemId", 3416, "solar_store_priority"),
+                ),
             )
         for selector, alias, unit, multiplier in (
             (0, "_K", "K", 1),
