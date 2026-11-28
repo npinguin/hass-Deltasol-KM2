@@ -106,6 +106,8 @@ class VBusTests(unittest.TestCase):
             (
                 response(0x0100, 0, changeset),
                 *(response(0x0100 | n, index, word) for n, word in enumerate(before)),
+                response(0x1301, value=8, source=0x7111),
+                response(0x1301, index=7, value=0x18),
                 response(0x1401),
                 response(0x1601, index),  # unrelated staged reply
                 response(0x1600, index + 1),
@@ -131,6 +133,7 @@ class VBusTests(unittest.TestCase):
                 0x0300,
                 0x0301,
                 0x0302,
+                0x1300,
                 0x1400,
                 0x1500,
                 0x1501,
@@ -143,8 +146,9 @@ class VBusTests(unittest.TestCase):
                 0x0302,
             ],
         )
-        self.assertEqual([p.value for p in sent[5:8]], list(wanted))
-        self.assertEqual(sent[4].value, 10)
+        self.assertEqual([p.value for p in sent[6:9]], list(wanted))
+        self.assertEqual(sent[5].value, 10)
+        self.assertEqual(sent[10].value, 10)
 
     def test_bulk_packed_rejection_rolls_back_without_commit(self):
         index, changeset = 18419, 123
@@ -155,6 +159,7 @@ class VBusTests(unittest.TestCase):
                 (
                     response(0x0100, 0, changeset),
                     *(response(0x0100 | n, index, -1) for n in range(3)),
+                    response(0x1301, value=8),
                     response(0x1401),
                     response(0x1600, index),
                     response(0x1601, index, 1),
@@ -185,6 +190,7 @@ class VBusTests(unittest.TestCase):
                 (
                     response(0x0100, 0, changeset),
                     *(response(0x0100 | n, index, -1) for n in range(3)),
+                    response(0x1301, value=8),
                     response(0x1401),
                     *(response(0x1600 | n, index) for n in range(3)),
                     response(0x0100, 0, changeset),
@@ -199,6 +205,37 @@ class VBusTests(unittest.TestCase):
         sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
         self.assertEqual([p.command for p in sent[-2:]], [0x0300, 0x1402])
         self.assertNotIn(0x1404, [p.command for p in sent])
+
+    def test_bulk_packed_requires_advertised_capability(self):
+        index, changeset = 18419, 123
+        before, wanted = (-1, -1, -1), (0x50482820, -1, -1)
+        for flags in (0, 4, None):
+            with self.subTest(flags=flags):
+                conn = Mock()
+                conn.recv.side_effect = [
+                    response(0x0100, 0, changeset)
+                    + b"".join(response(0x0100 | n, index, -1) for n in range(3)),
+                    response(0x1301, value=flags)
+                    if flags is not None
+                    else TimeoutError(),
+                ]
+                with self.assertRaises(vbus.VBusError) as raised:
+                    vbus.VBusSession(conn).write_packed_verified(
+                        ADDRESS, index, before, wanted, changeset
+                    )
+                if flags is None:
+                    self.assertIsInstance(raised.exception, vbus.VBusTransientError)
+                else:
+                    self.assertEqual(
+                        vbus.ERROR_CODES[str(raised.exception)], "bulk_unsupported"
+                    )
+                sent = [
+                    vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list
+                ]
+                self.assertEqual(
+                    [p.command for p in sent],
+                    [0x0300, 0x0300, 0x0301, 0x0302, 0x1300],
+                )
 
     def test_bulk_packed_stale_or_noop_never_begins_transaction(self):
         index, changeset = 18419, 123

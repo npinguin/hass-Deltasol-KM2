@@ -47,6 +47,7 @@ ERROR_CODES = {
     "VBus write acknowledgement differs": "acknowledgement_mismatch",
     "VBus write readback differs": "readback_mismatch",
     "VBus bulk transaction rejected": "bulk_transaction_rejected",
+    "Controller does not advertise VBus bulk transactions": "bulk_unsupported",
     "VBus bulk transaction rollback unconfirmed": "bulk_rollback_unconfirmed",
     "Relay capability or controller identity changed": "identity_changed",
     "Configuration capability or controller identity changed": "identity_changed",
@@ -245,7 +246,7 @@ class VBusSession:
                 and (
                     packet.value == value
                     if command == 0x1100
-                    else packet.index == index
+                    else command == 0x1300 or packet.index == index
                 )
             )
 
@@ -267,6 +268,10 @@ class VBusSession:
             address, 0x1100, value=parameter_hash(name), replies=(0x0100, 0x1101)
         )
         return result.index or None
+
+    def read_capabilities(self, address):
+        """Read controller capability flags (MIT getCaps1, RESOL RPT 2.02)."""
+        return self.request(address, 0x1300, replies=(0x1301,)).value
 
     def read(self, address, index, *, subindex=0):
         """Read one correlated 32-bit parameter word.
@@ -525,8 +530,10 @@ class VBusSession:
         connection.spec.js zero-status acknowledgements, including subindex
         correlation. The caller must establish controller support, semantic
         authorization, layout, packing and storage semantics before calling.
-        A transport implementation is not evidence of firmware support.
-        Never fall back to individual writes or retry an uncertain commit.
+        A fresh capability response must advertise bulk transactions (bit
+        0x08, observed in RESOL RPT 2.02). This is transport evidence only,
+        not authorization to write any particular Blob. Never fall back to
+        individual writes or retry an uncertain commit.
         """
         if (
             type(index) is not int
@@ -552,6 +559,8 @@ class VBusSession:
             raise VBusError("VBus write readback differs")
         if before == wanted:
             return before
+        if not self.read_capabilities(address) & 0x08:
+            raise VBusError("Controller does not advertise VBus bulk transactions")
 
         def acknowledged(command, reply, index=0, value=0):
             response = self.request(address, command, index, value, replies=(reply,))
@@ -577,7 +586,7 @@ class VBusSession:
             raise
         # A missing commit reply may mean it committed. Never send commit
         # twice or attempt rollback after commit has been attempted.
-        acknowledged(0x1402, 0x1403)
+        acknowledged(0x1402, 0x1403, value=10)
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during write")
         if read_words() != wanted:
