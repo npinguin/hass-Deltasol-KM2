@@ -720,10 +720,12 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 if changed and self.data.profile
                 else set()
             )
+            timer = verified.setting.timer_reference if changed else None
             remaining = {
                 uid: cap
                 for uid, cap in self.data.configuration.items()
                 if cap.setting.name not in dependents
+                and not (timer and timer.name in cap.owners)
             }
             self.async_set_updated_data(
                 replace(
@@ -731,7 +733,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                     configuration={**remaining, unique_id: verified},
                 )
             )
-            return bool(dependents)
+            return bool(dependents or timer)
 
     async def async_set_mode(self, unique_id, option):
         """Do not accept calls that bypass entity availability."""
