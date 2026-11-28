@@ -71,6 +71,11 @@ CONFIG_SELECTORS = {
     "Heizung_RelaisAnforderung1_OMindestlaufzeit": (10798, 1),
     "Heizung_RelaisAnforderung1_ORelais1": (10734, 1),
     "Heizung_RelaisAnforderung1_Relais1_Nr": (10735, 2),
+    "Anlage_Wf6_Type": (7814, 5),
+    "Anlage_Wf6_Aktiviert_Modus": (7821, 1),
+    "Anlage_Wf6_Sensor1_Nr": (7831, 1),
+    "Anlage_Wf6_Sensor2_Nr": (7835, 2),
+    "Anlage_Wf6_Relais1_Nr": (7847, 4),
     "Anlage_Wf5_Type": (7563, 9),
     "Anlage_Wf5_Aktiviert_Modus": (7570, 1),
     "Anlage_Wf5_Funktionsblock_OMindestausschaltzeit": (7747, 1),
@@ -152,7 +157,7 @@ CONFIG_SETTINGS = {
     "Anlage_Wf1_Mischer_TZiel": (6629, 600, 0, 1300),
     "Heizung_Heizkreis1_Kuehlung_Aussen_TAussen": (14072, 240, 200, 400),
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf": (14076, 200, 50, 250),
-    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TAussen1": (14080, 200, 150, 450),
+    "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TAussen1": (14080, 300, 150, 450),
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf1": (14083, 200, 50, 250),
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TAussen2": (14086, 400, 150, 450),
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf2": (14089, 100, 50, 250),
@@ -216,6 +221,8 @@ CONFIG_SETTINGS = {
     "Solar_Wf1_ExtWT_dTein": (4112, 60, 10, 200),
     "Solar_Wf1_ExtWT_dTaus": (4115, 40, 5, 195),
     "Solar_Wf1_ExtWT_dTAnstieg": (4121, 20, 10, 300),
+    "Solar_Sp1_Vorrang": (3600, 1, 1, 5),
+    "Anlage_Wf6_Waermeaustausch_HMinMax": (7912, 20, 5, 100),
     "Solar_Sp1_dTein": (3579, 60, 10, 200),
     "Solar_Sp1_dTaus": (3582, 40, 5, 195),
     "Solar_Sp1_dTsoll": (3585, 100, 15, 300),
@@ -235,6 +242,7 @@ CONFIG_SETTINGS = {
 # This peer deliberately models the selected-unit parent contract. It is
 # independent software evidence, not a physical observation of this encoding.
 COMPOUND_NAMES = (
+    "Anlage_Wf6_Waermeaustausch_HMinMax",
     "Heizung_Heizkreis1_Mischer_dTEin",
     "Heizung_Heizkreis1_Mischer_dTAus",
     "Anlage_Wf2_Feststoffkessel_dTEin",
@@ -616,6 +624,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                             3579,
                             3582,
                             3585,
+                            7912,
                             7261,
                             7264,
                             3908,
@@ -639,6 +648,10 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     }
                     if index in (14168, 14171):
                         assert proposed[14168] >= proposed[14171] + 5
+                    elif index == 7912:
+                        assert Peer.extra_values[7814] == 5
+                        assert Peer.extra_values[7821] == 1
+                        assert all(Peer.extra_values[i] > 0 for i in (7831, 7835, 7847))
                     elif index in (3579, 3582, 3585):
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
@@ -752,6 +765,11 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index == 3600:
+                    assert Peer.extra_values[3416] == 20201
+                    assert Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
+                    assert Peer.extra_values[3536] > 0 and Peer.extra_values[3452] > 0
+                    assert 1 <= value <= 2
                 if index in (18234, 18235):
                     assert Peer.extra_values[18227] == 1
                     assert all(Peer.extra_values[i] == 0 for i in range(18228, 18233))
@@ -1427,6 +1445,8 @@ async def qualify(directory, phase):
                     ("Anlage_Wf2_Feststoffkessel_TMin", "number", 158),
                     ("Anlage_Wf2_Feststoffkessel_TMax", "number", 194),
                     ("Solar_Sp1_dTein", "number", 14),
+                    ("Solar_Sp1_Vorrang", "number", 2),
+                    ("Anlage_Wf6_Waermeaustausch_HMinMax", "number", 5),
                     ("Heizung_Wf1_Zirkulation_TEin", "number", 122),
                     ("Solar_Pendelpause", "number", 3),
                     ("Solar_Umwaelzzeit", "number", 20),
@@ -1467,7 +1487,7 @@ async def qualify(directory, phase):
                 await entry.runtime_data.relay_coordinator.async_refresh()
                 await hass.async_block_till_done()
                 for suffix, value in (
-                    ("TAussen1", 86),
+                    ("TAussen1", 68),
                     ("TVorlauf1", 50),
                     ("TAussen2", 86),
                     ("TVorlauf2", 68),
@@ -2353,7 +2373,7 @@ async def qualify(directory, phase):
         await entry.runtime_data.relay_coordinator.async_refresh()
         await hass.async_block_till_done()
         for suffix, value in (
-            ("TAussen1", 86),
+            ("TAussen1", 68),
             ("TVorlauf1", 50),
             ("TAussen2", 86),
             ("TVorlauf2", 68),
@@ -2370,6 +2390,24 @@ async def qualify(directory, phase):
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert hass.states.get(logging_method).state == "Cyclic (overwrite oldest)"
         assert float(hass.states.get(constant).state) == 50
+
+        before_priority = Peer.saves
+        await number("Solar_Sp1_Vorrang", 2)
+        await number("Anlage_Wf6_Waermeaustausch_HMinMax", 5)
+        assert Peer.saves == before_priority + 2
+        try:
+            await number("Solar_Sp1_Vorrang", 3)
+        except HomeAssistantError:
+            pass
+        else:
+            raise AssertionError("Priority exceeds actual native store count")
+        assert Peer.saves == before_priority + 2
+        Peer.extra_values[7835] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(entity("Anlage_Wf6_Waermeaustausch_HMinMax", "number")).state == "unavailable"
+        Peer.extra_values[7835] = 2
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert float(hass.states.get(entity("Anlage_Wf6_Waermeaustausch_HMinMax", "number")).state) == 5
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"

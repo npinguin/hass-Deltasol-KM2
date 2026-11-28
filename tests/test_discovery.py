@@ -1929,7 +1929,7 @@ class DiscoveryTests(unittest.TestCase):
                         for ref in definitions[setting.name].metadata["menu_refs"]
                     )
                 )
-        self.assertEqual(len(configuration.BX_PLUS_SOLAR_STORE_SETTINGS), 80)
+        self.assertEqual(len(configuration.BX_PLUS_SOLAR_STORE_SETTINGS), 84)
         self.assertEqual(len(configuration.BX_PLUS_SOLAR_COLLECTOR_SETTINGS), 6)
         for setting in configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS:
             if setting.name.startswith("Anlage_WTUmwaelzpumpe_"):
@@ -1954,7 +1954,7 @@ class DiscoveryTests(unittest.TestCase):
                         definition.metadata["type_chain"]
                     )
                 )
-        self.assertEqual(len(configuration.BX_PLUS_TRANSFER_SETTINGS), 224)
+        self.assertEqual(len(configuration.BX_PLUS_TRANSFER_SETTINGS), 256)
         self.assertEqual(len(configuration.BX_PLUS_SOLID_FUEL_MIXER_SETTINGS), 80)
         for setting in (
             *configuration.BX_PLUS_TRANSFER_SETTINGS,

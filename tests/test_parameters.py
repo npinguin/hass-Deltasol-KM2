@@ -1448,6 +1448,58 @@ class ParameterTests(unittest.TestCase):
             self.api.set_configuration(telemetry(), cap, 8)
         self.session.write_verified.assert_called_once()
 
+    def test_solar_priority_uses_native_store_count(self):
+        settings = {
+            setting.name: setting
+            for setting in parameters_configuration.BX_PLUS_SOLAR_STORE_SETTINGS
+            if setting.name.endswith("_Vorrang")
+        }
+        self.assertEqual(len(settings), 4)
+        setting = settings["Solar_Sp1_Vorrang"]
+        values = {
+            "Solar_SystemId": 20201,
+            "Solar_Sp1_Sensor1_Nr": 2,
+            "Solar_Sp1_Aktiviert_Modus": 1,
+            "Solar_Kol1_Sensor1_Nr": 1,
+            "Solar_Relais1_Nr": 1,
+            setting.name: 1,
+        }
+        self.assertTrue(setting.accepts(values, 2))
+        self.assertFalse(setting.accepts(values, 3))
+        values["Solar_SystemId"] = 10401
+        self.assertTrue(setting.accepts(values, 4))
+        self.assertFalse(setting.accepts(values, 5))
+        for system in (10101, 10501, 0):
+            values["Solar_SystemId"] = system
+            self.assertFalse(setting.accepts(values, 1))
+        values["Solar_SystemId"] = 20201
+        values["Solar_Sp1_Sensor1_Nr"] = 0
+        self.assertFalse(setting.accepts(values, 1))
+
+    def test_heat_exchange_hysteresis_requires_selected_unit_and_assignments(self):
+        setting = next(
+            setting
+            for setting in parameters_configuration.BX_PLUS_TRANSFER_SETTINGS
+            if setting.name == "Anlage_Wf1_Waermeaustausch_HMinMax" and setting.unit == "K"
+        )
+        values = {
+            setting.name: 20,
+            setting.name + "_K": 20,
+            "Anlage_Wf1_Type": 5,
+            "Anlage_Wf1_Aktiviert_Modus": 1,
+            "Anlage_Wf1_Sensor1_Nr": 1,
+            "Anlage_Wf1_Sensor2_Nr": 2,
+            "Anlage_Wf1_Relais1_Nr": 1,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(setting.accepts(values, 25))
+        self.assertFalse(setting.accepts(values, 26))
+        values["Anlage_Wf1_Sensor2_Nr"] = 0
+        self.assertFalse(setting.accepts(values, 25))
+        values["Anlage_Wf1_Sensor2_Nr"] = 2
+        values["TemperatureHysteresisSelector"] = 1
+        self.assertFalse(setting.accepts(values, 25))
+
     def test_solar_loading_logic_requires_live_sequence_and_enabled_options(self):
         self.session.read.return_value = 0x2734DABC
         self.values.update(
