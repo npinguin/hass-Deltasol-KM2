@@ -1556,10 +1556,14 @@ class DiscoveryTests(unittest.TestCase):
         # Keep the source of truth in the exact catalogue, not guessed values.
         for name, row in parsed.items():
             if (
-                name.startswith("Heizung_Heizkreis1_Fernzugriff")
+                name.startswith(
+                    (
+                        "Heizung_Heizkreis1_Fernzugriff",
+                        "Anlage_WTUmwaelzpumpe_Aktiviert",
+                    )
+                )
                 or name == "Heizung_Heizkreis1_OFernzugriff"
                 or name == "Solar_Losreissimpuls"
-                or name.startswith("Anlage_WTUmwaelzpumpe_Aktiviert")
             ):
                 print(
                     "Native selected metadata:",
