@@ -91,6 +91,174 @@ class ParameterTests(unittest.TestCase):
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
 
+    def test_room_activation_preserves_required_sensor_and_timer(self):
+        config = parameters_configuration
+        root = "Heizung_Heizkreis1"
+        room = root + "_Raumthermostat1"
+        controls = config.BX_PLUS_ROOM_THERMAL_CONTROLS
+        setting = next(s for s in controls if s.name == room + "_Aktiviert")
+        hc_off = next(s for s in controls if s.name == root + "_RTH_HKaus")
+        values = {
+            root + "_Type": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_System": 0,
+            root + "_Relais1_Nr": 1,
+            root + "_Heizsystem": 1,
+            root + "_RTH_HKaus": 0,
+            room + "_Option": 1,
+            room + "_Aktiviert": 1,
+            room + "_Typ": 0,
+            room + "_Sensor1_Nr": 3,
+            room + "_OSchaltuhr": 0,
+            room + "_TRaum": 200,
+            room + "_TRaum_C": 200,
+            room + "_dTRaum": 5,
+            room + "_dTRaum_K": 5,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertTrue(setting.accepts(values, 0))
+        self.assertTrue(hc_off.accepts(values, 1))
+        self.assertFalse(setting.accepts(values, 2))
+        self.assertFalse(setting.accepts({**values, room + "_Aktiviert": 2}))
+        values[root + "_Heizsystem"] = 4
+        self.assertFalse(setting.accepts(values, 0))
+        other = root + "_Raumthermostat2"
+        values.update(
+            {
+                other + suffix: values[room + suffix]
+                for suffix in (
+                    "_Option",
+                    "_Aktiviert",
+                    "_Typ",
+                    "_Sensor1_Nr",
+                    "_OSchaltuhr",
+                    "_TRaum",
+                    "_TRaum_C",
+                    "_dTRaum",
+                    "_dTRaum_K",
+                )
+            }
+        )
+        self.assertTrue(setting.accepts(values, 0))
+        values[other + "_Aktiviert"] = 0
+        self.assertFalse(setting.accepts(values, 0))
+        values[room + "_OSchaltuhr"] = 1
+        self.assertFalse(setting.accepts(values, 1))
+        values.update(
+            {
+                room + "_SchaltuhrNr": 1,
+                room + "_dTAbsenkung": 50,
+                room + "_dTAbsenkung_K": 50,
+            }
+        )
+        allocation, days = config.WeeklyProgram.layout(1)
+        values.update(dict.fromkeys(allocation, 1))
+        values.update(dict.fromkeys(days, bytes([255]) * 12))
+        self.assertTrue(setting.accepts(values, 1))
+        values[next(iter(days))] = b"bad"
+        self.assertFalse(setting.accepts(values, 1))
+        self.assertFalse(hc_off.accepts(values, 1))
+        values[room + "_Typ"] = 1
+        values[room + "_SensorSchalter1_Nr"] = 4
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertTrue(setting.accepts(values, 0))
+        self.assertTrue(hc_off.accepts(values, 1))
+        values[room + "_SensorSchalter1_Nr"] = 0
+        self.assertFalse(setting.accepts(values, 1))
+
+    def test_room_thermal_regulation_uses_only_requested_mode_inputs(self):
+        controls = parameters_configuration.BX_PLUS_ROOM_THERMAL_CONTROLS
+        root = "Heizung_RelaisPumpe1"
+        mode = root + "_Anlauf_Modus"
+        setting = next(s for s in controls if s.name == mode)
+        values = {
+            root + "_Type": 2,
+            root + "_Aktiviert_Modus": 1,
+            root + "_Relais1_Nr": 1,
+            mode: 0,
+        }
+        self.assertTrue(setting.accepts(values, 0))
+        self.assertFalse(setting.accepts(values, 1))
+        self.assertFalse(setting.accepts(values, 2))
+        values[root + "_Anlauf_dtAnlauf"] = 30
+        self.assertTrue(setting.accepts(values, 2))
+        values.update(
+            {
+                root + "_AnlaufNachlauf_Sensor1_Nr": 1,
+                root + "_Anlauf_TAnlauf": 450,
+                root + "_Anlauf_TAnlauf_C": 450,
+                "TemperatureHysteresisSelector": 0,
+            }
+        )
+        self.assertTrue(setting.accepts(values, 1))
+        values[root + "_Anlauf_TAnlauf_C"] = 460
+        self.assertFalse(setting.accepts(values, 1))
+        self.assertTrue(setting.accepts(values, 2))
+
+        root = "Heizung_Heizkreis1"
+        prefix = root + "_Nachheizung"
+        mode = prefix + "_Modus"
+        setting = next(s for s in controls if s.name == mode)
+        values = {
+            root + "_Type": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_System": 0,
+            root + "_Relais1_Nr": 1,
+            root + "_ONachheizung": 1,
+            root + "_Relais6_Nr": 2,
+            prefix + "_Aktiviert_Modus": 1,
+            mode: 2,
+        }
+        self.assertTrue(setting.accepts(values, 2))
+        self.assertFalse(setting.accepts(values, 0))
+        values.update(
+            {
+                root + "_Sensor4_Nr": 1,
+                prefix + "_dTEin": -50,
+                prefix + "_dTEin_K": -50,
+                prefix + "_dTAus": 50,
+                prefix + "_dTAus_K": 50,
+                "TemperatureHysteresisSelector": 0,
+            }
+        )
+        self.assertTrue(setting.accepts(values, 0))
+        self.assertFalse(setting.accepts(values, 1))
+        values[root + "_Sensor5_Nr"] = 2
+        self.assertTrue(setting.accepts(values, 1))
+        values[prefix + "_dTAus"] = values[prefix + "_dTAus_K"] = -50
+        self.assertFalse(setting.accepts(values, 1))
+        self.assertTrue(setting.accepts(values, 2))
+
+        root = "Heizung_Wf1"
+        prefix = root + "_BwVorerwaermung"
+        values = {
+            root + "_Type": 3,
+            root + "_Aktiviert_Modus": 1,
+            root + "_Relais1_Nr": 1,
+            root + "_Sensor1_Nr": 2,
+            root + "_SensorDurchfluss1_Nr": 3,
+            prefix + "_OVentil": 0,
+            prefix + "_ODifferenz": 0,
+            prefix + "_TMax": 600,
+            prefix + "_TMax_C": 600,
+            prefix + "_dTMax": 50,
+            prefix + "_dTMax_K": 50,
+            "TemperatureHysteresisSelector": 0,
+        }
+        for suffix, raw in (("TMax", 650), ("dTMax", 55)):
+            (setting,) = [
+                s
+                for s in controls
+                if s.name == prefix + "_" + suffix and s.accepts(values)
+            ]
+            self.assertTrue(setting.accepts(values, raw))
+            self.assertFalse(setting.accepts(values, raw + 1))
+            self.assertFalse(
+                setting.accepts({**values, root + "_SensorDurchfluss1_Nr": 0}, raw)
+            )
+            self.assertFalse(setting.accepts({**values, prefix + "_OVentil": 1}, raw))
+
     def test_operating_mode_options_use_requested_native_input_and_companions(self):
         settings = parameters_configuration.BX_PLUS_OPERATING_MODE_OPTIONS
         root = "Heizung_Wf1"
