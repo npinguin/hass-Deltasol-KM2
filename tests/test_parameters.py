@@ -2470,7 +2470,28 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(
             rejected, {another.name: ("Catalogue contract layout differs",)}
         )
-        self.assertEqual(profile.settings_for(source.changeset, vendor), bound)
+        with patch.object(
+            parameters, "bind_setting", wraps=parameters.bind_setting
+        ) as bind:
+            self.assertIs(profile.settings_for(source.changeset, vendor), bound)
+            self.assertEqual(
+                profile.binding_review(source.changeset, vendor)[1], rejected
+            )
+            bind.assert_not_called()
+            # A different catalogue with the same advertised digest cannot
+            # inherit a previously approved binding.
+            replacement = catalogue.Catalog(source.digest, (), source)
+            self.assertEqual(profile.settings_for(source.changeset, replacement), ())
+            self.assertEqual(bind.call_count, 2)
+            # A changed profile must likewise compile its own contracts.
+            alternate = replace(profile, settings=(another,))
+            self.assertEqual(alternate.settings_for(source.changeset, vendor), ())
+            self.assertEqual(bind.call_count, 3)
+        rejected.clear()
+        self.assertEqual(
+            profile.binding_review(source.changeset, vendor)[1],
+            {another.name: ("Catalogue contract layout differs",)},
+        )
         self.assertEqual(profile.binding_review(source.changeset + 1, vendor), ((), {}))
         self.assertFalse(profile.weekly_owners)
         self.assertIsNone(profile.menu_review)

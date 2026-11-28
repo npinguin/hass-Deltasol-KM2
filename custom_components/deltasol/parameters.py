@@ -119,6 +119,10 @@ class ControllerProfile:
             return self.settings, {}
         if not catalog.matches(self.address, changeset):
             return (), {}
+        return catalog.profile_binding(self, self._bind_catalog)
+
+    def _bind_catalog(self, catalog):
+        """Compile only the static, already provenance-checked metadata."""
         try:
             definitions = catalog.by_name
         except CatalogError:

@@ -17,6 +17,7 @@ from collections import Counter
 from decimal import Decimal
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from time import perf_counter
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -2025,7 +2026,26 @@ class DiscoveryTests(unittest.TestCase):
         configuration = importlib.import_module(f"{PACKAGE}.configuration")
         parameters = importlib.import_module(f"{PACKAGE}.parameters")
         profile = parameters.PROFILES[0]
+        # Measure the actual pinned firmware contract set, not a synthetic
+        # subset. The regression is deterministic: warm calls must not bind.
+        start = perf_counter()
         bound = profile.settings_for(catalog.BX_PLUS_CHANGESET, parsed)
+        cold = perf_counter() - start
+        start = perf_counter()
+        with patch.object(
+            parameters, "bind_setting", wraps=parameters.bind_setting
+        ) as bind:
+            for _ in range(20):
+                self.assertIs(
+                    profile.settings_for(catalog.BX_PLUS_CHANGESET, parsed), bound
+                )
+            bind.assert_not_called()
+        warm = (perf_counter() - start) / 20
+        print(
+            f"PROFILE_BINDING contracts={len(bound)} cold={cold:.6f}s "
+            f"warm_mean={warm:.6f}s",
+            flush=True,
+        )
         # The independent HA peer must match the actual vendor catalogue,
         # not just its own fixture maps or the integration's assumptions.
         peer = importlib.import_module("qualify_ha")

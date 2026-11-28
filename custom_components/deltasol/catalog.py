@@ -7,7 +7,7 @@ import re
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
 from functools import cached_property
 from pathlib import Path
@@ -111,6 +111,25 @@ class Catalog:
     definitions: tuple[Definition, ...]
     # Set by the verified source adapter, never inferred from a raw parse.
     source: CatalogSource | None = None
+    # Static binding results belong to this exact normalized catalogue instance.
+    # A replacement catalogue starts empty, even if its source digest is equal.
+    _profile_bindings: dict = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+
+    def profile_binding(self, profile, build):
+        """Reuse static contracts, never live observations or write authority."""
+        key = id(profile)
+        cached = self._profile_bindings.get(key)
+        if cached is None:
+            bound, rejected = build(self)
+            # Retain the profile identity to avoid object-ID reuse. Concurrent
+            # first readers may compile twice but publish one complete result.
+            cached = self._profile_bindings.setdefault(
+                key, (profile, bound, rejected)
+            )
+        _, bound, rejected = cached
+        return bound, dict(rejected)
 
     def matches(self, address, changeset):
         """One compatibility check for all consumers of normalized metadata."""
