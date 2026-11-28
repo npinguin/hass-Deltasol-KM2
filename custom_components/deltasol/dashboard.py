@@ -64,6 +64,8 @@ def capability_section(setting, state):
             return "hot_water"
         if name.startswith("Solar_"):
             return "solar"
+        if name.startswith("Anlage_") and "_Feststoffkessel_" in name:
+            return "heating"
         if name.startswith("Heizung_"):
             return "heating"
         if setting.native_slot and setting.native_slot[1] == "Wmz":
@@ -71,6 +73,21 @@ def capability_section(setting, state):
     if state and state.attributes.get("device_class") in ("energy", "power"):
         return "energy"
     return "overview"
+
+
+def object_kind(setting):
+    """Presentation type of the existing device, not a new object identity."""
+    if setting is None or setting.native_slot is None:
+        return None
+    _, family, number = setting.native_slot
+    return {
+        "Anlage_Wf": "solid_fuel" if "_Feststoffkessel_" in setting.name else "function",
+        "Solar_Sp": "store",
+        "Solar_Kol": "collector",
+        "Heizung_Heizkreis": "circuit",
+        "Heizung_Wf": "heating_function",
+        "Wmz": "meter",
+    }.get(family, "solar_function"), number
 
 
 def capability_access(registered, setting, state, user, engineering, *, relay=False):
@@ -164,8 +181,15 @@ def dashboard_objects(hass, user):
                     "id": device.id,
                     "name": device.name_by_user or device.name or "RESOL",
                     "capabilities": [],
+                    "object_kind": None,
+                    "object_number": None,
                 },
             )
+            kind = object_kind(setting)
+            if kind and (
+                not asset["object_kind"] or kind[0] == "solid_fuel"
+            ):
+                asset["object_kind"], asset["object_number"] = kind
             asset["capabilities"].append(
                 {
                     "entity_id": row.entity_id,
@@ -173,6 +197,12 @@ def dashboard_objects(hass, user):
                     "kind": row.entity_id.split(".", 1)[0],
                     "section": section,
                     "depth": depth,
+                    "availability": (
+                        "available"
+                        if state and state.state not in ("unknown", "unavailable")
+                        else "not_confirmed"
+                    ),
+                    "native_label": setting.label if setting else None,
                     "control": control,
                     "schedule": bool(setting and setting.weekly_slot is not None),
                     "shared_references": (
@@ -194,6 +224,20 @@ def dashboard_objects(hass, user):
                     "name": f"RESOL {len(installations) + 1}",
                     "settings": bool(user.is_admin),
                     "engineering": engineering,
+                    "health": {
+                        "telemetry": bool(
+                            entry.runtime_data.coordinator.last_update_success
+                        ),
+                        "parameter_access": bool(relay),
+                        "catalogue": bool(
+                            relay and relay._configuration_catalog() is not None
+                        ),
+                        "selectors_observed": len(snapshot.selector_hints)
+                        if snapshot
+                        else 0,
+                        "selectors_total": snapshot.selector_total if snapshot else 0,
+                        "checkpoint": entry.runtime_data.checkpoint_error,
+                    },
                     "objects": sorted(
                         objects.values(), key=lambda asset: asset["name"]
                     ),

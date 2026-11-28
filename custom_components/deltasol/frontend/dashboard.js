@@ -4,6 +4,11 @@ const COPY = {
   nl: {overview:"Overzicht",solar:"Zonne-energie",heating:"Verwarming",hot_water:"Warm water",energy:"Energie & historiek",settings:"Instellingen",engineering:"Engineering",schedule:"Weekprogramma’s",refresh:"Weergave vernieuwen",installation:"Installatie",all:"Alle objecten",unknown:"Onbekend",unavailable:"Niet beschikbaar",empty:"Geen waargenomen functies in deze weergave.",error:"Opdracht geweigerd of onzeker. Controleer de actuele waarde.",loading:"RESOL laden…",apply:"Toepassen",preview:"Controleren",cancel:"Annuleren",add:"Interval toevoegen",remove:"Verwijderen",history:"Historiek",observed:"Waargenomen en bevestigd",submitted:"Verstuurd; controleer de voortgang",not_confirmed:"Resultaat niet bevestigd",shared:"Gedeelde programmaverwijzingen",no_refs:"Geen verwijzingen gemeld",configure:"Integratie-instellingen",configure_help:"Beheer dashboard, Engineering en gatewaygegevens in de standaardinstellingen van Home Assistant.",search:"Technische informatie zoeken",export:"Geanonimiseerde diagnose exporteren",diagnostics:"Diagnose",inventory:"Parameterinventaris",none:"Geen parameters vastgelegd",close:"Sluiten",time:"Laatst bijgewerkt",no_history:"Geen geregistreerde historiek",start:"Begin",end:"Einde",confirm_schedule:"Controleer de gedeelde gevolgen voor je opslaat. Elke dag wordt afzonderlijk opgeslagen.",choose:"Kies een object",attention:"Aandacht nodig",ready:"Waargenomen",operation:"Bediening",preferences:"Voorkeuren",status:"Status",details:"Details",readonly:"Alleen lezen",back:"Terug",enabled:"Ingeschakeld",select:"Selecteren",on:"Aan",off:"Uit",working:"Bezig…"},
   fr: {overview:"Vue d’ensemble",solar:"Solaire",heating:"Chauffage",hot_water:"Eau chaude",energy:"Énergie et historique",settings:"Paramètres",engineering:"Ingénierie",schedule:"Programmes hebdomadaires",refresh:"Actualiser la vue",installation:"Installation",all:"Tous les objets",unknown:"Inconnu",unavailable:"Indisponible",empty:"Aucune fonction observée dans cette vue.",error:"Action refusée ou incertaine. Vérifiez la valeur actuelle.",loading:"Chargement de RESOL…",apply:"Appliquer",preview:"Vérifier",cancel:"Annuler",add:"Ajouter une plage",remove:"Supprimer",history:"Historique",observed:"Observé et confirmé",submitted:"Envoyé ; vérifiez la progression",not_confirmed:"Résultat non confirmé",shared:"Références du programme partagé",no_refs:"Aucune référence signalée",configure:"Paramètres de l’intégration",configure_help:"Gérez le tableau de bord, l’ingénierie et les accès dans les paramètres natifs de Home Assistant.",search:"Rechercher des données techniques",export:"Exporter le diagnostic expurgé",diagnostics:"Diagnostic",inventory:"Inventaire des paramètres",none:"Aucun paramètre capturé",close:"Fermer",time:"Dernière mise à jour",no_history:"Aucun historique enregistré",start:"Début",end:"Fin",confirm_schedule:"Vérifiez les effets partagés avant d’enregistrer. Chaque jour est enregistré séparément.",choose:"Choisir un objet",attention:"Attention requise",ready:"Observé",operation:"Commande",preferences:"Préférences",status:"État",details:"Détails",readonly:"Lecture seule",back:"Retour",enabled:"Activé",select:"Choisir",on:"Activé",off:"Désactivé",working:"En cours…"}
 };
+const STATUS_COPY = {
+  en:{solid_fuel:"Solid-fuel heating",function:"Controller function",store:"Solar store",collector:"Solar collector",circuit:"Heating circuit",heating_function:"Heating function",meter:"Heat meter",solar_function:"Solar function",telemetry_ok:"Telemetry available",telemetry_bad:"Telemetry unavailable",catalogue_pending:"Firmware capabilities not yet confirmed",selectors:"Live function discovery",checkpoint:"Historical discovery needs attention; live capabilities are checked separately.",available:"Available",not_confirmed:"Not currently confirmed",controls:"Controls",summary:"Installation status"},
+  nl:{solid_fuel:"Vastebrandstofverwarming",function:"Controllerfunctie",store:"Zonneboiler",collector:"Zonnecollector",circuit:"Verwarmingscircuit",heating_function:"Verwarmingsfunctie",meter:"Warmtemeter",solar_function:"Zonnefunctie",telemetry_ok:"Telemetrie beschikbaar",telemetry_bad:"Telemetrie niet beschikbaar",catalogue_pending:"Firmwarecapabilities nog niet bevestigd",selectors:"Live functiedetectie",checkpoint:"Historische discovery vraagt aandacht; live capabilities worden afzonderlijk gecontroleerd.",available:"Beschikbaar",not_confirmed:"Momenteel niet bevestigd",controls:"Bediening",summary:"Installatiestatus"},
+  fr:{solid_fuel:"Chauffage à combustible solide",function:"Fonction du régulateur",store:"Ballon solaire",collector:"Capteur solaire",circuit:"Circuit de chauffage",heating_function:"Fonction de chauffage",meter:"Compteur de chaleur",solar_function:"Fonction solaire",telemetry_ok:"Télémétrie disponible",telemetry_bad:"Télémétrie indisponible",catalogue_pending:"Fonctions du micrologiciel non confirmées",selectors:"Détection des fonctions en direct",checkpoint:"La découverte historique nécessite une vérification ; les fonctions actuelles sont contrôlées séparément.",available:"Disponible",not_confirmed:"Non confirmé actuellement",controls:"Commandes",summary:"État de l’installation"}
+};
 const SECTIONS = ["overview","solar","heating","hot_water","energy","settings","engineering"];
 const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const style = " :host{display:block;color:var(--primary-text-color);background:var(--primary-background-color);min-height:100%;font:inherit}*{box-sizing:border-box}main{max-width:1440px;margin:auto;padding:clamp(12px,3vw,32px)}header{display:flex;gap:12px;align-items:center;flex-wrap:wrap}h1{font-size:1.8rem;margin:0}h2{font-size:1.1rem;margin:0 0 12px}h3{font-size:1rem;margin:0 0 6px}p{line-height:1.45}nav{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color);padding:12px 0;margin:10px 0 18px}button,input,select{font:inherit;color:inherit;background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:9px;max-width:100%}button{cursor:pointer;min-height:40px}button:disabled{opacity:.5;cursor:not-allowed}button.active,button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px}.card{padding:16px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);min-width:0}.line{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--divider-color)}.line:last-child{border:0}.value{font-weight:600;overflow-wrap:anywhere}.muted,small{color:var(--secondary-text-color)}.warning{color:var(--warning-color,#aa6b00)}.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.grow{flex:1}.toolbar{margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.technical{overflow:auto;max-height:65vh}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}.notice{padding:10px 0;min-height:1.8em}.interval{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0}.interval input{max-width:135px}table{width:100%;border-collapse:collapse;text-align:left;font-size:.85rem}th,td{padding:8px;border-bottom:1px solid var(--divider-color);overflow-wrap:anywhere}a{color:var(--primary-color)}@media(max-width:520px){main{padding:12px}nav button{font-size:.9rem;padding:8px}.card{padding:12px}.line{align-items:flex-start}.actions{width:100%}header select{width:100%}}";
@@ -29,11 +34,24 @@ class ResolDashboard extends HTMLElement {
       if(event.target.id==="technical-search"){this.query=event.target.value;this.renderInventory();}
     });
   }
-  connectedCallback(){this.render();if(this._hass&&!this.loaded)this.load();}
+  connectedCallback(){this.render();if(this._hass&&!this.loaded)this.load();this.subscribeRegistry();}
+  disconnectedCallback(){this.unsubscribeRegistry?.();this.unsubscribeRegistry=null;clearTimeout(this.registryTimer);}
+  subscribeRegistry(){
+    if(this.unsubscribeRegistry||this.registrySubscription||!this._hass?.connection?.subscribeEvents)return;
+    this.registrySubscription=true;
+    this._hass.connection.subscribeEvents(()=>{
+      clearTimeout(this.registryTimer);
+      this.registryTimer=setTimeout(()=>{if(this.isConnected)this.load();},250);
+    },"entity_registry_updated").then(unsubscribe=>{
+      this.registrySubscription=false;
+      if(this.isConnected)this.unsubscribeRegistry=unsubscribe;else unsubscribe();
+    }).catch(()=>{this.registrySubscription=false;});
+  }
   set hass(hass) {
     const previous=this._hass;
     this._hass=hass;
     if(!this.isConnected)return;
+    this.subscribeRegistry();
     if(!this.loaded&&!this.loading){this.load();return;}
     if(this.editor||this.pending||this.shadowRoot.activeElement)return;
     const rows=this.rows();
@@ -42,7 +60,7 @@ class ResolDashboard extends HTMLElement {
       this.render();
     }
   }
-  t(key){return (COPY[(this._hass?.language||"en").slice(0,2)]||COPY.en)[key]||COPY.en[key]||key;}
+  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||key;}
   current(){return this.installations.find(item=>item.id===this.context);}
   rows(){return this.current()?.objects.flatMap(asset=>asset.capabilities)||[];}
   row(id){return this.rows().find(row=>row.entity_id===id);}
@@ -55,7 +73,7 @@ class ResolDashboard extends HTMLElement {
       if(!this.tabs().includes(this.tab))this.tab="overview";
       this.loaded=true;
     }catch{this.notice=this.t("error");this.loaded=true;}
-    finally{this.loading=false;this.render();}
+    finally{this.loading=false;if(!this.editor&&!this.pending&&!this.shadowRoot.activeElement)this.render();}
   }
   tabs(){
     const installation=this.current();
@@ -96,12 +114,29 @@ class ResolDashboard extends HTMLElement {
     if(this.tab==="overview")return rows.filter(row=>row.depth==="status"||row.depth==="controls");
     return rows.filter(row=>row.section===this.tab&&(row.depth==="status"||row.depth==="controls"));
   }
+  objectTitle(asset){
+    const type=asset.object_kind?this.t(asset.object_kind)+" "+asset.object_number:"";
+    return type&&asset.name.startsWith("RESOL ")?type:asset.name;
+  }
+  summary(){
+    const h=this.current()?.health;
+    if(!h)return "";
+    const rows=this.rows().filter(row=>row.depth!=="engineering");
+    const available=rows.filter(row=>this.valid(row)).length;
+    return '<section class="card" aria-label="'+escape(this.t("summary"))+'"><h2>'+escape(this.t("summary"))+'</h2><div class="grid"><div><strong class="'+(h.telemetry?"":"warning")+'">'+escape(this.t(h.telemetry?"telemetry_ok":"telemetry_bad"))+'</strong><p class="muted">'+available+' / '+rows.length+' '+escape(this.t("available"))+'</p></div>'+(h.parameter_access?'<div><strong>'+escape(this.t("selectors"))+'</strong><p>'+h.selectors_observed+' / '+h.selectors_total+'</p>'+(!h.catalogue?'<p class="warning">'+escape(this.t("catalogue_pending"))+'</p>':"")+(h.selectors_total?'<progress max="'+h.selectors_total+'" value="'+h.selectors_observed+'"></progress>':"")+'</div>':"")+'</div>'+(h.checkpoint?'<p class="warning">'+escape(this.t("checkpoint"))+'</p>':"")+'</section>';
+  }
   cards(){
     const assets=(this.current()?.objects||[]).filter(asset=>!this.object||asset.id===this.object);
     const cards=assets.map(asset=>{
       const rows=this.visibleRows(asset);
       if(!rows.length)return "";
-      return '<article class="card"><div class="toolbar"><h2 class="grow">'+escape(asset.name)+'</h2>'+(this.object?"":'<button data-object="'+escape(asset.id)+'">'+escape(this.t("details"))+'</button>')+'</div>'+rows.map(row=>this.detail(row,row.depth!=="status")).join("")+'</article>';
+      const available=rows.filter(row=>this.valid(row)).length;
+      const header='<div class="toolbar"><div class="grow"><h2>'+escape(this.objectTitle(asset))+'</h2><small>'+available+' / '+rows.length+' '+escape(this.t("available"))+'</small></div>'+(this.object?"":'<button data-object="'+escape(asset.id)+'">'+escape(this.t("details"))+'</button>')+'</div>';
+      if(this.tab==="overview"&&!this.object){
+        const prominent=rows.filter(row=>this.valid(row)).slice(0,4);
+        return '<article class="card">'+header+prominent.map(row=>this.detail(row,false)).join("")+(available!==rows.length?'<p class="warning">'+(rows.length-available)+' '+escape(this.t("not_confirmed"))+'</p>':"")+'</article>';
+      }
+      return '<article class="card">'+header+rows.map(row=>this.detail(row,row.depth!=="status")).join("")+'</article>';
     }).filter(Boolean);
     return cards.length?'<div class="grid">'+cards.join("")+'</div>':'<p class="muted">'+escape(this.t("empty"))+'</p>';
   }
@@ -110,8 +145,8 @@ class ResolDashboard extends HTMLElement {
     const installation=this.current(), tabs=this.tabs(), assets=installation?.objects||[];
     const count=this.rows().filter(row=>row.depth==="status"&&!this.valid(row)).length;
     const options=this.installations.map(item=>'<option value="'+escape(item.id)+'" '+(item.id===this.context?"selected":"")+'>'+escape(item.name)+'</option>').join("");
-    const objects=assets.map(asset=>'<option value="'+escape(asset.id)+'" '+(asset.id===this.object?"selected":"")+'>'+escape(asset.name)+'</option>').join("");
-    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="RESOL">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("ready"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.engineeringView():"")+this.cards())+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
+    const objects=assets.map(asset=>'<option value="'+escape(asset.id)+'" '+(asset.id===this.object?"selected":"")+'>'+escape(this.objectTitle(asset))+'</option>').join("");
+    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="RESOL">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("status"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.engineeringView():"")+(this.tab==="overview"?this.summary():"")+this.cards())+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
     if(this.tab==="engineering")this.renderInventory();
   }
   async engineering(){

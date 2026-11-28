@@ -105,6 +105,7 @@ class RuntimeData:
     capture: ConfigurationCapture | None = None
     previous_capture: ConfigurationCapture | None = None
     rejected_previous: dict | None = None
+    rejected_capture: dict | None = None
     capture_task: asyncio.Task | None = None
     capture_lock: asyncio.Lock = dataclass_field(default_factory=asyncio.Lock)
     stop_capture: bool = False
@@ -273,6 +274,7 @@ async def _async_save_capture(runtime):
                 "previous": runtime.previous_capture.storage_checkpoint()
                 if runtime.previous_capture
                 else runtime.rejected_previous,
+                "rejected_capture": runtime.rejected_capture,
                 "resume": runtime.capture.status not in ("complete", "incomplete")
                 and (
                     runtime.resume_on_load
@@ -309,6 +311,7 @@ async def _async_catalog(hass, source, *, acquire=False, runtime=None):
         ):
             return catalog
     path = hass.config.path("deltasol", source.filename)
+
     def load():
         try:
             catalog = load_catalog(path, source)
@@ -339,14 +342,23 @@ async def _async_restore_capture(hass, runtime, *, catalog=None):
     """Restore only against the current verified controller and exact local archive."""
     if not runtime.coordinator.api.supports_parameter_access:
         return False
+    stored = None
     try:
         stored = await runtime.capture_store.async_load()
         if stored is None:
             runtime.checkpoint_error = None
             return False
         controller, source = _catalog_identity(runtime)
+        if isinstance(stored, dict):
+            runtime.rejected_capture = stored.get("rejected_capture")
         if catalog is None:
-            catalog = await _async_catalog(hass, source, runtime=runtime)
+            try:
+                catalog = await _async_catalog(hass, source, runtime=runtime)
+            except CatalogMissing:
+                raise
+            except (CatalogError, OSError, ValueError):
+                runtime.checkpoint_error = "checkpoint_catalogue_unavailable"
+                return False
         _remember_catalogue(runtime, controller, source, catalog)
         capture = ConfigurationCapture.restore(
             stored["capture"], catalog, controller, source.changeset
@@ -381,6 +393,8 @@ async def _async_restore_capture(hass, runtime, *, catalog=None):
         KeyError,
         HomeAssistantError,
     ):
+        if isinstance(stored, dict) and isinstance(stored.get("capture"), dict):
+            runtime.rejected_capture = stored["capture"]
         runtime.checkpoint_error = "checkpoint_incompatible"
         _LOGGER.warning("RESOL Discovery checkpoint unavailable or incompatible")
         return False
@@ -679,6 +693,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 catalog = await _async_catalog(self.hass, source, runtime=self.runtime)
                 _remember_catalogue(self.runtime, controller, source, catalog)
             except (CatalogError, VBusError, OSError, ValueError):
+                # Keep the last valid catalogue and historical checkpoint
+                # intact; normal telemetry and relay refresh remain independent.
                 pass
         try:
             result = await refresh_relay_modes(

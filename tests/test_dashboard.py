@@ -25,6 +25,7 @@ class DashboardTests(unittest.TestCase):
             "engineering_enabled",
             "capability_access",
             "capability_section",
+            "object_kind",
             "observed_result",
             "scoped_control",
             "service_request",
@@ -90,6 +91,17 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(access(row, None, state, user, True), ("engineering", True))
         self.assertIsNone(access(row, None, state, user, False))
         self.assertEqual(self.ns["observed_result"]("button", state, None), "submitted")
+
+    def test_function_slot_is_not_a_new_device_or_inferred_topology(self):
+        setting = SimpleNamespace(
+            name="Anlage_Wf1_Feststoffkessel_dTEin",
+            native_slot=("Anlage_Wf1", "Anlage_Wf", 1),
+            weekly_slot=None,
+        )
+        self.assertEqual(self.ns["object_kind"](setting), ("solid_fuel", 1))
+        self.assertEqual(self.ns["capability_section"](setting, None), "heating")
+        setting.name = "Anlage_Wf1_Thermostat1_TEin"
+        self.assertEqual(self.ns["object_kind"](setting), ("function", 1))
 
     def test_no_optimistic_readback(self):
         observed = self.ns["observed_result"]
