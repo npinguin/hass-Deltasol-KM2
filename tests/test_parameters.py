@@ -1004,6 +1004,50 @@ class ParameterTests(unittest.TestCase):
         values["Solar_Wf1_CsBypass_SensorEinstrahlung_Nr"] = 0
         self.assertFalse(cs.accepts(values))
 
+    def test_native_solar_tube_exchanger_dynamic_constraints(self):
+        settings = parameters_configuration.BX_PLUS_SOLAR_DEDICATED_SETTINGS
+        tube = "Solar_Wf1_Roehrenkollektor"
+        start = next(s for s in settings if s.name == tube + "_tBeginn")
+        values = {
+            "Solar_SystemId": 20101,
+            "Solar_Relais1_Nr": 1,
+            "Solar_Kol1_Sensor1_Nr": 1,
+            "Solar_Kol2_Sensor1_Nr": 2,
+            tube + "_Aktiviert_Modus": 1,
+            tube + "_KollektorMaske": 3,
+            tube + "_tBeginn": 360,
+            tube + "_tEnde": 420,
+        }
+        self.assertTrue(start.accepts(values, start.encode(390)))
+        self.assertFalse(start.accepts(values, start.encode(420)))
+        values["Solar_SystemId"] = 10101
+        self.assertFalse(start.accepts(values))
+        values["Solar_SystemId"] = 20101
+        values["Solar_Kol2_Sensor1_Nr"] = 0
+        self.assertFalse(start.accepts(values))
+        root = "Solar_Wf1_ExtWT"
+        on = next(s for s in settings if s.name == root + "_dTein" and s.unit == "K")
+        values = {
+            "Solar_SystemId": 10201,
+            "Solar_Relais1_Nr": 1,
+            "Solar_Sp1_Sensor1_Nr": 1,
+            "Solar_Sp1_Aktiviert_Modus": 1,
+            "Solar_Sp2_Sensor1_Nr": 2,
+            "Solar_Sp2_Aktiviert_Modus": 1,
+            root + "_SpeicherMaske": 3,
+            root + "_Sensor1_Nr": 3,
+            root + "_Relais1_Nr": 2,
+            root + "_dTein": 60,
+            root + "_dTein_K": 60,
+            root + "_dTaus": 40,
+            root + "_dTaus_K": 40,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(on.accepts(values, on.encode(4.5)))
+        self.assertFalse(on.accepts(values, on.encode(4)))
+        values["Solar_Sp2_Aktiviert_Modus"] = 0
+        self.assertFalse(on.accepts(values))
+
     def test_return_mixing_requires_installed_sensors_outputs_and_order(self):
         self.session.read.return_value = 0x2734DABC
         prefix = "Anlage_Wf1"
