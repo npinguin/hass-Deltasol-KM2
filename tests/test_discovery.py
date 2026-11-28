@@ -1828,8 +1828,8 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
-        self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 400)
-        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 42)
+        self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 403)
+        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 140)
         for setting in configuration.BX_PLUS_HEATING_OPERATING_SETTINGS:
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
@@ -1850,6 +1850,9 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(len(configuration.BX_PLUS_SOLAR_STORE_SETTINGS), 80)
         self.assertEqual(len(configuration.BX_PLUS_SOLAR_COLLECTOR_SETTINGS), 6)
         for setting in configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS:
+            if setting.name.startswith("Anlage_WTUmwaelzpumpe_"):
+                self.assertEqual(setting.installed_by.name, "Anlage_WTUmwaelzpumpe_Relais_Nr")
+                continue
             selector = definitions[setting.installed_by.name]
             self.assertEqual(
                 selector.metadata["value_text"][setting.installed_by.allowed[0]]["id"],
