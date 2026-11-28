@@ -2021,6 +2021,235 @@ def _additional_operating_settings():
 
 BX_PLUS_ADDITIONAL_OPERATING_SETTINGS = tuple(_additional_operating_settings())
 
+def _installed_activity(root, index, switch_index):
+    """Native enabled or switch-controlled activity with the assigned input."""
+    return AnyDependencies(
+        (
+            (Dependency(root + "_Aktiviert_Modus", index, (1,)),),
+            (
+                Dependency(root + "_Aktiviert_Modus", index, (2,)),
+                RangeDependency(root + "_Aktiviert_SensorSchalter_Nr", switch_index, 1, 65),
+            ),
+        )
+    )
+
+
+def _raw_steps(name, index, minimum, maximum, step):
+    """Exact integer encoding of a companion preference, not an authorization."""
+    return Dependency(name, index, tuple(range(minimum, maximum + 1, step)))
+
+
+def _installed_program_options():
+    """Existing user options, separate from function installation and protection."""
+    pump = "Anlage_WTUmwaelzpumpe"
+    for suffix, index, label, companion in (
+        ("ONachlauf", 10647, "run-on", _raw_steps(pump + "_Nachlaufzeit", 10648, 0, 60, 1)),
+        ("ORuhemodus", 10650, "idle mode", _raw_steps(pump + "_RuhemodusDauer", 10651, 5, 240, 5)),
+    ):
+        yield Setting(
+            pump + "_" + suffix,
+            index,
+            f"Heat exchanger circulation pump {label} enabled",
+            "switch",
+            True,
+            installed_by=RangeDependency(pump + "_Relais_Nr", 10614, 1, 100),
+            dependencies=(_installed_activity(pump, 10607, 10609),),
+            requested_conditions=(RequestedCondition(1, (companion,)),),
+        )
+
+    for slot in range(1, 17):
+        offset = (slot - 1) * 251
+        root = f"Anlage_Wf{slot}"
+        prefix = root + "_Ruecklaufanhebung"
+        target = prefix + "_TSommerAus"
+        index = 6701 + offset
+        for selector, alias, lo, hi, step in (
+            (0, "_C", 100, 600, 10),
+            (1, "_F", 500, 1400, 20),
+        ):
+            yield Setting(
+                prefix + "_OSommerAus",
+                6694 + offset,
+                f"Arrangement function {slot} summer cut-off enabled",
+                "switch",
+                True,
+                installed_by=Dependency(root + "_Type", 6559 + offset, (8,)),
+                dependencies=(
+                    _installed_activity(root, 6566 + offset, 6568 + offset),
+                    RangeDependency(root + "_Relais1_Nr", 6592 + offset, 1, 100),
+                    RangeDependency(root + "_Sensor1_Nr", 6576 + offset, 1, 65),
+                    RangeDependency(root + "_Sensor2_Nr", 6580 + offset, 1, 65),
+                    RangeDependency(root + "_Sensor3_Nr", 6584 + offset, 1, 65),
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                compound_mirrors=((target, index, target + alias, index + selector + 1),),
+                requested_conditions=(
+                    RequestedCondition(1, (_raw_steps(target, index, lo, hi, step),)),
+                ),
+            )
+
+    for circuit in range(1, 8):
+        offset = (circuit - 1) * 495
+        root = f"Heizung_Heizkreis{circuit}"
+        installed = Dependency(root + "_Type", 13684 + offset, (1,))
+        activity = _installed_activity(root, 13689 + offset, 13691 + offset)
+        heating = Dependency(root + "_System", 13697 + offset, (0, 2))
+        base = (
+            activity,
+            heating,
+            RangeDependency(root + "_Relais1_Nr", 13764 + offset, 1, 100),
+            RangeDependency(root + "_Sensor1_Nr", 13796 + offset, 1, 65),
+        )
+        summer = (
+            *base,
+            RangeDependency(root + "_Sensor2_Nr", 13800 + offset, 1, 65),
+        )
+        mode = root + "_Heizgrenze"
+        mode_index = 13740 + offset
+        flag = root + "_OHeizgrenze"
+        flag_index = 13739 + offset
+        for selector, alias, low, high, step in (
+            (0, "_C", 0, 400, 10),
+            (1, "_F", 320, 1040, 20),
+        ):
+            selected = Dependency("TemperatureHysteresisSelector", 60, (selector,))
+            day = root + "_TSommerTag"
+            night = root + "_TSommerNacht"
+            day_index = 13741 + offset
+            night_index = 13744 + offset
+            day_mirror = (day, day_index, day + alias, day_index + selector + 1)
+            night_mirror = (night, night_index, night + alias, night_index + selector + 1)
+            day_valid = _raw_steps(day, day_index, low, high, step)
+            night_valid = _raw_steps(night, night_index, low, high, step)
+            clock = tuple(
+                _raw_steps(root + "_" + suffix, index + offset, 0, 1425, 15)
+                for suffix, index in (("tSommerTagEin", 13700), ("tSommerTagAus", 13701))
+            )
+            for current_mode in (0, 1):
+                companions = (day_valid, night_valid, *clock) if current_mode else (day_valid,)
+                mirrors = (day_mirror, night_mirror) if current_mode else (day_mirror,)
+                yield Setting(
+                    flag,
+                    flag_index,
+                    f"Heating circuit {circuit} summer cut-off enabled",
+                    "switch",
+                    True,
+                    installed_by=installed,
+                    dependencies=(
+                        *summer,
+                        selected,
+                        Dependency(mode, mode_index, (current_mode,)),
+                    ),
+                    compound_mirrors=mirrors,
+                    requested_conditions=tuple(RequestedCondition(1, (dep,)) for dep in companions),
+                )
+            yield Setting(
+                mode,
+                mode_index,
+                f"Heating circuit {circuit} summer cut-off mode",
+                "select",
+                True,
+                options=(("Day", 0), ("Day/Night", 1)),
+                installed_by=installed,
+                dependencies=(*summer, selected, Dependency(flag, flag_index, (1,))),
+                compound_mirrors=(day_mirror, night_mirror),
+                requested_conditions=(
+                    RequestedCondition(0, (day_valid,)),
+                    *(RequestedCondition(1, (dep,)) for dep in (day_valid, night_valid, *clock)),
+                ),
+            )
+        energy = root + "_Energiesparbetrieb"
+        target = energy + "_dTAus"
+        index = 14163 + offset
+        for selector, alias, lo, hi, step in (
+            (0, "_K", 10, 490, 10),
+            (1, "_R", 20, 980, 20),
+        ):
+            yield Setting(
+                root + "_OEnergiesparbetrieb",
+                14158 + offset,
+                f"Heating circuit {circuit} energy saving enabled",
+                "switch",
+                True,
+                installed_by=installed,
+                dependencies=(
+                    *base,
+                    RangeDependency(energy + "_Sensor1_Nr", 14160 + offset, 1, 65),
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                compound_mirrors=((target, index, target + alias, index + selector + 1),),
+                requested_conditions=tuple(
+                    RequestedCondition(1, (dep,))
+                    for dep in (
+                        _raw_steps(target, index, lo, hi, step),
+                        RangeDependency(energy + "_dtPause", 14166 + offset, 0, 60),
+                        RangeDependency(energy + "_dtLaufzeit", 14167 + offset, 0, 60),
+                    )
+                ),
+            )
+        coupling = (
+            (Dependency(root + "_Kopplung", 14039 + offset, (0,)),)
+            if circuit != 1
+            else ()
+        )
+        yield Setting(
+            root + "_OUrlaub",
+            14176 + offset,
+            (
+                "Heating circuit 1 automatic holiday participation (including coupled circuits)"
+                if circuit == 1
+                else f"Heating circuit {circuit} automatic holiday participation"
+            ),
+            "switch",
+            True,
+            installed_by=installed,
+            dependencies=(
+                activity,
+                *coupling,
+                Dependency("InbetriebnahmeAbgeschlossen", 68, (1,)),
+                RangeDependency("Urlaubsfunktion_Tage", 19063, 0, 200),
+                RangeDependency(root + "_Betriebsart", 14014 + offset, 0, 5),
+            ),
+        )
+
+    for slot in range(1, 6):
+        offset = (slot - 1) * 49
+        root = f"Solar_Wf{slot}_ExtWT"
+        target = root + "_ZieltemperaturSekundaer"
+        rise = root + "_dTAnstieg"
+        target_index = 4109 + offset
+        rise_index = 4121 + offset
+        for selector, alias, hysteresis, lo, hi, step, rlo, rhi, rstep in (
+            (0, "_C", "_K", 150, 950, 10, 10, 300, 10),
+            (1, "_F", "_R", 600, 2040, 20, 20, 600, 20),
+        ):
+            yield Setting(
+                root + "_OZieltemperatur",
+                4091 + offset,
+                f"Solar exchanger {slot} target temperature enabled",
+                "switch",
+                True,
+                installed_by=RangeDependency(root + "_Sensor1_Nr", 4094 + offset, 1, 65),
+                dependencies=(
+                    RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
+                    SolarSelection(root + "_SpeicherMaske", 4089 + offset, stores=True),
+                    RangeDependency(root + "_Relais1_Nr", 4102 + offset, 1, 100),
+                    RangeDependency(root + "_Sensor2_Nr", 4098 + offset, 1, 65),
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                compound_mirrors=(
+                    (target, target_index, target + alias, target_index + selector + 1),
+                    (rise, rise_index, rise + hysteresis, rise_index + selector + 1),
+                ),
+                requested_conditions=(
+                    RequestedCondition(1, (_raw_steps(target, target_index, lo, hi, step),)),
+                    RequestedCondition(1, (_raw_steps(rise, rise_index, rlo, rhi, rstep),)),
+                ),
+            )
+
+
+BX_PLUS_PROGRAM_OPTIONS = tuple(_installed_program_options())
+
 
 def _heating_operating_settings():
     """Documented operating controls; existing flow protection is read-only.
