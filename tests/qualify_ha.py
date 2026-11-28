@@ -1078,6 +1078,7 @@ async def qualify(directory, phase):
                     ("Solar_Wf1_CsBypass_Verzoegerung", "number", 150),
                     ("Solar_Wf1_Zieltemperatur_Zieltemperatur", "number", 158),
                     ("Solar_Wf1_Zieltemperatur_Anstieg", "number", 6),
+                    ("Wsu1_Schaltuhr_Woche_TagMo_Daten", "text", "08:30-10:00, 18:00-20:00"),
                 ):
                     entity = registry.async_get_entity_id(
                         kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
@@ -1722,6 +1723,11 @@ async def qualify(directory, phase):
         )
         assert hass.states.get(schedule).state == "08:30-10:00, 18:00-20:00"
         assert Peer.weekly_words[18419] == [0x50482822, -1, -1]
+        assert Peer.bulk_saves == 1
+        await hass.services.async_call(
+            "text", "set_value", {"entity_id": schedule, "value": "08:30-10:00, 18:00-20:00"},
+            blocking=True,
+        )
         assert Peer.bulk_saves == 1
         assert json.loads(Peer.weekly_file.read_text(encoding="utf-8"))["18419"] == [0x50482822, -1, -1]
 
