@@ -6,7 +6,9 @@ import importlib
 import io
 import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
 import types
 import unittest
@@ -1580,6 +1582,135 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(direct_call_target(0x2C18), 0x35263)
         self.assertEqual(direct_call_target(0x2C23), 0x34E20)
         self.assertEqual(direct_call_target(0x2C58), 0x34E20)
+
+        # Batch 1: all 64 arrangement/heating registration flags in one
+        # exact-archive static analysis pass. This temporary research probe
+        # is not an integration dependency or a native write.
+        batch = (
+            ("Anlage_Wf", "Feststoffkessel_OMischer", 251, 0xFFFA),
+            ("Anlage_Wf", "Funktionsblock_OVolumenstrom", 251, 0xFFFB),
+            ("Heizung_Wf", "ThBwErwaermung_OLadepumpe", 151, 0xFFFD),
+            ("Heizung_Wf", "BwVorerwaermung_OVentil", 151, 0xFFF9),
+        )
+        for prefix, suffix, stride, flag in batch:
+            root = prefix + "1"
+            first = root + "_" + suffix
+            origin = descriptor(root + "_Type")[0]
+            option = descriptor(first)[0]
+            names = sorted(
+                (
+                    name
+                    for name in values
+                    if name.startswith(root + "_")
+                    and (
+                        name.endswith(("_Nr", "_Type"))
+                        or name == first
+                    )
+                    and parsed[name].metadata.get("rpt_storage") == "preferences"
+                ),
+                key=values.get,
+            )
+            layout = [
+                (
+                    name.removeprefix(root + "_"),
+                    values[name],
+                    descriptor(name)[0] - origin,
+                    hex(descriptor(name)[1]),
+                )
+                for name in names
+            ]
+            for slot in range(1, 17):
+                name = prefix + str(slot) + "_" + suffix
+                slot_origin = descriptor(prefix + str(slot) + "_Type")[0]
+                self.assertEqual(values[name], values[first] + stride * (slot - 1))
+                self.assertEqual(descriptor(name)[1], flag)
+                self.assertEqual(descriptor(name)[0] - slot_origin, option - origin)
+            print("Batch64 record layout:", first, hex(option - base), layout)
+
+        if shutil.which("objdump"):
+            with TemporaryDirectory() as directory:
+                library = Path(directory) / "reference.dll"
+                library.write_bytes(binary)
+                output = subprocess.run(
+                    [
+                        "objdump",
+                        "-d",
+                        "-Mintel",
+                        "--no-show-raw-insn",
+                        f"--start-address={base + 0xF700}",
+                        f"--stop-address={base + 0x1F800}",
+                        str(library),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=20,
+                ).stdout
+            instructions = []
+            for line in output.splitlines():
+                match = re.match(r"\s*([0-9a-f]+):\s+(\w+)\s*(.*)", line)
+                if match:
+                    address, opcode, operands = match.groups()
+                    instructions.append((int(address, 16) - base, opcode, operands))
+
+            def calls(row):
+                if row[1] != "call":
+                    return None
+                match = re.match(r"([0-9a-f]+)(?:\s|$)", row[2])
+                return int(match[1], 16) - base if match else None
+
+            def window(label, start, end):
+                rows = [
+                    (hex(rva), opcode, operands)
+                    for rva, opcode, operands in instructions
+                    if start <= rva < end
+                ]
+                print("Batch64 native window:", label, rows)
+
+            # The known shared evaluator anchors the earlier supplied-build
+            # RVAs. Windows are evidence candidates, not assumed equivalence.
+            window("sensor registration candidate", 0xFF84, 0x10214)
+            window("flow registration candidate", 0x141A4 - 40, 0x141A4 + 100)
+            window("DHW actor registration candidate", 0x1CE44 - 50, 0x1CE44 + 100)
+            window("preheat actor registration candidate", 0x1DE96 - 50, 0x1DE96 + 100)
+
+            # Inventory actual call edges and argument preparation throughout
+            # both domain setup regions, including the solid-fuel mixer.
+            targets = {
+                calls(row)
+                for row in instructions
+                if any(
+                    lo <= row[0] < hi
+                    for lo, hi in (
+                        (0x141A4 - 40, 0x141A4 + 100),
+                        (0x1CE44 - 50, 0x1CE44 + 100),
+                        (0x1DE96 - 50, 0x1DE96 + 100),
+                    )
+                )
+                and calls(row) is not None
+            }
+            print("Batch64 candidate shared callees:", sorted(hex(t) for t in targets))
+            for i, row in enumerate(instructions):
+                if (
+                    0x12400 <= row[0] <= 0x1E900
+                    and calls(row) in targets
+                ):
+                    previous = instructions[max(0, i - 22) : i]
+                    bit_tests = [
+                        (hex(rva), opcode, operands)
+                        for rva, opcode, operands in previous
+                        if opcode in ("and", "test", "shr", "sar", "cmp")
+                    ]
+                    if bit_tests:
+                        print(
+                            "Batch64 registration callsite:",
+                            hex(row[0]),
+                            hex(calls(row)),
+                            bit_tests,
+                        )
+            for target in sorted(targets):
+                if 0xF700 <= target < 0x1F600:
+                    window("shared callee " + hex(target), target, target + 400)
 
         # Keep the prior startup-duration editor evidence as an assertion.
         self.assertEqual(descriptor("Solar_Losreissimpuls")[2] - base, 0x6B972)
