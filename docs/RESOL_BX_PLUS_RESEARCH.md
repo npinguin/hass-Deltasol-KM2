@@ -116,7 +116,7 @@ SET files are useful independent evidence for storage layout and round-trip test
 
 ### 4.4 Weekly timer: from native bytes to a usable schedule
 
-The controller has 51 weekly program slots (Wsu0 through Wsu50), with seven daily payloads per slot. Each day contains six start/end pairs. An allocated and initialized program differs from an unallocated slot; references from functions link to programs and may not be assumed to confer exclusive ownership.
+The catalogue defines 51 weekly program slots (Wsu0 through Wsu50), with seven daily payloads per slot. The native allocator actually supports 50 programs, Wsu1 through Wsu50; Wsu0 has an empty runtime lookup entry (see section 4.12). Each day contains six start/end pairs. An allocated and initialized program differs from an unallocated slot; references from functions link to programs and may not be assumed to confer exclusive ownership.
 
 | Property | Verified representation |
 | --- | --- |
@@ -127,7 +127,7 @@ The controller has 51 weekly program slots (Wsu0 through Wsu50), with seven dail
 | Unused pair | FF FF |
 | Native descriptor | 0x400C for all 357 timer-day parameters |
 | Word order | Successive groups of four bytes, little-endian |
-| Allocation and initialization | Separate native parameters |
+| Allocation and initialization | Separate native parameters; 50 allocatable programs |
 
 For a synthetic example, 08:00–10:00 becomes byte values 32 and 40 (hex 20 and 28). Unused trailing pairs are FF FF. This example is not a site configuration.
 
@@ -277,6 +277,41 @@ Weekly schedule ownership was also examined across the full type inheritance tre
 
 **Implementation implications:** the next V1 changes should correct the metadata parser, introduce family-based dependent constraints using the existing Setting/ConfigurationCapability model, complete the schedule editor on the corrected transport, and qualify failure recovery. Native callbacks can be studied further where a supported operation lacks evidence; it is not necessary to reimplement the controller's autonomous hydraulic algorithm or every display routine. The remaining exact menu predicate/assignment semantics and timer allocation lifecycle must not be described as solved. Retain the entire agreed functional outcome and distinguish intentionally excluded safety/commissioning operations from unfinished operational functions.
 
+### 4.12 Native weekly-program lifecycle
+
+The complete allocation table and its consumers were located in the supplied DLL. This resolves the difference between the 51 catalogue slots and the actual runtime pool of 50 usable programs. Offline comparison of the native table to XML descriptors established:
+
+- Entry zero is empty (all eight bytes zero). Lookup accepts only 1–50, returning entry zero for an out-of-range reference. Wsu0 is catalogue evidence, not an editable runtime program.
+- All 50 nonzero entries match both root and week structure IDs and their Monday-data and TTL pointers.
+- All 51 catalogue slot layouts have a stride of 88 bytes: seven consecutive 12-byte day payloads (84 bytes), initialization at offset 85 and allocation at offset 87. The native TTL is held in a separate volatile byte array, not in the 88-byte persisted program structure.
+
+| Native routine (RVA) | Observed behavior |
+| --- | --- |
+| 0x372f4 | Lookup bounded to 1–50; zero and invalid references select empty entry |
+| 0x37369 | Count unallocated entries |
+| 0x373c1 | Scan for first free slot; clear 88-byte structure, set allocation, initialize a template for specified reference IDs, mark storage and reset TTL; return -1 when none found |
+| 0x104ac | Native UI path reads existing reference; when absent, allocates a slot, writes the resulting reference, then enters editing context |
+| 0x378f4 | For a valid allocated slot, reset volatile TTL to zero; called by function/circuit paths |
+| 0x37937 | Clear an allocated slot and mark storage |
+| 0x379a5 | Sweep slots 1–50: clear TTL for unallocated slots; increment TTL while allocated and <=9; otherwise clear the 88-byte structure and mark storage |
+
+The sweep is invoked by the native scheduler (call at RVA 0x35e10); the real-time duration of a sweep is not established. TTL is an aging/retention counter, not an ownership count and not a remaining-seconds measurement. The function callers refresh it by passing the stored program reference. There is no guarantee a slot remains allocated indefinitely merely because it was once observed.
+
+Allocation is also **context-dependent**. The native routine compares 42 specific reference IDs, all verified against the 74 XML weekly references, corresponding to seven heating circuits with their five room-thermostat references. For these, it sets the initialization bit and copies a native 06:00–22:00 daily template into all seven days (remaining windows unused). The other 32 references do not enter that template branch. This is a vendor initialization rule, not an HA recommendation or a live value. The original SET pair independently demonstrates another context where an allocated, initialized program has user-entered daily values.
+
+Implications for V1:
+
+1. Only edit a currently allocated, initialized, positively linked nonzero program. Distinguish unavailable/expired/reallocated from an empty initialized day.
+2. Reconcile active referencing functions before the mutation and all affected day words after it. A change belongs to the program itself, not to an arbitrarily chosen referencing function; if multiple owners are observed, clearly show the shared effect. Do not assume exclusivity merely because an initial capture contained one reference.
+3. Revalidate allocation/reference context for every operation; if a slot has expired or changed ownership, reject stale intent. Preserve stable slot identity without confusing old content with a new allocation.
+4. Creating and assigning a new program is a separate controller configuration operation with native allocation/initialization semantics. Do not invent an allocation by writing flags, copy vendor defaults into live state or manipulate TTL to keep a slot alive. Installed-program mapping remains read-only under the agreed issue #10 boundary; editing existing verified schedules remains in scope.
+
+This is direct static evidence for the native lifecycle, not an executed physical allocation or retention test. The program-to-active-function predicates still require confirmation for each exposed context. The tests should include zero reference, a freed slot, reallocation between observation and edit, shared references, uninitialized/empty schedules, and partial or uncertain updates.
+
+### 4.13 Registered firmware equivalence
+
+The supplied ZIP and pinned ZIP have different container hashes. To remove the remaining evidence gap without changing runtime trust, compare the four member SHA-256 digests through the existing exact-vendor-archive developer test in CI, which already retrieves the registered archive. This is a research/source compatibility check; the pinned archive digest remains authoritative. Until the result is available, do not assert equivalence. No additional workflow, vendor binary redistribution or network runtime dependency is introduced.
+
 ## 5. Architecture: a single native Home Assistant integration
 
 The proposed implementation direction builds on the existing Python components instead of importing RPT into Home Assistant. The native controller remains the authority for actual configuration, telemetry and physical control. RPT and other verified sources provide evidence for how to interpret those capabilities.
@@ -354,7 +389,7 @@ No upstream PR is submitted by this research document. Upstream review should fo
 | Topic | Current conclusion | Evidence still needed |
 | --- | --- | --- |
 | Archive identity | Supplied controller/version/changeset match; ZIP digests differ | Member-level comparison with registered archive |
-| Weekly mapping | Statically verified in supplied DLL and supported by SET data | Registered-source reconciliation, timer allocation/ownership lifecycle and live/isolated coherent read and edit journey |
+| Weekly mapping | Statically verified in supplied DLL and supported by SET data | Registered-source reconciliation, active owner predicates and live/isolated coherent read and edit journey |
 | Bulk recovery | Native direct mutation, inactivity and queued storage behavior established; guaranteed rollback contradicted | Independent partial-application peer and qualified recovery behavior |
 | Persistent storage | Preference defaults and native deferred storage path identified; commit is not a durability receipt | Complete restart/reconnect proof, physical retention separately |
 | Solar/menu applicability | Native SystemId decomposition, counts and 28-record lookup verified; dynamic mask bounds and 13 paired constraints confirmed; menu and transfer selection separated | Remaining variant/assignment attributes, native presence predicates and all applicable function contracts |
@@ -375,6 +410,7 @@ The following fingerprints identify the exact examined research inputs; the SET 
 | BX Plus DLL | `2e850d5a6764488efc4405f88c1249b1bbaae1cfead416c5edc95e91873f7e43` |
 | bxplus_208.xml | `dcd82d53056e78b8a26209b9b4012f3b3787d12e2f835bf270cc7b616968ccd3` |
 | BXPlus_208-Menu.xml | `5311e1a5c2da8fe606c8dc49093202e6607d93e1b51430e84a93d4a56ec6e60e` |
+| Resol_BXPlus.png | `e70397a53ff8f09d79af19cb431e9f1b65e83af6f5cd4aafe35441e6bf3ee9c2` |
 | Existing registered firmware archive | `1bcc59cac3d4176c68de255fced3b95840bada06db33b0bdae0cddb007a9f079` |
 
 Native DLL RVAs below are inspection references, not portable entry points or a public API.
@@ -401,6 +437,10 @@ Native DLL RVAs below are inspection references, not portable entry points or a 
 | Configured collector/store counts | Allocation 0x2cec4 / 0x2ced2; context offsets 0x1185 / 0x1186 |
 | Dynamic min / max helpers | 0x10cdec / 0x10ce24 |
 | Weekly reference callback pair | 0x549ae / 0x54a34 (all 74) |
+| Weekly allocation lookup table / lookup | 0x124320 / 0x372f4 |
+| Weekly free count / allocator / UI entry | 0x37369 / 0x373c1 / 0x104ac |
+| Weekly TTL refresh / clear / sweep | 0x378f4 / 0x37937 / 0x379a5 |
+| Weekly native heating template | 0x1244b8; 42 verified reference IDs |
 | Parameter selection and packed IDs | MX2Filter.getRelevantValueIndices |
 | Java transfer lifecycle | Controller.readDataFromLibrary, writeDataToDevice, Controller$7 |
 | Bus acquisition / release | AbstractVBusConnection.waitForFreeBus, releaseBus |
