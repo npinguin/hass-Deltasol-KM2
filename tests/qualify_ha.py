@@ -55,6 +55,14 @@ CONFIG_SELECTORS = {
     "Wmz1_Type": (17260, 1),
     "Wmz1_Aktiviert_Modus": (17263, 1),
     "Relais_Modul1_R1_AktorFunktion": (2167, 2),
+    "Solar_SystemId": (3416, 20201),
+    "Solar_Wf1_Roehrenkollektor_Aktiviert_Modus": (3834, 1),
+    "Solar_Wf1_Roehrenkollektor_KollektorMaske": (3839, 3),
+    "Solar_Wf1_ExtWT_SpeicherMaske": (4089, 3),
+    "Solar_Wf1_ExtWT_OZieltemperatur": (4091, 1),
+    "Solar_Wf1_ExtWT_Sensor1_Nr": (4094, 4),
+    "Solar_Wf1_ExtWT_Sensor2_Nr": (4098, 5),
+    "Solar_Wf1_ExtWT_Relais1_Nr": (4102, 3),
     "Solar_Relais1_Nr": (3452, 1),
     "Solar_Kol1_Sensor1_Nr": (3536, 1),
     "Solar_Sp1_Sensor1_Nr": (3576, 2),
@@ -99,6 +107,16 @@ CONFIG_SETTINGS = {
     "Anlage_Wf3_RLBeimischung_dTSoll": (7267, 70, -200, 250),
     "Anlage_Wf3_RLBeimischung_Mischerlaufzeit": (7273, 105, 10, 600),
     "Anlage_Wf3_RLBeimischung_Mischerstellzeit": (7274, 2, 1, 20),
+    "Solar_Wf1_Roehrenkollektor_tBeginn": (3840, 360, 0, 1410),
+    "Solar_Wf1_Roehrenkollektor_tEnde": (3841, 420, 0, 1410),
+    "Solar_Wf1_Roehrenkollektor_Laufzeit": (3842, 30, 5, 600),
+    "Solar_Wf1_Roehrenkollektor_Pausezeit": (3843, 10, 1, 60),
+    "Solar_Wf1_ExtWT_Nachlaufzeit": (4090, 2, 0, 15),
+    "Solar_Wf1_ExtWT_Mindestlaufzeit": (4092, 3, 1, 15),
+    "Solar_Wf1_ExtWT_ZieltemperaturSekundaer": (4109, 500, 150, 950),
+    "Solar_Wf1_ExtWT_dTein": (4112, 60, 10, 200),
+    "Solar_Wf1_ExtWT_dTaus": (4115, 40, 5, 195),
+    "Solar_Wf1_ExtWT_dTAnstieg": (4121, 20, 10, 300),
     "Solar_Sp1_dTein": (3579, 60, 10, 200),
     "Solar_Sp1_dTaus": (3582, 40, 5, 195),
     "Solar_Sp1_dTsoll": (3585, 100, 15, 300),
@@ -130,6 +148,9 @@ COMPOUND_NAMES = (
     "Solar_Wf1_Bypass_dTein",
     "Solar_Wf1_Bypass_dTaus",
     "Solar_Wf1_Zieltemperatur_Anstieg",
+    "Solar_Wf1_ExtWT_dTein",
+    "Solar_Wf1_ExtWT_dTaus",
+    "Solar_Wf1_ExtWT_dTAnstieg",
 )
 COMPOUND_ALIASES = {
     name + suffix: (CONFIG_SETTINGS[name][0] + delta, CONFIG_SETTINGS[name][0], factor)
@@ -143,6 +164,7 @@ TEMPERATURE_NAMES = (
     "Heizung_Wf1_Zirkulation_TEin",
     "Heizung_Wf1_Zirkulation_TAus",
     "Solar_Wf1_Zieltemperatur_Zieltemperatur",
+    "Solar_Wf1_ExtWT_ZieltemperaturSekundaer",
 )
 TEMPERATURE_PARENTS = {CONFIG_SETTINGS[name][0] for name in TEMPERATURE_NAMES}
 TEMPERATURE_ALIASES = {
@@ -470,7 +492,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     stored_value = value // factor
                     step = (
                         5
-                        if index in (3579, 3582, 3585, 7261, 7264, 3908, 3911, 4347)
+                        if index in (3579, 3582, 3585, 7261, 7264, 3908, 3911, 4347, 4112, 4115)
                         else 10
                     )
                     assert stored_value % step == 0
@@ -505,6 +527,11 @@ class VBusHandler(socketserver.StreamRequestHandler):
                             Peer.extra_values[3536] > 0 and Peer.extra_values[3550] > 0
                         )
                         assert proposed[3908] > proposed[3911]
+                    elif index in (4112, 4115, 4121):
+                        assert proposed[4112] >= proposed[4115] + 5
+                        if index == 4121:
+                            assert Peer.extra_values[4091] == 1
+                            assert Peer.extra_values[4098] > 0
                     elif index == 4347:
                         assert Peer.extra_values[4335] == 1
                         assert Peer.extra_values[4341] > 0
@@ -520,6 +547,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[11266] == 4
                         assert Peer.extra_values[11273] == 1
                         assert Peer.extra_values[11405] == 0
+                    elif index == 4109:
+                        assert Peer.extra_values[4091] == 1
+                        assert Peer.extra_values[4098] > 0
                     elif index == 4344:
                         assert Peer.extra_values[4335] == 1
                         assert Peer.extra_values[4341] > 0
@@ -541,6 +571,26 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index in (3840, 3841, 3842, 3843):
+                    assert Peer.extra_values[3416] == 20201
+                    assert Peer.extra_values[3834] == 1
+                    assert Peer.extra_values[3839] == 3
+                    assert Peer.extra_values[3536] > 0
+                    assert Peer.extra_values[3550] > 0
+                    assert Peer.extra_values[3452] > 0
+                    if index == 3840:
+                        assert value % 30 == 0 and value + 30 <= Peer.settings[3841]
+                    elif index == 3841:
+                        assert value % 30 == 0 and value >= Peer.settings[3840] + 30
+                    elif index == 3842:
+                        assert value % 5 == 0
+                if index in (4090, 4092, 4109, 4112, 4115, 4121):
+                    assert Peer.extra_values[3416] == 20201
+                    assert Peer.extra_values[4089] == 3
+                    assert Peer.extra_values[4094] > 0 and Peer.extra_values[4102] > 0
+                    assert Peer.extra_values[3452] > 0
+                    assert Peer.extra_values[3576] > 0 and Peer.extra_values[3612] > 0
+                    assert Peer.extra_values[3604] == Peer.extra_values[3640] == 1
                 if index in (3991, 3992):
                     assert Peer.extra_values[3981] == 1
                     assert Peer.extra_values[3988] > 0
@@ -1103,6 +1153,16 @@ async def qualify(directory, phase):
                     ("Solar_Wf1_CsBypass_Verzoegerung", "number", 150),
                     ("Solar_Wf1_Zieltemperatur_Zieltemperatur", "number", 158),
                     ("Solar_Wf1_Zieltemperatur_Anstieg", "number", 6),
+                    ("Solar_Wf1_Roehrenkollektor_tBeginn", "number", 390),
+                    ("Solar_Wf1_Roehrenkollektor_tEnde", "number", 450),
+                    ("Solar_Wf1_Roehrenkollektor_Laufzeit", "number", 40),
+                    ("Solar_Wf1_Roehrenkollektor_Pausezeit", "number", 12),
+                    ("Solar_Wf1_ExtWT_Nachlaufzeit", "number", 4),
+                    ("Solar_Wf1_ExtWT_Mindestlaufzeit", "number", 5),
+                    ("Solar_Wf1_ExtWT_dTein", "number", 14),
+                    ("Solar_Wf1_ExtWT_dTaus", "number", 10),
+                    ("Solar_Wf1_ExtWT_ZieltemperaturSekundaer", "number", 140),
+                    ("Solar_Wf1_ExtWT_dTAnstieg", "number", 6),
                     (
                         "Wsu1_Schaltuhr_Woche_TagMo_Daten",
                         "text",
@@ -1748,6 +1808,37 @@ async def qualify(directory, phase):
         assert Peer.settings[3908] == 70 and Peer.settings[3991] == 250
         assert Peer.settings[3992] == 150 and Peer.settings[4344] == 700
         assert Peer.settings[4347] == 30 and Peer.saves == 36
+
+        # Independently exercise both newly added native Solar families.
+        tube = "Solar_Wf1_Roehrenkollektor"
+        exchanger = "Solar_Wf1_ExtWT"
+        for suffix, value in (("tBeginn", 390), ("tEnde", 450), ("Laufzeit", 40), ("Pausezeit", 12)):
+            await number(tube + "_" + suffix, value)
+        for suffix, value in (("Nachlaufzeit", 4), ("Mindestlaufzeit", 5),
+                              ("dTein", 14), ("dTaus", 10),
+                              ("ZieltemperaturSekundaer", 140), ("dTAnstieg", 6)):
+            await number(exchanger + "_" + suffix, value)
+        assert Peer.saves == 46
+        for name, value in ((tube + "_tBeginn", 450), (exchanger + "_dTein", 10)):
+            try:
+                await number(name, value)
+            except HomeAssistantError:
+                pass
+            else:
+                raise AssertionError("Invalid Solar pair accepted")
+        assert Peer.saves == 46
+        tube_entity = entity(tube + "_tBeginn", "number")
+        exchanger_entity = entity(exchanger + "_dTein", "number")
+        Peer.extra_values[3416] = 10101
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(tube_entity).state == "unavailable"
+        assert hass.states.get(exchanger_entity).state == "unavailable"
+        Peer.extra_values[3416] = 20201
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert entity(tube + "_tBeginn", "number") == tube_entity
+        assert entity(exchanger + "_dTein", "number") == exchanger_entity
+        assert float(hass.states.get(tube_entity).state) == 390
+        assert float(hass.states.get(exchanger_entity).state) == 14
 
         schedule = entity("Wsu1_Schaltuhr_Woche_TagMo_Daten", "text")
         assert (
