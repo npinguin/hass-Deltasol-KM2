@@ -119,14 +119,13 @@ class ParameterTests(unittest.TestCase):
         self.assertTrue(setting.accepts(values, 0))
         values[root + "_Sensor2_Nr"] = 3
         self.assertTrue(setting.accepts(values, 1))
-        self.assertFalse(
-            setting.accepts({**values, prefix + "_TAus_C": 450}, 1)
-        )
-        self.assertFalse(
-            setting.accepts({**values, prefix + "_OLadepumpe": 1}, 1)
-        )
+        self.assertFalse(setting.accepts({**values, prefix + "_TAus_C": 450}, 1))
+        self.assertFalse(setting.accepts({**values, prefix + "_OLadepumpe": 1}, 1))
         for flag, sensor in (
-            (root + "_OBetriebsartenschalterAus", root + "_SensorBetriebsartenschalter1_Nr"),
+            (
+                root + "_OBetriebsartenschalterAus",
+                root + "_SensorBetriebsartenschalter1_Nr",
+            ),
             (prefix + "_OManuelleAufheizung", root + "_SensorSchalter1_Nr"),
         ):
             values.update({flag: 0, sensor: 4})
