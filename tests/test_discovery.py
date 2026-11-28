@@ -1600,12 +1600,15 @@ class DiscoveryTests(unittest.TestCase):
                                     else "indirect",
                                 )
                             )
-                        if mnemonic in ("mov", "movzx", "movsx", "and", "or", "test", "cmp"):
-                            if "PTR [" in operands:
-                                memory.append((hex(rva), mnemonic, operands))
-                        if mnemonic in ("mov", "push", "cmp", "test", "and", "or"):
-                            if re.search(r"(?:^|,)0x[0-9a-f]+$", operands):
-                                immediates.append((hex(rva), mnemonic, operands))
+                        if (
+                            mnemonic in ("mov", "movzx", "movsx", "and", "or", "test", "cmp")
+                            and "PTR [" in operands
+                        ):
+                            memory.append((hex(rva), mnemonic, operands))
+                        if mnemonic in (
+                            "mov", "push", "cmp", "test", "and", "or"
+                        ) and re.search(r"(?:^|,)0x[0-9a-f]+$", operands):
+                            immediates.append((hex(rva), mnemonic, operands))
                     print("Native region edges:", label, edges)
                     print("Native region memory:", label, memory)
                     print("Native region constants:", label, immediates)
