@@ -204,6 +204,47 @@ class PeerComparison:
         )
 
 
+@dataclass(frozen=True)
+class WeeklyProgram:
+    """A live reference to an existing allocated native weekly program."""
+
+    name: str
+    index: int
+    require_days: bool = False
+
+    @staticmethod
+    def layout(slot):
+        root = f"Wsu{slot}"
+        index = 18401 + 13 * slot
+        allocation = {
+            root + "_Belegt": index,
+            root + "_Schaltuhr_Woche_Initialisiert": index + 4,
+        }
+        days = {
+            f"{root}_Schaltuhr_Woche_Tag{day}_Daten": index + 5 + offset
+            for offset, day in enumerate(("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"))
+        }
+        return allocation, days
+
+    def slot(self, values):
+        slot = values.get(self.name)
+        return slot if type(slot) is int and 1 <= slot <= 50 else None
+
+    def matches(self, values):
+        slot = self.slot(values)
+        if slot is None:
+            return False
+        allocation, days = self.layout(slot)
+        return all(values.get(name) == 1 for name in allocation) and (
+            not self.require_days
+            or all(
+                isinstance(values.get(name), bytes)
+                and decode_native_day(values[name]) is not None
+                for name in days
+            )
+        )
+
+
 def _dependency_layout(dependencies):
     result = {}
     for dep in dependencies:
@@ -218,7 +259,7 @@ def _dependency_layout(dependencies):
 class AnyDependencies:
     """At least one complete positively verified native assignment group."""
 
-    groups: tuple[tuple[Dependency | RangeDependency | PeerComparison, ...], ...]
+    groups: tuple[tuple[Dependency | RangeDependency | PeerComparison | WeeklyProgram, ...], ...]
 
     @property
     def expected(self):
@@ -286,7 +327,7 @@ class RequestedCondition:
 
     raw: int
     alternatives: tuple[
-        Dependency | RangeDependency | PeerComparison | AnyDependencies, ...
+        Dependency | RangeDependency | PeerComparison | WeeklyProgram | AnyDependencies, ...
     ]
 
     def matches(self, raw, values):
@@ -348,7 +389,7 @@ class Setting:
     limits: tuple[str, str, str, str] | None = None  # min, max, step, factor
     unit: str | None = None
     dependencies: tuple[
-        Dependency | RangeDependency | SolarSelection | AnyDependencies, ...
+        Dependency | RangeDependency | SolarSelection | AnyDependencies | WeeklyProgram, ...
     ] = ()
     owner_address: int | None = None
     relative_constraints: tuple[RelativeConstraint, ...] = ()
@@ -370,6 +411,28 @@ class Setting:
     value_definition: Definition | None = None
     weekly_slot: int | None = None
     requested_conditions: tuple[RequestedCondition, ...] = ()
+
+    @property
+    def timer_reference(self):
+        return next(
+            (dep for dep in self.dependencies if isinstance(dep, WeeklyProgram)),
+            None,
+        )
+
+    def weekly_references(self, requested=None):
+        """Only consult requested predicates during an actual action."""
+        def walk(dependencies):
+            for dep in dependencies:
+                if isinstance(dep, WeeklyProgram):
+                    yield dep
+                elif isinstance(dep, AnyDependencies):
+                    for group in dep.groups:
+                        yield from walk(group)
+
+        yield from walk(self.dependencies)
+        for condition in self.requested_conditions:
+            if requested == condition.raw:
+                yield from walk(condition.alternatives)
 
     @property
     def native_slot(self):
@@ -735,6 +798,7 @@ class ConfigurationCapability:
     raw: int | tuple[int, int, int]
     owners: tuple[str, ...] = ()
     active_owners: tuple[str, ...] = ()
+    program_reference: int | None = None
 
     @property
     def unique_id(self):
@@ -2436,6 +2500,16 @@ def _thermal_option_settings():
                         if other != suffix
                     )
                 )
+                # A positively verified existing timer is also an AND predicate.
+                remaining = AnyDependencies(
+                    (
+                        *remaining.groups,
+                        (
+                            Dependency(arrangement + "_OSchaltuhr", 6574 + ao, (1,)),
+                            WeeklyProgram(arrangement + "_SchaltuhrNr", 6620 + ao, True),
+                        ),
+                    )
+                )
                 yield Setting(
                     root + "_" + suffix,
                     index,
@@ -2535,6 +2609,127 @@ def _thermal_option_settings():
 
 
 BX_PLUS_THERMAL_OPTIONS = tuple(_thermal_option_settings())
+
+
+def _weekly_timer_options():
+    """Installed timer flags reuse native owner layout and allocation evidence."""
+    for owner in WEEKLY_OWNERS:
+        installed, *conditions = owner.conditions
+        flag = next(dep for dep in conditions if dep.name.endswith("_OSchaltuhr"))
+        context = tuple(dep for dep in conditions if dep != flag)
+        root = owner.name.removesuffix("_SchaltuhrNr")
+        reference = WeeklyProgram(owner.name, owner.index)
+        enable = RequestedCondition(1, (replace(reference, require_days=True),))
+        label = root.replace("_", " ") + " weekly timer enabled"
+        if root.startswith("Anlage_Wf"):
+            slot = int(root.removeprefix("Anlage_Wf"))
+            ao = (slot - 1) * 251
+            activity = _installed_activity(root, 6566 + ao, 6568 + ao)
+            output = RangeDependency(root + "_Relais1_Nr", 6592 + ao, 1, 100)
+            common = (activity, output, reference)
+            yield Setting(
+                flag.name,
+                flag.index,
+                label,
+                "switch",
+                True,
+                installed_by=Dependency(installed.name, installed.index, (3, 5)),
+                dependencies=(
+                    *common,
+                    RangeDependency(root + "_Sensor1_Nr", 6576 + ao, 1, 65),
+                    RangeDependency(root + "_Sensor2_Nr", 6580 + ao, 1, 65),
+                ),
+                requested_conditions=(enable,),
+            )
+            # The thermal switches already describe each valid remaining
+            # predicate, including its unit-dependent companion layout.
+            for unit in (0, 1):
+                selected = Dependency("TemperatureHysteresisSelector", 60, (unit,))
+                groups = []
+                for setting in BX_PLUS_THERMAL_OPTIONS:
+                    if not (
+                        setting.name.startswith(root + "_Funktionsblock_")
+                        and selected in setting.dependencies
+                    ):
+                        continue
+                    for rule in setting.requested_conditions:
+                        if rule.raw != 0:
+                            continue
+                        for dep in rule.alternatives:
+                            if isinstance(dep, AnyDependencies):
+                                groups.extend(
+                                    group
+                                    for group in dep.groups
+                                    if not any(isinstance(d, WeeklyProgram) for d in group)
+                                )
+                yield Setting(
+                    flag.name,
+                    flag.index,
+                    label,
+                    "switch",
+                    True,
+                    installed_by=Dependency(installed.name, installed.index, (9,)),
+                    dependencies=(*common, selected),
+                    requested_conditions=(
+                        enable,
+                        RequestedCondition(
+                            0,
+                            (
+                                Dependency(flag.name, flag.index, (0,)),
+                                AnyDependencies(tuple(dict.fromkeys(groups))),
+                            ),
+                        ),
+                    ),
+                )
+        elif root.startswith("Heizung_Wf"):
+            slot = int(root.removeprefix("Heizung_Wf"))
+            ho = (slot - 1) * 151
+            yield Setting(
+                flag.name,
+                flag.index,
+                label,
+                "switch",
+                True,
+                installed_by=installed,
+                dependencies=(
+                    _installed_activity(root, 11273 + ho, 11275 + ho),
+                    RangeDependency(root + "_NhRelais1_Nr", 11337 + ho, 1, 100),
+                    RangeDependency(root + "_Sensor1_Nr", 11290 + ho, 1, 65),
+                    AnyDependencies(
+                        (
+                            (Dependency(root + "_ThBwErwaermung_Modus", 11378 + ho, (0,)),),
+                            (
+                                Dependency(root + "_ThBwErwaermung_Modus", 11378 + ho, (1,)),
+                                RangeDependency(root + "_Sensor2_Nr", 11294 + ho, 1, 65),
+                            ),
+                        )
+                    ),
+                    reference,
+                ),
+                requested_conditions=(enable,),
+            )
+        else:
+            circuit = int(root.split("_")[1].removeprefix("Heizkreis"))
+            offset = (circuit - 1) * 495
+            circuit_root = f"Heizung_Heizkreis{circuit}"
+            yield Setting(
+                flag.name,
+                flag.index,
+                label,
+                "switch",
+                True,
+                installed_by=installed,
+                dependencies=(
+                    *context,
+                    _installed_activity(circuit_root, 13689 + offset, 13691 + offset),
+                    Dependency(circuit_root + "_System", 13697 + offset, (0, 2)),
+                    reference,
+                ),
+                requested_conditions=(enable,),
+            )
+
+
+BX_PLUS_WEEKLY_TIMER_OPTIONS = tuple(_weekly_timer_options())
 
 
 def _heating_operating_settings():
