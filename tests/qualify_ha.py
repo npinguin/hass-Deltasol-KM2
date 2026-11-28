@@ -178,7 +178,10 @@ class Peer:
     }
     persistent_file = None
     weekly_file = None
-    weekly_words: ClassVar[dict[int, list[int]]] = {18419: [0x50482820, -1, -1], 18420: [-48326, -1, -1]}
+    weekly_words: ClassVar[dict[int, list[int]]] = {
+        18419: [0x50482820, -1, -1],
+        18420: [-48326, -1, -1],
+    }
     bulk_saves = 0
     fail_bulk_subindex = None
     drop_discovery_response = False
@@ -257,7 +260,10 @@ TIMER_VALUES = {
 def additional_configuration():
     # Independent full reference pool: inactive references are zero.
     for slot in range(1, 17):
-        for family, base, stride in (("Anlage_Wf", 6620, 251), ("Heizung_Wf", 11346, 151)):
+        for family, base, stride in (
+            ("Anlage_Wf", 6620, 251),
+            ("Heizung_Wf", 11346, 151),
+        ):
             name = f"{family}{slot}_SchaltuhrNr"
             index = base + stride * (slot - 1)
             Peer.extra_lookups[semantic_hash(name)] = index
@@ -401,7 +407,13 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 if index == 18420 and subindex == 2:
                     response = datagram(source, ADDRESS, 0x4302, index)
                 else:
-                    response = datagram(source, ADDRESS, 0x0100 | subindex, index, Peer.weekly_words[index][subindex])
+                    response = datagram(
+                        source,
+                        ADDRESS,
+                        0x0100 | subindex,
+                        index,
+                        Peer.weekly_words[index][subindex],
+                    )
             elif command == 0x1300:
                 response = datagram(source, ADDRESS, 0x1301, index, 0x08)
             elif command == 0x1400:
@@ -1775,7 +1787,12 @@ def main():
     Peer.persistent_file = directory / "qualification-peer-settings.json"
     Peer.weekly_file = directory / "qualification-peer-weekly.json"
     if Peer.weekly_file.exists():
-        Peer.weekly_words = {int(index): words for index, words in json.loads(Peer.weekly_file.read_text(encoding="utf-8")).items()}
+        Peer.weekly_words = {
+            int(index): words
+            for index, words in json.loads(
+                Peer.weekly_file.read_text(encoding="utf-8")
+            ).items()
+        }
     if Peer.persistent_file.exists():
         Peer.settings = {
             int(index): value
