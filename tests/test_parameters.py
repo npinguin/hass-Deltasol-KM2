@@ -94,6 +94,42 @@ class ParameterTests(unittest.TestCase):
             )
         )
 
+    def test_solar_store_activation_validates_companions(self):
+        c = parameters_configuration
+        setting = next(
+            s
+            for s in c.BX_PLUS_ACTIVITY_SETTINGS
+            if s.name == "Solar_Sp1_Aktiviert_Modus"
+        )
+        values = {
+            "Solar_SystemId": 20201,
+            "Solar_Kol1_Sensor1_Nr": 1,
+            "Solar_Relais1_Nr": 1,
+            "Solar_Sp1_Sensor1_Nr": 2,
+            "Solar_Sp1_Aktiviert_Modus": 0,
+            "TemperatureHysteresisSelector": 0,
+            "Solar_Sp1_tMin": 30,
+            "Solar_Sp1_MinDrehzahl": 30,
+        }
+        for suffix, alias, raw in (
+            ("dTein", "_K", 60),
+            ("dTaus", "_K", 40),
+            ("dTsoll", "_K", 100),
+            ("Tsoll", "_C", 500),
+            ("Tmax", "_C", 800),
+            ("Hmax", "_K", 20),
+            ("Anstieg", "_K", 20),
+        ):
+            values["Solar_Sp1_" + suffix] = raw
+            values["Solar_Sp1_" + suffix + alias] = raw
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertFalse(setting.accepts(values, 2))
+        values["Solar_Sp1_Aktiviert_SensorSchalter_Nr"] = 3
+        self.assertTrue(setting.accepts(values, 2))
+        values["Solar_Sp1_Tmax"] = values["Solar_Sp1_Tmax_C"] = 400
+        self.assertFalse(setting.accepts(values, 1))
+        self.assertTrue(setting.accepts(values, 0))
+
     def test_function_selection_uses_native_number_not_slot(self):
         c = parameters_configuration
         solid = c.FunctionSelection("mask", 1)

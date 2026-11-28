@@ -195,7 +195,7 @@ class PeerComparison:
 
     def matches(self, values):
         left, right = values.get(self.name), values.get(self.other)
-        compare = {"eq": eq, "gt": gt, "le": le, "ne": ne}.get(self.operation)
+        compare = {"eq": eq, "gt": gt, "ge": ge, "le": le, "ne": ne}.get(self.operation)
         return (
             compare is not None
             and type(left) is int
