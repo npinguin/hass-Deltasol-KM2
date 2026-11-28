@@ -93,7 +93,7 @@ CONFIG_SELECTORS = {
     "Heizung_Heizkreis1_Kuehlung_ExtSchalter_Sensor1_Nr": (14068, 8),
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem": (14075, 0),
     "Anlage_Wf1_Type": (6559, 2),
-    "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
+    "Anlage_Wf1_Aktiviert_SensorSchalter_Nr": (6568, 4),
     "Anlage_Wf2_Type": (6810, 6),
     "Anlage_Wf2_Aktiviert_Modus": (6817, 1),
     "Anlage_Wf3_Type": (7061, 11),
@@ -184,6 +184,7 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
+    "Anlage_Wf1_Aktiviert_Modus": (6566, 1, 0, 2),
     "Heizung_Heizkreis1_Nachheizung_Modus": (13706, 0, 0, 2),
     "Heizung_RelaisPumpe1_Anlauf_Modus": (11178, 2, 0, 2),
     "Heizung_RelaisPumpe1_Nachlauf_Modus": (11183, 1, 0, 2),
@@ -899,7 +900,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         )
                     elif index == 6629:
                         assert Peer.extra_values[6559] == 2
-                        assert Peer.extra_values[6566] == 1
+                        assert Peer.settings[6566] == 1
                         assert all(Peer.extra_values[i] > 0 for i in (6576, 6592, 6600))
                     elif index in (14072, 14076, 14080, 14083, 14086, 14089):
                         assert Peer.extra_values[13684] == 1
@@ -2858,6 +2859,24 @@ async def qualify(directory, phase):
             assert Peer.settings[index] == 1
             assert Peer.saves == before_coordination + 1
 
+        arrangement_activity = entity("Anlage_Wf1_Aktiviert_Modus", "select")
+        assert arrangement_activity
+        target = entity("Anlage_Wf1_Mischer_TZiel", "number")
+        assert target
+        before_activity = Peer.saves
+        previous_target = Peer.settings[6629]
+        await set_mode(arrangement_activity, "Deactivated")
+        assert Peer.settings[6566] == 0
+        assert hass.states.get(target).state == "unavailable"
+        await set_mode(arrangement_activity, "Deactivated")
+        assert Peer.saves == before_activity + 1
+        await set_mode(arrangement_activity, "External switch")
+        assert Peer.settings[6566] == 2
+        await set_mode(arrangement_activity, "Activated")
+        assert Peer.settings[6566] == 1
+        assert Peer.settings[6629] == previous_target
+        assert hass.states.get(target).state != "unavailable"
+        assert Peer.saves == before_activity + 3
         room_activation = entity(
             "Heizung_Heizkreis1_Raumthermostat1_Aktiviert", "select"
         )
