@@ -212,7 +212,9 @@ class DashboardTests(unittest.TestCase):
         self.assertIsNone(rows[1]["source_object"])
         self.assertEqual(project(observations, {}, True)[0]["parameter"], "actor")
 
-    def test_reference_inventory_redacts_sensitive_aliases_and_never_grants_access(self):
+    def test_reference_inventory_redacts_sensitive_aliases_and_never_grants_access(
+        self,
+    ):
         public = SimpleNamespace(
             name="Schema", index=1, type_id="enum", storage="persistent", metadata={}
         )
@@ -227,9 +229,7 @@ class DashboardTests(unittest.TestCase):
             configuration_evidence=lambda *_: {"write_access": "not_verified"},
             menu_parameter_reason=lambda *_: "hardware_or_topology_assignment",
         )
-        profile = SimpleNamespace(
-            settings=(), binding_review=lambda *_: ((), {})
-        )
+        profile = SimpleNamespace(settings=(), binding_review=lambda *_: ((), {}))
         contracts, inventory = self.ns["engineering_catalogue"](
             profile,
             SimpleNamespace(definitions=(public, secret, alias)),
