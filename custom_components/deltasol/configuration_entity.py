@@ -6,7 +6,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .parameters import device_inventory, find_device
+from .parameters import find_device
 
 
 def register_configuration_entities(entry, async_add_entities, kind, entity_type):
@@ -98,7 +98,7 @@ class ConfigurationEntity(CoordinatorEntity):
         capability = self.coordinator.data.configuration.get(self.unique_id)
         if capability is None:
             return None
-        inventory = device_inventory(self.coordinator.telemetry.data)
+        inventory = self.coordinator.telemetry.observed_inventory
         if (
             find_device(inventory, capability.controller.address)
             != capability.controller

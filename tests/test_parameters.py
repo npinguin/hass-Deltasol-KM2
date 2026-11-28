@@ -4323,6 +4323,17 @@ class ParameterTests(unittest.TestCase):
         self.discover()
         self.sleep.assert_called_once_with(parameters.SESSION_GAP_SECONDS)
 
+    def test_transport_phase_totals_preserve_previous_snapshot(self):
+        self.api._record_session(None, None, 1.25, 0.25, 0.5)
+        previous = self.api.transport_health()
+        self.api._record_session(None, None, 2.5, 0.75, 1.0)
+        phases = self.api.transport_health()["phase_timings"]
+        self.assertEqual(phases["session"]["total_seconds"], 3.75)
+        self.assertEqual(phases["connect_and_auth"]["total_seconds"], 1.0)
+        self.assertEqual(phases["cooldown_wait"]["total_seconds"], 1.5)
+        self.assertEqual(phases["session"]["count"], 2)
+        self.assertEqual(previous["phase_timings"]["session"]["total_seconds"], 1.25)
+
     def test_adaptive_transport_cooldown_and_health(self):
         failure = parameters.VBusTransientError(
             "VBus bus acquisition failed", "acquire"

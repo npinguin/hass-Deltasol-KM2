@@ -483,6 +483,8 @@ class DeltasolCoordinator(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, config: DeltasolConfigEntry) -> None:
         """Initialize coordinator."""
         self.hass = hass
+        self._inventory_source = None
+        self._inventory = {}
         self.api = DeltasolApi(
             host=config.data.get(CONF_HOST),
             port=config.data.get(CONF_PORT),
@@ -504,6 +506,19 @@ class DeltasolCoordinator(DataUpdateCoordinator):
                 )
             ),
         )
+
+    @property
+    def observed_inventory(self):
+        """Derive identity once per published HTTP telemetry snapshot.
+
+        The API constructs a new endpoint mapping on each successful fetch.
+        Entity projections reuse that mapping; parameter commands still perform
+        their independent live identity and contract checks.
+        """
+        if self._inventory_source is not self.data:
+            self._inventory = device_inventory(self.data)
+            self._inventory_source = self.data
+        return self._inventory
 
     async def async_update_data(self):
         """Fetch data from the Resol KM1/KM2, DL2/DL2Plus/DL3, VBus/LAN, VBus/USB."""
@@ -556,7 +571,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         capture = self.runtime.capture
         if capture is None:
             return None
-        _, controller = find_profile(device_inventory(self.telemetry.data))
+        _, controller = find_profile(self.telemetry.observed_inventory)
         if capture.controller != controller:
             return None
         if not capture.catalog.matches(capture.controller.address, capture.changeset):
@@ -564,7 +579,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         return capture.catalog
 
     def _configuration_hints(self):
-        profile, controller = find_profile(device_inventory(self.telemetry.data))
+        profile, controller = find_profile(self.telemetry.observed_inventory)
         if not profile:
             return {}
         contracts = profile.settings_for(

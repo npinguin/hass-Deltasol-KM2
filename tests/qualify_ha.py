@@ -2013,6 +2013,10 @@ async def qualify(directory, phase):
             raise AssertionError("Unsupported mode accepted")
         assert Peer.writes == 7
 
+        telemetry = entry.runtime_data.coordinator
+        initial_inventory = telemetry.observed_inventory
+        assert telemetry.observed_inventory is initial_inventory
+        assert any(device.address == 0x6651 for device in initial_inventory)
         Peer.em_present = False
         try:
             await set_mode(em, "Off")
@@ -2022,6 +2026,10 @@ async def qualify(directory, phase):
             raise AssertionError("Missing EM accepted")
         assert Peer.writes == 7
         assert hass.states.get(em).state == "unavailable"
+        assert telemetry.observed_inventory is not initial_inventory
+        assert all(
+            device.address != 0x6651 for device in telemetry.observed_inventory
+        )
         Peer.em_present = True
         with patch("custom_components.deltasol.load_catalog", return_value=fixture):
             assert await hass.config_entries.async_reload(entry.entry_id)
@@ -2266,14 +2274,21 @@ async def qualify(directory, phase):
             patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 0.02)
         )
         print("ISOLATED_HA native semantic matrix started", flush=True)
-        from time import monotonic
+        from time import monotonic, process_time
 
         matrix_start = monotonic()
+        cpu_start = process_time()
 
         def matrix_checkpoint(label):
+            health = entry.runtime_data.coordinator.api.parameter_transport_health()
+            phases = health["phase_timings"]
+            session_total = phases["session"]["total_seconds"]
+            cooldown_total = phases["cooldown_wait"]["total_seconds"]
             print(
                 f"ISOLATED_HA matrix {label}: "
                 f"{monotonic() - matrix_start:.1f}s "
+                f"cpu={process_time() - cpu_start:.1f}s "
+                f"session_total={session_total:.1f}s cooldown_total={cooldown_total:.1f}s "
                 f"sessions={Peer.sessions} reads={Peer.reads} "
                 f"lookups={Peer.lookups} writes={Peer.writes} saves={Peer.saves}",
                 flush=True,

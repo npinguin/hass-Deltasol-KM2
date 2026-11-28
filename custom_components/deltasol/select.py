@@ -83,7 +83,7 @@ class DeltasolRelaySelect(CoordinatorEntity, SelectEntity):
         ):
             return None
         capability = self.coordinator.data.capabilities.get(self.unique_id)
-        inventory = device_inventory(self.coordinator.telemetry.data)
+        inventory = self.coordinator.telemetry.observed_inventory
         return capability if capability and capability.matches(inventory) else None
 
     @property

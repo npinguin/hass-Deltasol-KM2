@@ -983,9 +983,13 @@ class RelayParameters:
             min(self._failure_streak, len(SESSION_FAILURE_GAPS)) - 1
         ]
 
-    def _record_session(self, session, error, elapsed, connect_seconds):
+    def _record_session(self, session, error, elapsed, connect_seconds, cooldown_wait):
         previous = self._health
-        phases = {"session": elapsed, "connect_and_auth": connect_seconds}
+        phases = {
+            "session": elapsed,
+            "connect_and_auth": connect_seconds,
+            "cooldown_wait": cooldown_wait,
+        }
         real_session = session is not None and isinstance(session.phase_seconds, dict)
         if real_session:
             phases.update(session.phase_seconds)
@@ -996,6 +1000,7 @@ class RelayParameters:
                 "count": old.get("count", 0) + 1,
                 "last_seconds": round(seconds, 3),
                 "max_seconds": max(old.get("max_seconds", 0), round(seconds, 3)),
+                "total_seconds": round(old.get("total_seconds", 0) + seconds, 6),
             }
         counts = dict(previous["failure_counts"])
         failure = previous["last_failure"]
@@ -1051,7 +1056,8 @@ class RelayParameters:
     def _session(self, address, *, acquire=True):
         """Serialize polling and writes, including gateway recovery time."""
         with self._lock:
-            delay = self._next_session - monotonic()
+            waiting = monotonic()
+            delay = self._next_session - waiting
             if delay > 0:
                 sleep(delay)
             started = monotonic()
@@ -1085,6 +1091,7 @@ class RelayParameters:
                     failure,
                     elapsed,
                     elapsed if connect_seconds is None else connect_seconds,
+                    started - waiting if delay > 0 else 0.0,
                 )
 
     def _read_only_session(self, address, operation):
