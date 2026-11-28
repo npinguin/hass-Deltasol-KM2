@@ -158,6 +158,8 @@ class VBusSession:
         self.buffer = bytearray()
         self.phase_seconds = {}
         self.release_attempts = 0
+        self.read_resync_attempts = 0
+        self.read_resync_successes = 0
         self.other_live_packets = 0
         self.other_release_offers = 0
         self.release_confirmation = None
