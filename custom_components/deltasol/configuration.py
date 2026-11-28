@@ -453,6 +453,7 @@ class Setting:
 
     def weekly_references(self, requested=None):
         """Only consult requested predicates during an actual action."""
+
         def walk(dependencies):
             for dep in dependencies:
                 if isinstance(dep, WeeklyProgram):
