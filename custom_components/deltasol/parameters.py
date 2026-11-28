@@ -8,6 +8,7 @@ The BX Plus manual specifies five local relays and two EM slots.
 """
 
 import asyncio
+import struct
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -37,9 +38,11 @@ from .configuration import (
     BX_PLUS_THERMOSTAT_SETTINGS,
     BX_PLUS_TIMING_SETTINGS,
     BX_PLUS_TRANSFER_SETTINGS,
+    BX_PLUS_WEEKLY_TIMER_OPTIONS,
     WEEKLY_OWNERS,
     ConfigurationCapability,
     Setting,
+    WeeklyProgram,
     bind_setting,
     encode_action,
     weekly_settings_for,
@@ -153,6 +156,7 @@ PROFILES = (
             *BX_PLUS_PUMP_SETTINGS,
             *BX_PLUS_PROGRAM_OPTIONS,
             *BX_PLUS_THERMAL_OPTIONS,
+            *BX_PLUS_WEEKLY_TIMER_OPTIONS,
             *BX_PLUS_DIFFERENTIAL_SETTINGS,
             *BX_PLUS_TRANSFER_SETTINGS,
             *BX_PLUS_SOLID_FUEL_MIXER_SETTINGS,
@@ -367,6 +371,61 @@ def _read_settings(
         for name, result in observed.items()
         if result.status == "read" and result.index == expected[name]
     }
+    # Resolve the native pool only after observing the owner's exact reference.
+    # A read-only refresh needs allocation/initialization; actual enable or
+    # predicate removal additionally verifies all seven packed days.
+    references = {
+        reference
+        for setting in settings
+        if setting.installed_by is None or setting.installed_by.matches(values)
+        for reference in setting.weekly_references(requested)
+        if reference.slot(values) is not None
+    }
+    program_expected = {}
+    packed = {}
+    for reference in references:
+        allocation, days = WeeklyProgram.layout(reference.slot(values))
+        program_expected.update(allocation)
+        if reference.require_days:
+            program_expected.update(days)
+            packed.update({name: allocation for name in days})
+    if program_expected:
+        programs = session.read_parameter_observations(
+            profile.address,
+            program_expected,
+            changeset,
+            expected=program_expected,
+            schema=profile.schema_index,
+            packed=packed or None,
+        )
+        for name, row in programs.items():
+            if row.status != "read" or row.index != program_expected[name]:
+                continue
+            if name not in packed:
+                values[name] = row.value
+            elif (
+                len(row.packed_words) == 3
+                and row.packed_words[0] == row.value
+                and all(
+                    type(word) is int and -(2**31) <= word < 2**31
+                    for word in row.packed_words
+                )
+            ):
+                values[name] = struct.pack("<iii", *row.packed_words)
+        # Detect a reassignment during the additional program reads.
+        links = {reference.name: reference.index for reference in references}
+        observed_links = session.read_parameter_observations(
+            profile.address, links, changeset, expected=links, schema=profile.schema_index
+        )
+        for name, index in links.items():
+            row = observed_links.get(name)
+            if (
+                row is None
+                or row.status != "read"
+                or row.index != index
+                or row.value != values.get(name)
+            ):
+                values.pop(name, None)
     result = {}
     ambiguous = set()
     rejected = set()
@@ -391,7 +450,14 @@ def _read_settings(
         ):
             continue
         capability = ConfigurationCapability(
-            setting, controller, device, changeset, values[setting.name]
+            setting,
+            controller,
+            device,
+            changeset,
+            values[setting.name],
+            program_reference=(
+                setting.timer_reference.slot(values) if setting.timer_reference else None
+            ),
         )
         uid = capability.unique_id
         if uid in result:
@@ -1097,6 +1163,7 @@ class RelayParameters:
                 and current.setting == setting
                 and current.owners == capability.owners
                 and current.active_owners == capability.active_owners
+                and current.program_reference == capability.program_reference
             )
 
         with self._lock:
