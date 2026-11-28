@@ -1659,9 +1659,7 @@ class ParameterTests(unittest.TestCase):
             values[name + ("_C" if suffix.startswith("TTh") else "_K")] = raw
 
         def choose(name, observed):
-            (setting,) = [
-                s for s in settings if s.name == name and s.accepts(observed)
-            ]
+            (setting,) = [s for s in settings if s.name == name and s.accepts(observed)]
             return setting
 
         setting = choose(flag, values)
@@ -1680,9 +1678,7 @@ class ParameterTests(unittest.TestCase):
         diff = choose(prefix + "_ODifferenz", values)
         self.assertTrue(diff.accepts(values, 1))
         target = prefix + "_dTSoll"
-        self.assertFalse(
-            diff.accepts({**values, target: 50, target + "_K": 50}, 1)
-        )
+        self.assertFalse(diff.accepts({**values, target: 50, target + "_K": 50}, 1))
         self.assertTrue(diff.accepts(values, 0))
 
         root = "Anlage_Wf1"
