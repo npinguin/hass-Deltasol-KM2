@@ -91,6 +91,92 @@ class ParameterTests(unittest.TestCase):
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
 
+    def test_operating_mode_options_use_requested_native_input_and_companions(self):
+        settings = parameters_configuration.BX_PLUS_OPERATING_MODE_OPTIONS
+        root = "Heizung_Wf1"
+        prefix = root + "_ThBwErwaermung"
+        mode = prefix + "_Modus"
+        values = {
+            root + "_Type": 2,
+            root + "_Aktiviert_Modus": 1,
+            root + "_NhRelais1_Nr": 1,
+            root + "_Sensor1_Nr": 2,
+            prefix + "_OLadepumpe": 0,
+            "TemperatureHysteresisSelector": 0,
+            mode: 0,
+            prefix + "_TEin": 450,
+            prefix + "_TEin_C": 450,
+            prefix + "_TAus": 550,
+            prefix + "_TAus_C": 550,
+        }
+
+        def setting_for(name, observed):
+            (setting,) = [s for s in settings if s.name == name and s.accepts(observed)]
+            return setting
+
+        setting = setting_for(mode, values)
+        self.assertFalse(setting.accepts(values, 1))
+        self.assertTrue(setting.accepts(values, 0))
+        values[root + "_Sensor2_Nr"] = 3
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertFalse(
+            setting.accepts({**values, prefix + "_TAus_C": 450}, 1)
+        )
+        self.assertFalse(
+            setting.accepts({**values, prefix + "_OLadepumpe": 1}, 1)
+        )
+        for flag, sensor in (
+            (root + "_OBetriebsartenschalterAus", root + "_SensorBetriebsartenschalter1_Nr"),
+            (prefix + "_OManuelleAufheizung", root + "_SensorSchalter1_Nr"),
+        ):
+            values.update({flag: 0, sensor: 4})
+            setting = setting_for(flag, values)
+            self.assertTrue(setting.accepts(values, 1))
+            self.assertFalse(setting.accepts({**values, sensor: 0}, 1))
+
+        root = "Heizung_Heizkreis1"
+        prefix = root + "_Kuehlung"
+        mode = prefix + "_Modus"
+        values = {
+            root + "_Type": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_System": 2,
+            root + "_Sensor1_Nr": 1,
+            root + "_Sensor2_Nr": 2,
+            prefix + "_Relais1_Nr": 3,
+            prefix + "_Aussen_TAussen": 250,
+            prefix + "_Aussen_TAussen_C": 250,
+            "TemperatureHysteresisSelector": 0,
+            mode: 0,
+        }
+        setting = setting_for(mode, values)
+        self.assertTrue(setting.accepts(values, 0))
+        self.assertFalse(setting.accepts(values, 1))
+        self.assertFalse(setting.accepts(values, 2))
+        values[prefix + "_ExtSchalter_Sensor1_Nr"] = 4
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertTrue(setting.accepts(values, 2))
+        values[root + "_Sensor2_Nr"] = 0
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertFalse(setting.accepts(values, 2))
+
+        root = "Solar_Kol1"
+        flag = root + "_Omin"
+        values = {
+            "Solar_SystemId": 10101,
+            "Solar_Relais1_Nr": 1,
+            root + "_Sensor1_Nr": 1,
+            "TemperatureHysteresisSelector": 0,
+            flag: 0,
+            root + "_Tmin": 150,
+            root + "_Tmin_C": 150,
+        }
+        setting = setting_for(flag, values)
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertFalse(
+            setting.accepts({**values, root + "_Tmin": 155, root + "_Tmin_C": 155}, 1)
+        )
+
     def test_coordination_options_require_live_assignments_and_setpoint_context(self):
         config = parameters_configuration
         settings = {
