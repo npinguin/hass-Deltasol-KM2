@@ -1622,8 +1622,21 @@ class DiscoveryTests(unittest.TestCase):
         for setting in configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS:
             target = definitions[setting.name]
             self.assertTrue(target.metadata["menu_refs"])
-            self.assertEqual(target.metadata["unit"].strip(), setting.unit)
-            self.assertEqual(target.storage, "unspecified")
+            if setting.name == "Solar_Spreizladung_dTDifferenz":
+                self.assertEqual(target.storage, "abstract")
+                capability = definitions["Solar_ParallelbeladungMoeglich"]
+                self.assertEqual(capability.index, 3439)
+                self.assertEqual(capability.storage, "volatile")
+                self.assertIn("Boolean", capability.metadata["type_chain"])
+                self.assertTrue(
+                    any(
+                        "Solar_ParallelbeladungMoeglich" in ref.get("mask", "")
+                        for ref in definitions["Solar_OSpreizladung"].metadata["menu_refs"]
+                    )
+                )
+            else:
+                self.assertEqual(target.metadata["unit"].strip(), setting.unit)
+                self.assertEqual(target.storage, "unspecified")
         for setting in configuration.BX_PLUS_SETTINGS:
             definition = definitions[setting.name]
             self.assertEqual(definition.index, setting.index)

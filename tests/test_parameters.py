@@ -1602,6 +1602,7 @@ class ParameterTests(unittest.TestCase):
         names = {
             s.name
             for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
+            if s.name != "Solar_Spreizladung_dTDifferenz"
         }
         self.assertTrue(names <= controls().keys())
         cap = controls()["Solar_Pendelpause"]
@@ -1623,6 +1624,40 @@ class ParameterTests(unittest.TestCase):
         self.values["Solar_OPumpenverzoegerung"] = (3422, 0)
         self.assertFalse(names & controls().keys())
         self.session.write_verified.assert_called_once()
+
+    def test_native_spread_loading_uses_live_eligibility_and_actual_store_pair(self):
+        name = "Solar_Spreizladung_dTDifferenz"
+        setting = next(
+            s for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
+            if s.name == name and s.unit == "K"
+        )
+        values = {
+            name: 300,
+            name + "_K": 300,
+            "Solar_SystemId": 10301,
+            "Solar_Relais1_Nr": 1,
+            "Solar_Kol1_Sensor1_Nr": 1,
+            "Solar_OSpreizladung": 1,
+            "Solar_ParallelbeladungMoeglich": 1,
+            "Solar_Sp2_Sensor1_Nr": 2,
+            "Solar_Sp2_Aktiviert_Modus": 1,
+            "Solar_Sp3_Sensor1_Nr": 3,
+            "Solar_Sp3_Aktiviert_Modus": 1,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(setting.accepts(values, setting.encode(35)))
+        self.assertFalse(setting.accepts(values, 199))
+        values["Solar_SystemId"] = 10201
+        self.assertFalse(setting.accepts(values))
+        values["Solar_SystemId"] = 10301
+        values["Solar_ParallelbeladungMoeglich"] = 0
+        self.assertFalse(setting.accepts(values))
+        values["Solar_ParallelbeladungMoeglich"] = 1
+        values["Solar_OSpreizladung"] = 0
+        self.assertFalse(setting.accepts(values))
+        values["Solar_OSpreizladung"] = 1
+        del values["Solar_ParallelbeladungMoeglich"]
+        self.assertFalse(setting.accepts(values))
 
     def test_dedicated_solar_bypass_requires_selected_collectors_and_assignment(self):
         self.session.read.return_value = 0x2734DABC

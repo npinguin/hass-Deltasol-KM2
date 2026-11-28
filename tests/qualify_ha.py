@@ -123,6 +123,8 @@ CONFIG_SELECTORS = {
     "Wmz1_Aktiviert_Modus": (17263, 1),
     "Relais_Modul1_R1_AktorFunktion": (2167, 2),
     "Solar_SystemId": (3416, 20201),
+    "Solar_ParallelbeladungMoeglich": (3439, 1),
+    "Solar_OSpreizladung": (3424, 1),
     "Solar_Wf1_Roehrenkollektor_Aktiviert_Modus": (3834, 1),
     "Solar_Wf1_Roehrenkollektor_KollektorMaske": (3839, 3),
     "Solar_Wf1_ExtWT_SpeicherMaske": (4089, 3),
@@ -230,6 +232,7 @@ CONFIG_SETTINGS = {
     "Solar_Wf1_ExtWT_dTaus": (4115, 40, 5, 195),
     "Solar_Wf1_ExtWT_dTAnstieg": (4121, 20, 10, 300),
     "Solar_Sp1_Vorrang": (3600, 1, 1, 5),
+    "Solar_Spreizladung_dTDifferenz": (3425, 300, 200, 900),
     "Anlage_Wf6_Waermeaustausch_HMinMax": (7912, 20, 5, 100),
     "Solar_Sp1_dTein": (3579, 60, 10, 200),
     "Solar_Sp1_dTaus": (3582, 40, 5, 195),
@@ -250,6 +253,7 @@ CONFIG_SETTINGS = {
 # This peer deliberately models the selected-unit parent contract. It is
 # independent software evidence, not a physical observation of this encoding.
 COMPOUND_NAMES = (
+    "Solar_Spreizladung_dTDifferenz",
     "Heizung_RelaisAnforderung1_Ausgang_dTSollVorlauf",
     "Heizung_RelaisAnforderung1_Ausgang_Vorlauf_dTHysterese",
     "Anlage_Wf6_Waermeaustausch_HMinMax",
@@ -667,6 +671,12 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         if index == 10778:
                             assert Peer.extra_values[10773] == 1
                             assert Peer.extra_values[10775] > 0
+                    elif index == 3425:
+                        assert Peer.extra_values[3439] == Peer.extra_values[3424] == 1
+                        assert Peer.extra_values[3416] == 20201
+                        assert Peer.extra_values[3452] > 0 and Peer.extra_values[3536] > 0
+                        assert Peer.extra_values[3576] > 0 and Peer.extra_values[3612] > 0
+                        assert Peer.extra_values[3604] == Peer.extra_values[3640] == 1
                     elif index == 7912:
                         assert Peer.extra_values[7814] == 5
                         assert Peer.extra_values[7821] == 1
@@ -1488,6 +1498,7 @@ async def qualify(directory, phase):
                     ("Anlage_Wf2_Feststoffkessel_TMax", "number", 194),
                     ("Solar_Sp1_dTein", "number", 14),
                     ("Solar_Sp1_Vorrang", "number", 2),
+                    ("Solar_Spreizladung_dTDifferenz", "number", 70),
                     ("Anlage_Wf6_Waermeaustausch_HMinMax", "number", 5),
                     ("Heizung_Wf1_Zirkulation_TEin", "number", 122),
                     ("Solar_Pendelpause", "number", 3),
@@ -2480,6 +2491,25 @@ async def qualify(directory, phase):
         Peer.extra_values[10775] = 2
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert float(hass.states.get(interval).state) == 35
+
+        before_spread = Peer.saves
+        name = "Solar_Spreizladung_dTDifferenz"
+        await number(name, 70)
+        assert Peer.saves == before_spread + 1
+        spread = entity(name, "number")
+        Peer.extra_values[3439] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(spread).state == "unavailable"
+        try:
+            await number(name, 80)
+        except HomeAssistantError:
+            pass
+        else:
+            raise AssertionError("Unavailable native parallel loading accepted")
+        assert Peer.saves == before_spread + 1
+        Peer.extra_values[3439] = 1
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert float(hass.states.get(spread).state) == 70
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"

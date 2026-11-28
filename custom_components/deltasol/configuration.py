@@ -2877,6 +2877,59 @@ def _solar_loading_logic_settings():
             dependencies=deps,
         )
 
+    # Native volatile eligibility bit, not a guessed relay/topology mapping.
+    # At least two actually active and assigned stores in the selected native
+    # system must be present, including systems where store 1 is disabled.
+    pairs = AnyDependencies(
+        tuple(
+            (
+                Dependency(
+                    "Solar_SystemId",
+                    3416,
+                    tuple(sorted(system for system in BX_PLUS_SOLAR_SYSTEMS
+                                 if (system // 100) % 100 >= second)),
+                ),
+                *(
+                    dep
+                    for slot in (first, second)
+                    for dep in (
+                        RangeDependency(
+                            f"Solar_Sp{slot}_Sensor1_Nr", 3576 + 36 * (slot - 1), 1, 65
+                        ),
+                        Dependency(
+                            f"Solar_Sp{slot}_Aktiviert_Modus", 3604 + 36 * (slot - 1), (1, 2)
+                        ),
+                    )
+                ),
+            )
+            for first in range(1, 4)
+            for second in range(first + 1, 5)
+        )
+    )
+    name = "Solar_Spreizladung_dTDifferenz"
+    for selector, alias, unit, limits in (
+        (0, "_K", "K", ("20", "90", "1", "0.1")),
+        (1, "_R", "°R", ("40", "180", "2", "0.1")),
+    ):
+        yield Setting(
+            name,
+            3425,
+            "Solar spread loading temperature differential",
+            "number",
+            True,
+            limits=limits,
+            unit=unit,
+            installed_by=installed,
+            dependencies=(
+                RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
+                Dependency("Solar_ParallelbeladungMoeglich", 3439, (1,)),
+                Dependency("Solar_OSpreizladung", 3424, (1,)),
+                pairs,
+                Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+            ),
+            compound_mirrors=((name, 3425, name + alias, 3426 + selector),),
+        )
+
 
 BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS = tuple(_solar_loading_logic_settings())
 
