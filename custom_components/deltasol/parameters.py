@@ -34,10 +34,12 @@ from .configuration import (
     BX_PLUS_THERMOSTAT_SETTINGS,
     BX_PLUS_TIMING_SETTINGS,
     BX_PLUS_TRANSFER_SETTINGS,
+    WEEKLY_OWNERS,
     ConfigurationCapability,
     Setting,
     bind_setting,
     encode_action,
+    weekly_settings_for,
 )
 from .vbus import (
     ERROR_CODES,
@@ -103,6 +105,8 @@ class ControllerProfile:
                 # A contradictory definition cannot authorize this setting.
                 # Unrelated, independently validated contracts still work.
                 continue
+        if self.address == 0x7112 and changeset == 0x2734DABC:
+            bound.extend(weekly_settings_for(definitions))
         return tuple(bound)
 
 
@@ -394,6 +398,104 @@ def _read_settings(
     return {uid: cap for uid, cap in result.items() if uid not in ambiguous}
 
 
+def _read_weekly_settings(
+    session, profile, changeset, settings, controller, hints=None, *, complete=False
+):
+    """Read live program context through the same owner; full proof on mutation."""
+    slots = {setting.weekly_slot for setting in settings}
+    if not slots:
+        return {}
+    hints = hints or {}
+    candidates = tuple(
+        owner for owner in WEEKLY_OWNERS
+        if complete or (
+            (row := hints.get(owner.name)) is not None
+            and row.status == "read" and row.index == owner.index
+            and row.value in slots
+        )
+    )
+    if not candidates:
+        return {}
+
+    def read(expected, packed=None):
+        return session.read_parameter_observations(
+            profile.address, expected, changeset,
+            expected=expected, schema=profile.schema_index, packed=packed,
+        )
+
+    refs = read({owner.name: owner.index for owner in candidates})
+    links = {}
+    unknown = []
+    for owner in candidates:
+        row = refs.get(owner.name)
+        if (
+            row is None or row.status != "read" or row.index != owner.index
+            or type(row.value) is not int or not 0 <= row.value <= 50
+        ):
+            if complete and row is not None and row.status == "layout_mismatch":
+                raise VBusError("Configuration parameter is no longer supported")
+            unknown.append(owner)
+        elif row.value in slots:
+            links.setdefault(row.value, []).append(owner)
+    if not links:
+        return {}
+    conditions = {
+        dep.name: dep.index
+        for owner in (
+            *(owner for owners in links.values() for owner in owners),
+            *(unknown if complete else ()),
+        )
+        for dep in owner.conditions
+    }
+    observations = read(conditions)
+    values = {
+        name: row.value for name, row in observations.items()
+        if row.status == "read" and row.index == conditions[name]
+    }
+    if complete and any(not owner.inactive(values) for owner in unknown):
+        raise VBusError("Configuration parameter is no longer supported")
+    active = {
+        slot: tuple(sorted(owner.name for owner in owners if owner.active(values)))
+        for slot, owners in links.items()
+    }
+    eligible = tuple(
+        setting for setting in settings if active.get(setting.weekly_slot)
+    )
+    if not eligible:
+        return {}
+    expected = {
+        name: index for setting in eligible for name, index in setting.expected.items()
+    }
+    packed = {
+        setting.name: {
+            name: index for name, index in setting.expected.items() if name != setting.name
+        }
+        for setting in eligible
+    }
+    observations = read(expected, packed)
+    values = {
+        name: row.value for name, row in observations.items()
+        if row.status == "read" and row.index == expected[name]
+    }
+    result = {}
+    for setting in eligible:
+        row = observations.get(setting.name)
+        if row is None or row.status != "read" or row.index != setting.index:
+            continue
+        words = row.packed_words
+        if not words or words[0] != row.value:
+            continue
+        slot = setting.weekly_slot
+        if not setting.accepts({**values, setting.name: words}):
+            continue
+        cap = ConfigurationCapability(
+            setting, controller, controller, changeset, words,
+            tuple(sorted(owner.name for owner in links[slot])), active[slot],
+        )
+        result[cap.unique_id] = cap
+    return result
+
+
 def _read_group(
     session, profile, changeset, group, controller, device, numbers, module_flags=None
 ):
@@ -643,7 +745,7 @@ class RelayParameters:
                 failure = error
                 if (
                     isinstance(error, VBusTransientError)
-                    or str(error) == "VBus write outcome uncertain"
+                    or str(error).startswith("VBus write outcome uncertain")
                     or (session is not None and session.release_failed is True)
                 ):
                     self._failure_streak += 1
@@ -716,6 +818,11 @@ class RelayParameters:
                 ):
                     selector_hints.update(previous.selector_hints)
                     cursor = previous.selector_cursor
+                if any(setting.weekly_slot is not None for setting in contracts):
+                    selectors = sorted(
+                        {*selectors, *((owner.name, owner.index) for owner in WEEKLY_OWNERS)},
+                        key=lambda item: item[1],
+                    )
                 if selectors:
                     cursor %= len(selectors)
                     count = min(SELECTORS_PER_REFRESH, len(selectors))
@@ -756,10 +863,17 @@ class RelayParameters:
                 session,
                 profile,
                 changeset,
-                settings,
+                tuple(setting for setting in settings if setting.weekly_slot is None),
                 controller,
                 inventory,
                 relay_capabilities=capabilities,
+            )
+            configuration.update(
+                _read_weekly_settings(
+                    session, profile, changeset,
+                    tuple(setting for setting in settings if setting.weekly_slot is not None),
+                    controller, configuration_hints,
+                )
             )
         return RelayDiscovery(
             profile,
@@ -833,6 +947,11 @@ class RelayParameters:
         )
 
         def current_contract(session, requested=None):
+            if setting.weekly_slot is not None:
+                return _read_weekly_settings(
+                    session, profile, capability.changeset, (setting,), controller,
+                    complete=True,
+                ).get(capability.unique_id)
             selectors = {
                 candidate.installed_by.name: candidate.installed_by.index
                 for candidate in alternatives
@@ -872,33 +991,57 @@ class RelayParameters:
 
         # Hold the existing owner lock across both sessions. Never retry a save
         # when acknowledgement, release or verification is uncertain.
+        def same_context(current):
+            return (
+                current is not None
+                and current.device == capability.device
+                and current.setting == setting
+                and current.owners == capability.owners
+                and current.active_owners == capability.active_owners
+            )
+
         with self._lock:
-            with self._session(profile.address) as session:
-                current = current_contract(session, wanted)
-                if (
-                    current is None
-                    or current.device != capability.device
-                    or current.setting != setting
-                ):
-                    raise VBusError("Configuration parameter is no longer supported")
-                if current.raw == wanted:
-                    return current
-                session.write_verified(
-                    profile.address,
-                    setting.index,
-                    wanted,
-                    capability.changeset,
-                    save=setting.save,
-                )
-            with self._session(profile.address) as session:
-                verified = current_contract(session)
-                if (
-                    verified is None
-                    or verified.device != capability.device
-                    or verified.setting != setting
-                    or verified.raw != wanted
-                ):
-                    raise VBusError("Configuration reconnect readback differs")
+            attempted = False
+            try:
+                with self._session(profile.address) as session:
+                    current = current_contract(session, wanted)
+                    if not same_context(current) or (
+                        setting.weekly_slot is not None and current.raw != capability.raw
+                    ):
+                        raise VBusError("Configuration parameter is no longer supported")
+                    if current.raw == wanted:
+                        return current
+                    if setting.weekly_slot is not None:
+                        attempted = True
+                        session.write_packed_verified(
+                            profile.address, setting.index, current.raw, wanted,
+                            capability.changeset,
+                        )
+                    else:
+                        session.write_verified(
+                            profile.address, setting.index, wanted,
+                            capability.changeset, save=setting.save,
+                        )
+                with self._session(profile.address) as session:
+                    verified = current_contract(session)
+                    if not same_context(verified) or verified.raw != wanted:
+                        raise VBusError("Configuration reconnect readback differs")
+            except (OSError, VBusError) as error:
+                if not attempted:
+                    raise
+                outcome = "unavailable"
+                try:
+                    with self._session(profile.address) as session:
+                        observed = current_contract(session)
+                    if same_context(observed):
+                        outcome = (
+                            "previous" if observed.raw == capability.raw
+                            else "requested" if observed.raw == wanted
+                            else "partial"
+                        )
+                except (OSError, VBusError):
+                    pass
+                raise VBusError(f"VBus write outcome uncertain: {outcome}") from error
         return verified
 
     def set_mode(self, telemetry, capability, option):
