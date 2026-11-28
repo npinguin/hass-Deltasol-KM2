@@ -2135,9 +2135,7 @@ class DiscoveryTests(unittest.TestCase):
                 if dependency.name.startswith("Solar_Kol"):
                     self.assertEqual(definitions[dependency.name].storage, "volatile")
         pulse = next(
-            setting
-            for setting in bound
-            if setting.name == "Solar_Losreissimpuls"
+            setting for setting in bound if setting.name == "Solar_Losreissimpuls"
         )
         self.assertEqual(pulse.index, 3438)
         self.assertEqual(pulse.limits, ("10", "300", "1", "1"))
