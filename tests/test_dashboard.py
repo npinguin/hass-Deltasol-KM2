@@ -335,15 +335,17 @@ class DashboardTests(unittest.TestCase):
             is_admin=False,
             permissions=SimpleNamespace(check_entity=lambda *_: True),
         )
-        registered = SimpleNamespace(
-            entity_id="number.room", entity_category=None
-        )
+        registered = SimpleNamespace(entity_id="number.room", entity_category=None)
         state = SimpleNamespace(state="21")
         setting = SimpleNamespace(
             name="Heizung_Heizkreis2_Raumthermostat3_TRaum",
             save=True,
             kind="number",
         )
-        self.assertEqual(access(registered, setting, state, user, False), ("controls", True))
+        self.assertEqual(
+            access(registered, setting, state, user, False), ("controls", True)
+        )
         setting.name = "Heizung_Heizkreis2_Raumthermostat3_dTRaum"
-        self.assertEqual(access(registered, setting, state, user, False), ("settings", False))
+        self.assertEqual(
+            access(registered, setting, state, user, False), ("settings", False)
+        )

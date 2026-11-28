@@ -2362,7 +2362,9 @@ def _loading_temperature_settings():
             installed = Dependency(f"{family}_Type", type_index, (kind,))
             activity = Dependency(f"{family}_Aktiviert_Modus", activity_index, (1, 2))
             label_family = (
-                "Arrangement function" if family.startswith("Anlage_") else "Heating function"
+                "Arrangement function"
+                if family.startswith("Anlage_")
+                else "Heating function"
             )
             for selector, suffix, unit, low, high in (
                 (0, "_C", "°C", ("0", "94", "1", "0.1"), ("1", "95", "1", "0.1")),
