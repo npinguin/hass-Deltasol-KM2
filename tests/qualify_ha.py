@@ -197,10 +197,7 @@ CONFIG_SELECTORS = {
     "Solar_Relais1_Nr": (3452, 1),
     "Solar_Kol1_Sensor1_Nr": (3536, 1),
     "Solar_Sp1_Sensor1_Nr": (3576, 2),
-    "Solar_Sp1_Aktiviert_Modus": (3604, 1),
     "Solar_Sp2_Sensor1_Nr": (3612, 3),
-    "Solar_Sp2_Aktiviert_Modus": (3640, 1),
-    "Solar_Beladungstyp": (3417, 0),
     "Solar_Wf1_Bypass_Sensor1_Nr": (3896, 4),
     "Solar_Wf1_Bypass_Relais1_Nr": (3900, 2),
     "Solar_Wf1_Bypass_Variante": (3894, 0),
@@ -220,6 +217,9 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_dtVerzoegerung": (11414, 0),
 }
 CONFIG_SETTINGS = {
+    "Solar_Beladungstyp": (3417, 0, 0, 1),
+    "Solar_Sp2_Aktiviert_Modus": (3640, 1, 0, 2),
+    "Solar_Sp1_Aktiviert_Modus": (3604, 1, 0, 2),
     "Heizung_Wf2_OFeststoffkesselAus": (11436, 0, 0, 1),
     "Heizung_Heizkreis1_Nachheizung_OFeststoffkesselAus": (14037, 0, 0, 1),
     "Anlage_Wf5_Funktionsblock_OBezugsrelais": (7739, 0, 0, 1),
@@ -379,6 +379,10 @@ CONFIG_SETTINGS = {
     "Solar_Sp1_dTein": (3579, 60, 10, 200),
     "Solar_Sp1_dTaus": (3582, 40, 5, 195),
     "Solar_Sp1_dTsoll": (3585, 100, 15, 300),
+    "Solar_Sp1_Hmax": (3594, 20, 1, 100),
+    "Solar_Sp1_Anstieg": (3597, 20, 10, 200),
+    "Solar_Sp1_tMin": (3601, 30, 0, 300),
+    "Solar_Sp1_MinDrehzahl": (3602, 30, 20, 100),
     "Solar_Pendelpause": (3418, 2, 1, 5),
     "Solar_Umwaelzzeit": (3419, 15, 1, 60),
     "Solar_Pausendrehzahl": (3421, 30, 20, 100),
@@ -416,6 +420,8 @@ COMPOUND_NAMES = (
     "Solar_Sp1_dTein",
     "Solar_Sp1_dTaus",
     "Solar_Sp1_dTsoll",
+    "Solar_Sp1_Hmax",
+    "Solar_Sp1_Anstieg",
     "Anlage_Wf3_RLBeimischung_dTEin",
     "Anlage_Wf3_RLBeimischung_dTAus",
     "Anlage_Wf3_RLBeimischung_dTSoll",
@@ -868,7 +874,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert (
                             Peer.extra_values[3576] > 0 and Peer.extra_values[3612] > 0
                         )
-                        assert Peer.extra_values[3604] == Peer.extra_values[3640] == 1
+                        assert Peer.settings[3604] == Peer.settings[3640] == 1
                     elif index == 7912:
                         assert Peer.extra_values[7814] == 5
                         assert Peer.extra_values[7821] == 1
@@ -877,7 +883,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
                         assert Peer.extra_values[3576] > 0
-                        assert Peer.extra_values[3604] == 1
+                        assert Peer.settings[3604] == 1
                         assert proposed[3582] < proposed[3579] < proposed[3585]
                     elif index in (7261, 7264, 7267):
                         assert Peer.extra_values[7061] == 11
@@ -917,7 +923,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
                         assert (
-                            Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
+                            Peer.extra_values[3576] > 0 and Peer.settings[3604] == 1
                         )
                     else:
                         assert proposed[6917] < proposed[6914] < proposed[6920]
@@ -947,7 +953,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
                         assert (
-                            Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
+                            Peer.extra_values[3576] > 0 and Peer.settings[3604] == 1
                         )
                     elif index == 6629:
                         assert Peer.extra_values[6559] == 2
@@ -988,7 +994,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 # Peer independently verifies installed program constraints.
                 if index == 3600:
                     assert Peer.extra_values[3416] == 20201
-                    assert Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
+                    assert Peer.extra_values[3576] > 0 and Peer.settings[3604] == 1
                     assert Peer.extra_values[3536] > 0 and Peer.extra_values[3452] > 0
                     assert 1 <= value <= 2
                 if index in (18234, 18235):
@@ -1095,7 +1101,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert Peer.extra_values[4094] > 0 and Peer.extra_values[4102] > 0
                     assert Peer.extra_values[3452] > 0
                     assert Peer.extra_values[3576] > 0 and Peer.extra_values[3612] > 0
-                    assert Peer.extra_values[3604] == Peer.extra_values[3640] == 1
+                    assert Peer.settings[3604] == Peer.settings[3640] == 1
                 if index in (3991, 3992):
                     assert Peer.settings[3981] == 1
                     assert Peer.extra_values[3988] > 0
@@ -1131,14 +1137,14 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert Peer.extra_values[3452] > 0
                     assert Peer.extra_values[3536] > 0
                     assert Peer.extra_values[3576] > 0
-                    assert Peer.extra_values[3604] == 1
+                    assert Peer.settings[3604] == 1
                     if index == 3423:
                         assert Peer.extra_values[3422] == 1
                         assert value % 5 == 0
                     else:
                         assert Peer.extra_values[3612] > 0
-                        assert Peer.extra_values[3640] == 1
-                        assert Peer.extra_values[3417] == 0
+                        assert Peer.settings[3640] == 1
+                        assert Peer.settings[3417] == 0
                         if index == 3421:
                             assert Peer.extra_values[3420] == 1
                 Peer.settings[index] = stored_value
@@ -3123,6 +3129,23 @@ async def qualify(directory, phase):
             await hass.async_block_till_done()
             assert Peer.settings[index] == 1
             assert Peer.saves == before_option + 1
+
+        loading = entity("Solar_Beladungstyp", "select")
+        store_activity = entity("Solar_Sp1_Aktiviert_Modus", "select")
+        assert loading and store_activity
+        before_solar = Peer.saves
+        await set_mode(loading, "Successive")
+        assert Peer.settings[3417] == 1
+        await set_mode(loading, "Pendulum")
+        assert Peer.settings[3417] == 0
+        before_store = {i: Peer.settings[i] for i in (3579, 3582, 3585, 3588, 3591)}
+        await set_mode(store_activity, "Deactivated")
+        assert Peer.settings[3604] == 0
+        assert hass.states.get(entity("Solar_Sp1_dTein", "number")).state == "unavailable"
+        await set_mode(store_activity, "Activated")
+        assert Peer.settings[3604] == 1
+        assert all(Peer.settings[i] == value for i, value in before_store.items())
+        assert Peer.saves == before_solar + 4
 
         timer = entity("Anlage_Wf8_OSchaltuhr", "switch")
         assert timer and hass.states.get(timer).state == "off"
