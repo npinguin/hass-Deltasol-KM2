@@ -177,6 +177,10 @@ class Peer:
         **{index: value for index, value, _, _ in CONFIG_SETTINGS.values()},
     }
     persistent_file = None
+    weekly_file = None
+    weekly_words: ClassVar[dict[int, list[int]]] = {18419: [0x50482820, -1, -1], 18420: [-48326, -1, -1]}
+    bulk_saves = 0
+    fail_bulk_subindex = None
     drop_discovery_response = False
     drop_relay_response = False
     drop_next_offer = False
@@ -242,10 +246,32 @@ TIMER_VALUES = {
     "Wsu1_Schaltuhr_Woche_TagMo_Daten": (18419, 0x50482820),
     "Wsu1_Schaltuhr_Woche_TagDi_Daten": (18420, -48326),
     "Anlage_Wf1_SchaltuhrNr": (6620, 1),
+    "Anlage_Wf1_OSchaltuhr": (6574, 0),
+    "Anlage_Wf4_Type": (7312, 9),
+    "Anlage_Wf4_Aktiviert_Modus": (7319, 1),
+    "Anlage_Wf4_OSchaltuhr": (7327, 1),
+    "Anlage_Wf4_SchaltuhrNr": (7373, 1),
 }
 
 
 def additional_configuration():
+    # Independent full reference pool: inactive references are zero.
+    for slot in range(1, 17):
+        for family, base, stride in (("Anlage_Wf", 6620, 251), ("Heizung_Wf", 11346, 151)):
+            name = f"{family}{slot}_SchaltuhrNr"
+            index = base + stride * (slot - 1)
+            Peer.extra_lookups[semantic_hash(name)] = index
+            Peer.extra_values[index] = 0
+    for slot in range(1, 8):
+        root = f"Heizung_Heizkreis{slot}"
+        index = 13817 + 495 * (slot - 1)
+        Peer.extra_lookups[semantic_hash(root + "_SchaltuhrNr")] = index
+        Peer.extra_values[index] = 0
+        for room in range(1, 6):
+            name = f"{root}_Raumthermostat{room}_SchaltuhrNr"
+            ref = index + 32 * room
+            Peer.extra_lookups[semantic_hash(name)] = ref
+            Peer.extra_values[ref] = 0
     for name, (index, value) in CONFIG_SELECTORS.items():
         Peer.extra_lookups[semantic_hash(name)] = index
         Peer.extra_values[index] = value
@@ -299,6 +325,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
 
     def exchange(self):
         relay_changed = False
+        bulk_active = False
         self.wfile.write(datagram(0, ADDRESS, 0x0500))
         while frame := self.rfile.read(16):
             assert len(frame) == 16 and frame[0] == 170
@@ -347,6 +374,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     2169: 1,
                     **Peer.settings,
                     **Peer.extra_values,
+                    **{idx: words[0] for idx, words in Peer.weekly_words.items()},
                     **{
                         parent: Peer.settings[parent] * (1 + Peer.settings[60])
                         for parent in COMPOUND_PARENTS
@@ -373,7 +401,32 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 if index == 18420 and subindex == 2:
                     response = datagram(source, ADDRESS, 0x4302, index)
                 else:
-                    response = datagram(source, ADDRESS, 0x0100 | subindex, index, -1)
+                    response = datagram(source, ADDRESS, 0x0100 | subindex, index, Peer.weekly_words[index][subindex])
+            elif command == 0x1300:
+                response = datagram(source, ADDRESS, 0x1301, index, 0x08)
+            elif command == 0x1400:
+                assert not bulk_active and value > 0
+                bulk_active = True
+                response = datagram(source, ADDRESS, 0x1401, index)
+            elif command in (0x1500, 0x1501, 0x1502):
+                assert bulk_active and index == 18419
+                assert Peer.extra_values[18414] == Peer.extra_values[18418] == 1
+                assert Peer.extra_values[7373] == 1
+                subindex = command & 0xFF
+                # Native bulk writes mutate immediately; no staging buffer.
+                Peer.weekly_words[index][subindex] = value
+                if Peer.fail_bulk_subindex == subindex:
+                    Peer.fail_bulk_subindex = None
+                    return
+                response = datagram(source, ADDRESS, 0x1600 | subindex, index)
+            elif command == 0x1402:
+                assert bulk_active
+                bulk_active = False
+                Peer.bulk_saves += 1
+                temporary = Peer.weekly_file.with_suffix(".tmp")
+                temporary.write_text(json.dumps(Peer.weekly_words), encoding="utf-8")
+                temporary.replace(Peer.weekly_file)
+                response = datagram(source, ADDRESS, 0x1403, index)
             elif command == 0x0200:
                 if index == RELAY:
                     assert value in (0, 2, 4)
@@ -691,11 +744,12 @@ async def qualify(directory, phase):
         week = weekly["programs"]["Wsu1"]
         assert week["allocated"] and week["initialized"]
         monday = week["days"]["Mo"]
-        assert monday["observed_words"] == [0x50482820, -1, -1]
+        assert monday["observed_words"] == Peer.weekly_words[18419]
         assert monday["candidate_status"] == "wire_word_mapping_verified"
         assert monday["payload_verified"]
+        expected_start = 480 if Peer.weekly_words[18419][0] == 0x50482820 else 510
         assert monday["candidate_windows"] == [
-            {"start_minute": 480, "end_minute": 600},
+            {"start_minute": expected_start, "end_minute": 600},
             {"start_minute": 1080, "end_minute": 1200},
         ]
         tuesday = week["days"]["Di"]
@@ -1654,6 +1708,23 @@ async def qualify(directory, phase):
         assert Peer.settings[3992] == 150 and Peer.settings[4344] == 700
         assert Peer.settings[4347] == 30 and Peer.saves == 36
 
+        schedule = entity("Wsu1_Schaltuhr_Woche_TagMo_Daten", "text")
+        assert schedule and hass.states.get(schedule).state == "08:00-10:00, 18:00-20:00"
+        assert set(hass.states.get(schedule).attributes["observed_references"]) == {
+            "Anlage_Wf1_SchaltuhrNr", "Anlage_Wf4_SchaltuhrNr"
+        }
+        assert hass.states.get(schedule).attributes["active_references"] == [
+            "Anlage_Wf4_SchaltuhrNr"
+        ]
+        await hass.services.async_call(
+            "text", "set_value", {"entity_id": schedule, "value": "08:30-10:00, 18:00-20:00"},
+            blocking=True,
+        )
+        assert hass.states.get(schedule).state == "08:30-10:00, 18:00-20:00"
+        assert Peer.weekly_words[18419] == [0x50482822, -1, -1]
+        assert Peer.bulk_saves == 1
+        assert json.loads(Peer.weekly_file.read_text(encoding="utf-8"))["18419"] == [0x50482822, -1, -1]
+
         # Stop the actual HA process with an incomplete active capture. The
         # following restart phase must restore the same committed checkpoint.
         with (
@@ -1696,6 +1767,9 @@ def main():
     additional_relays()
     additional_configuration()
     Peer.persistent_file = directory / "qualification-peer-settings.json"
+    Peer.weekly_file = directory / "qualification-peer-weekly.json"
+    if Peer.weekly_file.exists():
+        Peer.weekly_words = {int(index): words for index, words in json.loads(Peer.weekly_file.read_text(encoding="utf-8")).items()}
     if Peer.persistent_file.exists():
         Peer.settings = {
             int(index): value
