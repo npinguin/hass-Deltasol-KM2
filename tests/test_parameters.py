@@ -183,6 +183,70 @@ class ParameterTests(unittest.TestCase):
             setting.accepts({**values, root + "_OVolumenstromSensor": 0}, 1)
         )
 
+    def test_circulation_activity_validates_only_installed_variant(self):
+        config = parameters_configuration
+        for slot in range(1, 17):
+            root = f"Heizung_Wf{slot}"
+            prefix = root + "_Zirkulation"
+            variant = prefix + "_Variante"
+            mode = root + "_Aktiviert_Modus"
+            switch = root + "_Aktiviert_SensorSchalter_Nr"
+            thermal = {
+                root + "_Sensor1_Nr": 1,
+                "TemperatureHysteresisSelector": 0,
+                prefix + "_TEin": 400,
+                prefix + "_TEin_C": 400,
+                prefix + "_TAus": 450,
+                prefix + "_TAus_C": 450,
+            }
+            allocation, days = config.WeeklyProgram.layout(1)
+            timer = {
+                root + "_SchaltuhrNr": 1,
+                **dict.fromkeys(allocation, 1),
+                **dict.fromkeys(days, bytes([255]) * 12),
+            }
+            demand = {
+                root + "_SensorSchalter1_Nr": 3,
+                prefix + "_dtLaufzeit": 180,
+                prefix + "_dtPausenzeit": 30,
+                prefix + "_dtVerzoegerung": 0,
+            }
+            for value, required in enumerate(
+                (thermal, timer, thermal | timer, demand, demand | timer)
+            ):
+                with self.subTest(slot=slot, variant=value):
+                    values = {
+                        root + "_Type": 4,
+                        root + "_Relais1_Nr": 2,
+                        mode: 0,
+                        variant: value,
+                        **required,
+                    }
+                    (setting,) = [
+                        s
+                        for s in config.BX_PLUS_ACTIVITY_SETTINGS
+                        if s.name == mode and s.accepts(values)
+                    ]
+                    self.assertTrue(setting.accepts(values, 0))
+                    self.assertTrue(setting.accepts(values, 1))
+                    self.assertFalse(setting.accepts(values, 2))
+                    self.assertTrue(setting.accepts({**values, switch: 4}, 2))
+                    for name in required:
+                        missing = dict(values)
+                        del missing[name]
+                        self.assertFalse(setting.accepts(missing, 1), name)
+                        self.assertTrue(setting.accepts(missing, 0), name)
+                    self.assertFalse(
+                        setting.accepts({**values, root + "_Relais1_Nr": 0}, 1)
+                    )
+                    self.assertFalse(setting.accepts({**values, variant: 5}, 1))
+                    if value in (1, 2, 4):
+                        bad = {**values, next(iter(days)): b"bad"}
+                        self.assertFalse(setting.accepts(bad, 1))
+                    if value in (3, 4):
+                        bad = {**values, prefix + "_dtLaufzeit": 181}
+                        self.assertFalse(setting.accepts(bad, 1))
+
     def test_room_activation_preserves_required_sensor_and_timer(self):
         config = parameters_configuration
         root = "Heizung_Heizkreis1"

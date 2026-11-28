@@ -180,11 +180,18 @@ CONFIG_SELECTORS = {
     "Solar_Wf1_Zieltemperatur_Sensor1_Nr": (4341, 7),
     "Solar_Wf1_Zieltemperatur_Aktiviert_Modus": (4335, 1),
     "Heizung_Wf1_Type": (11266, 4),
-    "Heizung_Wf1_Aktiviert_Modus": (11273, 1),
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
+    "Heizung_Wf1_Aktiviert_SensorSchalter_Nr": (11275, 4),
+    "Heizung_Wf1_Sensor1_Nr": (11290, 1),
+    "Heizung_Wf1_SensorSchalter1_Nr": (11311, 3),
+    "Heizung_Wf1_Relais1_Nr": (11321, 2),
+    "Heizung_Wf1_Zirkulation_dtLaufzeit": (11406, 180),
+    "Heizung_Wf1_Zirkulation_dtPausenzeit": (11407, 30),
+    "Heizung_Wf1_Zirkulation_dtVerzoegerung": (11414, 0),
 }
 CONFIG_SETTINGS = {
     "Anlage_Wf1_Aktiviert_Modus": (6566, 1, 0, 2),
+    "Heizung_Wf1_Aktiviert_Modus": (11273, 1, 0, 2),
     "Heizung_Heizkreis1_Nachheizung_Modus": (13706, 0, 0, 2),
     "Heizung_RelaisPumpe1_Anlauf_Modus": (11178, 2, 0, 2),
     "Heizung_RelaisPumpe1_Nachlauf_Modus": (11183, 1, 0, 2),
@@ -526,6 +533,7 @@ def additional_relays():
 # physical controller's multiword mapping or persistence.
 TIMER_VALUES = {
     "Heizung_Heizkreis1_Raumthermostat1_SchaltuhrNr": (13849, 3),
+    "Heizung_Wf1_SchaltuhrNr": (11346, 2),
     "Wsu3_Belegt": (18440, 1),
     "Wsu3_Schaltuhr_Woche_Initialisiert": (18444, 1),
     "Wsu3_Schaltuhr_Woche_TagMo_Daten": (18445, -1),
@@ -708,7 +716,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 }[index]
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command in (0x0301, 0x0302):
-                assert index in (18419, 18420)
+                assert index in Peer.weekly_words
                 subindex = command & 0xFF
                 if index == 18420 and subindex == 2:
                     response = datagram(source, ADDRESS, 0x4302, index)
@@ -873,7 +881,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 if index in TEMPERATURE_PARENTS:
                     if index in (11408, 11411):
                         assert Peer.extra_values[11266] == 4
-                        assert Peer.extra_values[11273] == 1
+                        assert Peer.settings[11273] == 1
                         assert Peer.extra_values[11405] == 0
                     elif index == 11184:
                         assert Peer.extra_values[11166] == 2
@@ -2877,6 +2885,36 @@ async def qualify(directory, phase):
         assert Peer.settings[6629] == previous_target
         assert hass.states.get(target).state != "unavailable"
         assert Peer.saves == before_activity + 3
+        circulation_activity = entity("Heizung_Wf1_Aktiviert_Modus", "select")
+        assert circulation_activity
+        # Change only the independent peer's installed variant. The native HA
+        # action edits activity, not allocation, sensor or variant preferences.
+        for variant in range(5):
+            Peer.extra_values[11405] = variant
+            await entry.runtime_data.relay_coordinator.async_refresh()
+            await hass.async_block_till_done()
+            await set_mode(circulation_activity, "Deactivated")
+            before = Peer.saves
+            if variant in (1, 2, 4):
+                Peer.extra_values[18427] = 0
+                await reject_mode(circulation_activity, "Activated")
+                assert Peer.saves == before
+                Peer.extra_values[18427] = 1
+            if variant in (3, 4):
+                Peer.extra_values[11311] = 0
+                await reject_mode(circulation_activity, "External switch")
+                assert Peer.saves == before
+                Peer.extra_values[11311] = 3
+            await set_mode(circulation_activity, "External switch")
+            await set_mode(circulation_activity, "Activated")
+            await set_mode(circulation_activity, "Activated")
+            assert Peer.saves == before + 2
+            assert Peer.settings[11273] == 1
+            assert Peer.extra_values[11405] == variant
+            assert Peer.extra_values[11346] == 2
+        Peer.extra_values[11405] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        await hass.async_block_till_done()
         room_activation = entity(
             "Heizung_Heizkreis1_Raumthermostat1_Aktiviert", "select"
         )

@@ -1658,6 +1658,22 @@ class DiscoveryTests(unittest.TestCase):
             self.assertTrue(target.metadata["menu_refs"])
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
+        for slot in range(1, 17):
+            root = f"Heizung_Wf{slot}"
+            variant = definitions[root + "_Zirkulation_Variante"]
+            self.assertEqual(set(catalog.ordinal_options(variant)), set(range(5)))
+            self.assertEqual(variant.index, 11405 + (slot - 1) * 151)
+            setting = next(
+                s
+                for s in activity
+                if s.name == root + "_Aktiviert_Modus"
+                and s.installed_by.allowed == (4,)
+            )
+            self.assertEqual(setting.dependencies[0].allowed, tuple(range(5)))
+            self.assertEqual(
+                {ref.name for ref in setting.weekly_references(1)},
+                {root + "_SchaltuhrNr"},
+            )
         self.assertEqual(len(bound), len(profile.settings) + 350)
         self.assertEqual(len([s for s in bound if s.weekly_slot is not None]), 350)
         # Report the remaining catalogue/menu review surface as part of the

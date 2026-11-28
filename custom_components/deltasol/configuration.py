@@ -3796,26 +3796,46 @@ def _installed_function_activity():
             ),
         )
         prefix = root + "_Zirkulation"
-        thermal_circulation = _activity_setting(
+        variant = prefix + "_Variante"
+        thermal = (
+            sensor,
+            _activity_thermal(
+                prefix,
+                (
+                    ("TEin", 11408 + ho, (100, 590, 10), (500, 1380, 20), False),
+                    ("TAus", 11411 + ho, (110, 600, 10), (520, 1400, 20), False),
+                ),
+                (("TAus", 11411 + ho, "TEin", 11408 + ho),),
+            ),
+        )
+        timer = (WeeklyProgram(root + "_SchaltuhrNr", 11346 + ho, True),)
+        demand = (
+            RangeDependency(root + "_SensorSchalter1_Nr", 11311 + ho, 1, 65),
+            _raw_steps(prefix + "_dtLaufzeit", 11406 + ho, 60, 900, 15),
+            _raw_steps(prefix + "_dtPausenzeit", 11407 + ho, 10, 60, 1),
+            _raw_steps(prefix + "_dtVerzoegerung", 11414 + ho, 0, 3, 1),
+        )
+        # Native Type 4 derives the applicable predicates from its variant,
+        # not from the separate DHW timer flag. Preserve the installed variant.
+        circulation = _activity_setting(
             root,
             11273 + ho,
             Dependency(root + "_Type", 11266 + ho, (4,)),
             (
-                sensor,
                 output,
-                _activity_thermal(
-                    prefix,
-                    (
-                        ("TEin", 11408 + ho, (100, 590, 10), (500, 1380, 20), False),
-                        ("TAus", 11411 + ho, (110, 600, 10), (520, 1400, 20), False),
-                    ),
-                    (("TAus", 11411 + ho, "TEin", 11408 + ho),),
+                AnyDependencies(
+                    tuple(
+                        (Dependency(variant, 11405 + ho, (mode,)), *requirements)
+                        for mode, requirements in enumerate(
+                            (thermal, timer, thermal + timer, demand, demand + timer)
+                        )
+                    )
                 ),
             ),
         )
         yield replace(
-            thermal_circulation,
-            dependencies=(Dependency(prefix + "_Variante", 11405 + ho, (0,)),),
+            circulation,
+            dependencies=(Dependency(variant, 11405 + ho, (0, 1, 2, 3, 4)),),
         )
 
         so = (slot - 1) * 120
