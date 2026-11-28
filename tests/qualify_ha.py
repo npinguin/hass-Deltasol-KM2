@@ -2027,9 +2027,7 @@ async def qualify(directory, phase):
         assert Peer.writes == 7
         assert hass.states.get(em).state == "unavailable"
         assert telemetry.observed_inventory is not initial_inventory
-        assert all(
-            device.address != 0x6651 for device in telemetry.observed_inventory
-        )
+        assert all(device.address != 0x6651 for device in telemetry.observed_inventory)
         Peer.em_present = True
         with patch("custom_components.deltasol.load_catalog", return_value=fixture):
             assert await hass.config_entries.async_reload(entry.entry_id)
