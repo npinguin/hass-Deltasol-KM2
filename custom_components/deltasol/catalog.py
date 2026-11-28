@@ -169,9 +169,15 @@ def _metadata(type_node, types):
     result = {}
     declared_sizes = []
     for node in reversed(chain):
+        attribute = node.get("size")
         size = node.find("size")
+        if attribute is not None:
+            declared_sizes.append(_integer(attribute.strip()))
         if size is not None:
-            declared_sizes.append(_integer((size.text or "").strip()))
+            child_size = _integer((size.text or "").strip())
+            declared_sizes.append(child_size)
+            if attribute is not None and child_size != _integer(attribute.strip()):
+                declared_sizes.append(None)
         if node.get("unit") is not None:
             result["unit"] = node.get("unit")
         if node.get("selectorValueRef") is not None:
@@ -262,6 +268,11 @@ def parse_menu(xml, digest):
         type_id = type_node.get("id") if type_node is not None else None
         metadata = _metadata(type_node, types)
         metadata["applicability"] = "not_assessed"
+        # RPT MenuValue defaults omitted storage to Preferences. Keep the
+        # existing declared-storage field for checkpoint/consumer compatibility.
+        metadata["rpt_storage"] = (
+            "preferences" if storage == "unspecified" else storage
+        )
         if name in menu_refs:
             metadata["menu_refs"] = menu_refs[name]
         if node.get("structValueRef"):
@@ -459,6 +470,8 @@ def configuration_evidence(definition, definitions):
         "applicability": "not_assessed",
         "storage_action": "not_verified",
     }
+    if "rpt_storage" in metadata:
+        result["rpt_storage"] = metadata["rpt_storage"]
     if definition.excluded:
         result["write_access_reason"] = definition.excluded
     elif "Blob" in metadata.get("type_chain", ()):
