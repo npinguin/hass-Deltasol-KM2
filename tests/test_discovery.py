@@ -1088,7 +1088,9 @@ class DiscoveryTests(unittest.TestCase):
                 )
                 self.assertEqual(path.read_bytes(), raw)
                 # A verified local archive is sufficient while offline.
-                with patch.object(catalog, "urlopen", side_effect=OSError("offline")) as offline:
+                with patch.object(
+                    catalog, "urlopen", side_effect=OSError("offline")
+                ) as offline:
                     self.assertEqual(catalog.load_catalog(path, source), downloaded)
                     offline.assert_not_called()
                     with self.assertRaises(catalog.CatalogError):

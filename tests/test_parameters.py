@@ -220,7 +220,6 @@ class ParameterTests(unittest.TestCase):
         }
 
     def test_main_heating_activity_and_native_manual(self):
-        configuration = parameters_configuration
         for slot in range(1, 8):
             root = f"Heizung_Heizkreis{slot}"
             setting = next(
@@ -336,10 +335,9 @@ class ParameterTests(unittest.TestCase):
         )
 
     def test_solar_store_activation_validates_companions(self):
-        c = parameters_configuration
         setting = next(
             s
-            for s in c.BX_PLUS_ACTIVITY_SETTINGS
+            for s in bx_plus.BX_PLUS_ACTIVITY_SETTINGS
             if s.name == "Solar_Sp1_Aktiviert_Modus"
         )
         values = {
@@ -372,10 +370,9 @@ class ParameterTests(unittest.TestCase):
         self.assertTrue(setting.accepts(values, 0))
 
     def test_collector_cooling_margin(self):
-        c = parameters_configuration
         setting = next(
             s
-            for s in c.BX_PLUS_REMAINING_OPERATING_SETTINGS
+            for s in bx_plus.BX_PLUS_REMAINING_OPERATING_SETTINGS
             if s.name == "Solar_Urlaubsfunktion_Kuehlung"
         )
         values = {
@@ -429,10 +426,9 @@ class ParameterTests(unittest.TestCase):
         )
 
     def test_native_flow_predicate_thresholds(self):
-        c = parameters_configuration
         settings = [
             s
-            for s in c.BX_PLUS_COORDINATION_OPTIONS
+            for s in bx_plus.BX_PLUS_COORDINATION_OPTIONS
             if "_Funktionsblock_Volumenstrom" in s.name
         ]
         self.assertEqual(len(settings), 64)
@@ -476,10 +472,9 @@ class ParameterTests(unittest.TestCase):
                 )
 
     def test_solid_fuel_interlock_all_slots(self):
-        c = parameters_configuration
         switches = [
             s
-            for s in c.BX_PLUS_COORDINATION_OPTIONS
+            for s in bx_plus.BX_PLUS_COORDINATION_OPTIONS
             if s.name.endswith("_OFeststoffkesselAus")
         ]
         self.assertEqual(len(switches), 23)
@@ -536,7 +531,7 @@ class ParameterTests(unittest.TestCase):
 
     def test_shared_activity_modes_use_installed_context_and_preserve_companions(self):
         config = parameters_configuration
-        settings = config.BX_PLUS_ACTIVITY_SETTINGS
+        settings = bx_plus.BX_PLUS_ACTIVITY_SETTINGS
         root = "Anlage_Wf1"
         mode = root + "_Aktiviert_Modus"
         values = {
@@ -667,7 +662,7 @@ class ParameterTests(unittest.TestCase):
                     }
                     (setting,) = [
                         s
-                        for s in config.BX_PLUS_ACTIVITY_SETTINGS
+                        for s in bx_plus.BX_PLUS_ACTIVITY_SETTINGS
                         if s.name == mode and s.accepts(values)
                     ]
                     self.assertTrue(setting.accepts(values, 0))
@@ -691,7 +686,6 @@ class ParameterTests(unittest.TestCase):
                         self.assertFalse(setting.accepts(bad, 1))
 
     def test_dedicated_solar_activity_checks_live_context_and_companions(self):
-        config = parameters_configuration
         base = {
             "Solar_SystemId": 20201,
             "Solar_Relais1_Nr": 1,
@@ -759,7 +753,7 @@ class ParameterTests(unittest.TestCase):
                         **{root + "_" + key: val for key, val in suffixes.items()},
                     }
                     (setting,) = [
-                        s for s in config.BX_PLUS_ACTIVITY_SETTINGS if s.name == mode
+                        s for s in bx_plus.BX_PLUS_ACTIVITY_SETTINGS if s.name == mode
                     ]
                     self.assertTrue(setting.accepts(values, 0))
                     self.assertTrue(setting.accepts(values, 1))
@@ -788,7 +782,6 @@ class ParameterTests(unittest.TestCase):
                         )
 
     def test_native_actor_reference_controls_and_namespaces(self):
-        config = parameters_configuration
         for slot in range(1, 17):
             root = f"Anlage_Wf{slot}"
             actor = 71
@@ -812,7 +805,7 @@ class ParameterTests(unittest.TestCase):
             ):
                 setting = next(
                     s
-                    for s in config.BX_PLUS_REFERENCE_SETTINGS
+                    for s in bx_plus.BX_PLUS_REFERENCE_SETTINGS
                     if s.name == prefix + "_" + flag
                 )
                 values = {
@@ -862,7 +855,7 @@ class ParameterTests(unittest.TestCase):
             flag, mode = (
                 next(
                     s
-                    for s in config.BX_PLUS_REFERENCE_SETTINGS
+                    for s in bx_plus.BX_PLUS_REFERENCE_SETTINGS
                     if s.name == prefix + "_" + name
                 )
                 for name in ("OBezugsrelais", "Bezugsrelais_Modus")
@@ -893,12 +886,11 @@ class ParameterTests(unittest.TestCase):
             self.assertFalse(mode.accepts(missing, 1))
 
     def test_demand_minimum_runtime_option(self):
-        c = parameters_configuration
         for slot in range(1, 3):
             root = f"Heizung_RelaisAnforderung{slot}"
             setting = next(
                 s
-                for s in c.BX_PLUS_HEATING_OPERATING_SETTINGS
+                for s in bx_plus.BX_PLUS_HEATING_OPERATING_SETTINGS
                 if s.name == root + "_OMindestlaufzeit"
             )
             values = {
@@ -927,12 +919,11 @@ class ParameterTests(unittest.TestCase):
             self.assertFalse(setting.accepts({**values, root + "_Ausgang1_Nr": 0}, 1))
 
     def test_arrangement_activity_reference_and_return_contexts(self):
-        c = parameters_configuration
         for slot in range(1, 17):
             root = f"Anlage_Wf{slot}"
             settings = {
                 s.installed_by.allowed[0]: s
-                for s in c.BX_PLUS_ACTIVITY_SETTINGS
+                for s in bx_plus.BX_PLUS_ACTIVITY_SETTINGS
                 if s.name == root + "_Aktiviert_Modus"
             }
             base = {
@@ -1101,12 +1092,11 @@ class ParameterTests(unittest.TestCase):
         self.session.write_verified.assert_called_once()
 
     def test_function_block_restart_delay_option_all_slots(self):
-        config = parameters_configuration
         for slot in range(1, 17):
             root = f"Anlage_Wf{slot}"
             name = root + "_Funktionsblock_OMindestausschaltzeit"
             delay = root + "_Funktionsblock_dtMindestausschaltzeit"
-            setting = next(s for s in config.BX_PLUS_TIMING_SETTINGS if s.name == name)
+            setting = next(s for s in bx_plus.BX_PLUS_TIMING_SETTINGS if s.name == name)
             values = {
                 root + "_Type": 9,
                 root + "_Aktiviert_Modus": 1,
@@ -1131,7 +1121,7 @@ class ParameterTests(unittest.TestCase):
         config = parameters_configuration
         root = "Heizung_Heizkreis1"
         room = root + "_Raumthermostat1"
-        controls = config.BX_PLUS_ROOM_THERMAL_CONTROLS
+        controls = bx_plus.BX_PLUS_ROOM_THERMAL_CONTROLS
         setting = next(s for s in controls if s.name == room + "_Aktiviert")
         hc_off = next(s for s in controls if s.name == root + "_RTH_HKaus")
         values = {
@@ -1381,9 +1371,8 @@ class ParameterTests(unittest.TestCase):
         )
 
     def test_coordination_options_require_live_assignments_and_setpoint_context(self):
-        config = parameters_configuration
         settings = {
-            setting.name: setting for setting in config.BX_PLUS_COORDINATION_OPTIONS
+            setting.name: setting for setting in bx_plus.BX_PLUS_COORDINATION_OPTIONS
         }
         root = "Heizung_Wf1"
         solar = root + "_OSolarAus"
@@ -1519,7 +1508,7 @@ class ParameterTests(unittest.TestCase):
         config = parameters_configuration
         self.session.read.return_value = 0x2734DABC
         definitions = {}
-        for owner in config.WEEKLY_OWNERS:
+        for owner in bx_plus.WEEKLY_OWNERS:
             self.values[owner.name] = (owner.index, 0)
             for name, index in owner.expected.items():
                 kind = "WochenschaltuhrNr" if name == owner.name else "Boolean"
@@ -1527,7 +1516,7 @@ class ParameterTests(unittest.TestCase):
                     name, index, "unspecified", kind, {"type_chain": [kind]}
                 )
         owner = next(
-            o for o in config.WEEKLY_OWNERS if o.name == "Anlage_Wf1_SchaltuhrNr"
+            o for o in bx_plus.WEEKLY_OWNERS if o.name == "Anlage_Wf1_SchaltuhrNr"
         )
         self.values[owner.name] = (owner.index, 1)
         for condition in owner.conditions:
@@ -1607,7 +1596,7 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(updated.unique_id, cap.unique_id)
         self.api.set_configuration(telemetry(), updated, updated.value, catalogue)
         self.session.write_packed_verified.assert_called_once()
-        other = next(o for o in config.WEEKLY_OWNERS if o.name != owner.name)
+        other = next(o for o in bx_plus.WEEKLY_OWNERS if o.name != owner.name)
         self.values[other.name] = (other.index, 1)
         with self.assertRaises(parameters.VBusError):
             self.api.set_configuration(telemetry(), updated, "", catalogue)
@@ -1637,7 +1626,7 @@ class ParameterTests(unittest.TestCase):
         self.session.write_packed_verified.assert_called_once()
 
         circulation = next(
-            o for o in config.WEEKLY_OWNERS if o.name == "Heizung_Wf1_SchaltuhrNr"
+            o for o in bx_plus.WEEKLY_OWNERS if o.name == "Heizung_Wf1_SchaltuhrNr"
         )
         self.values[circulation.name] = (circulation.index, 1)
         hints[circulation.name] = parameters.ParameterObservation(
@@ -2805,8 +2794,7 @@ class ParameterTests(unittest.TestCase):
             self.assertEqual(reason(name), expected)
 
     def test_all_native_allocation_options_preserve_installed_assignments(self):
-        c = parameters_configuration
-        names = {setting.name for setting in c.BX_PLUS_SETTINGS}
+        names = {setting.name for setting in bx_plus.BX_PLUS_SETTINGS}
         for prefix, suffix in (
             ("Anlage_Wf", "Feststoffkessel_OMischer"),
             ("Anlage_Wf", "Funktionsblock_OVolumenstrom"),
@@ -2816,14 +2804,13 @@ class ParameterTests(unittest.TestCase):
             for slot in range(1, 17):
                 name = f"{prefix}{slot}_{suffix}"
                 self.assertEqual(
-                    c.native_menu_review_reason(name),
+                    bx_plus.native_menu_review_reason(name),
                     "native_registration_clears_assignment",
                 )
                 self.assertNotIn(name, names)
 
     def test_final_native_hardware_review_has_no_operational_writer(self):
-        c = parameters_configuration
-        names = {setting.name for setting in c.BX_PLUS_SETTINGS}
+        names = {setting.name for setting in bx_plus.BX_PLUS_SETTINGS}
         cases = {
             "Anlage_WTUmwaelzpumpe_Aktiviert_Modus": "native_menu_permanently_hidden",
             "Solar_OVorlaufSensor": "native_registration_clears_assignment",
@@ -2847,7 +2834,7 @@ class ParameterTests(unittest.TestCase):
                 cases[root + "_" + suffix] = "native_output_assignment_configuration"
         self.assertEqual(len(cases), 70)
         for name, reason in cases.items():
-            self.assertEqual(c.native_menu_review_reason(name), reason)
+            self.assertEqual(bx_plus.native_menu_review_reason(name), reason)
             self.assertNotIn(name, names)
 
     def test_native_mixer_requires_assignments_and_full_hysteresis_margin(self):

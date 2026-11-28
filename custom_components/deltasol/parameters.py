@@ -18,7 +18,12 @@ from threading import RLock
 from time import monotonic, sleep
 
 from .catalog import CatalogError
-from .bx_plus import SETTINGS, WEEKLY_OWNERS, native_menu_review_reason, weekly_settings_for
+from .bx_plus import (
+    SETTINGS,
+    WEEKLY_OWNERS,
+    native_menu_review_reason,
+    weekly_settings_for,
+)
 from .configuration import (
     ActorReferences,
     ConfigurationCapability,

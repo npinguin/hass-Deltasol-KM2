@@ -1581,7 +1581,6 @@ def _installed_activity(root, index, switch_index):
     )
 
 
-
 def _installed_program_options():
     """Existing user options, separate from function installation and protection."""
     pump = "Anlage_WTUmwaelzpumpe"
