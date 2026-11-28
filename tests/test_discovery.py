@@ -1199,6 +1199,28 @@ class DiscoveryTests(unittest.TestCase):
             catalog.ordinal_options(definitions["Solar_Beladungstyp"]),
             {0: "Pendelladung", 1: "SukzessiveLadung"},
         )
+        solar_optional = configuration.BX_PLUS_SOLAR_DEDICATED_SETTINGS
+        self.assertEqual(len({s.name for s in solar_optional}), 10)
+        for setting in solar_optional:
+            target = definitions[setting.name]
+            self.assertTrue(target.metadata["menu_refs"])
+            self.assertEqual(
+                definitions[setting.installed_by.name].index,
+                setting.installed_by.index,
+            )
+            self.assertTrue(
+                {"SensorNr", "SensorEinstrahlungNr"}.intersection(
+                    definitions[setting.installed_by.name].metadata["type_chain"]
+                )
+            )
+            for dependency in setting.dependencies:
+                if dependency.name.endswith("_KollektorMaske"):
+                    self.assertIn(
+                        "InstanzMaske",
+                        definitions[dependency.name].metadata["type_chain"],
+                    )
+                if dependency.name.startswith("Solar_Kol"):
+                    self.assertEqual(definitions[dependency.name].storage, "volatile")
         for setting in configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS:
             target = definitions[setting.name]
             self.assertTrue(target.metadata["menu_refs"])

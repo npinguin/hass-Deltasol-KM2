@@ -916,6 +916,97 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(names & controls().keys())
         self.session.write_verified.assert_called_once()
 
+    def test_dedicated_solar_bypass_requires_selected_collectors_and_assignment(self):
+        self.session.read.return_value = 0x2734DABC
+        root = "Solar_Wf1_Bypass"
+        name = root + "_dTein"
+        self.values.update(
+            {
+                root + "_Sensor1_Nr": (3896, 3),
+                root + "_Relais1_Nr": (3900, 2),
+                root + "_Aktiviert_Modus": (3888, 1),
+                root + "_Variante": (3894, 0),
+                root + "_KollektorMaske": (3893, 3),
+                "Solar_Kol1_Sensor1_Nr": (3536, 1),
+                "Solar_Kol2_Sensor1_Nr": (3550, 2),
+                "Solar_Relais1_Nr": (3452, 1),
+                "TemperatureHysteresisSelector": (60, 0),
+                name: (3908, 60),
+                name + "_K": (3909, 60),
+                root + "_dTaus": (3911, 40),
+                root + "_dTaus_K": (3912, 40),
+            }
+        )
+        hints = {
+            root + "_Sensor1_Nr": parameters.ParameterObservation(3896, 3, "read")
+        }
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        cap = controls()[name]
+        self.assertEqual(cap.setting.native_slot, (root, "Solar_Bypass", 1))
+        self.assertEqual(cap.value, 6)
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, value, save), (0x7112, 3908, 70, True))
+            self.values[name] = (index, value)
+            self.values[name + "_K"] = (index + 1, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 7).value, 7)
+        self.values["Solar_Kol2_Sensor1_Nr"] = (3550, 0)
+        self.assertNotIn(name, controls())
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 8)
+        self.values[root + "_KollektorMaske"] = (3893, 1)
+        replacement = controls()[name]
+        self.assertEqual(replacement.unique_id, cap.unique_id)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 8)
+        self.values[root + "_Relais1_Nr"] = (3900, 0)
+        self.assertNotIn(name, controls())
+        self.session.write_verified.assert_called_once()
+
+    def test_dedicated_solar_target_and_cs_bypass_require_live_references(self):
+        settings = parameters_configuration.BX_PLUS_SOLAR_DEDICATED_SETTINGS
+        target = next(
+            s for s in settings
+            if s.name == "Solar_Wf1_Zieltemperatur_Zieltemperatur" and s.unit == "°C"
+        )
+        values = {
+            target.name: 650,
+            target.name + "_C": 650,
+            "Solar_Wf1_Zieltemperatur_Sensor1_Nr": 3,
+            "Solar_Wf1_Zieltemperatur_Aktiviert_Modus": 1,
+            "Solar_Kol1_Sensor1_Nr": 1,
+            "Solar_Sp1_Sensor1_Nr": 2,
+            "Solar_Sp1_Aktiviert_Modus": 1,
+            "Solar_Relais1_Nr": 1,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(target.accepts(values, target.encode(70)))
+        values["Solar_Wf1_Zieltemperatur_Sensor1_Nr"] = 0
+        self.assertFalse(target.accepts(values))
+        cs = next(
+            s for s in settings if s.name == "Solar_Wf1_CsBypass_Einstrahlung"
+        )
+        values.update(
+            {
+                cs.name: 200,
+                "Solar_Wf1_CsBypass_SensorEinstrahlung_Nr": 4,
+                "Solar_Wf1_CsBypass_Aktiviert_Modus": 1,
+                "Solar_Wf1_CsBypass_KollektorMaske": 1,
+            }
+        )
+        self.assertTrue(cs.accepts(values, cs.encode(250)))
+        values["Solar_Wf1_CsBypass_SensorEinstrahlung_Nr"] = 0
+        self.assertFalse(cs.accepts(values))
+
     def test_return_mixing_requires_installed_sensors_outputs_and_order(self):
         self.session.read.return_value = 0x2734DABC
         prefix = "Anlage_Wf1"

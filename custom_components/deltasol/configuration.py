@@ -125,6 +125,15 @@ class Setting:
             r"(Solar_Sp|Solar_Kol)([1-9][0-9]*)_Sensor1_Nr",
             self.installed_by.name,
         )
+        dedicated = re.fullmatch(
+            r"Solar_Wf([1-9][0-9]*)_(Bypass|CsBypass|Zieltemperatur)_"
+            r"(?:Sensor1_Nr|SensorEinstrahlung_Nr)",
+            self.installed_by.name,
+        )
+        if dedicated:
+            slot = f"Solar_Wf{dedicated[1]}_{dedicated[2]}"
+            if self.name.startswith(slot + "_"):
+                return slot, "Solar_" + dedicated[2], int(dedicated[1])
         if not match:
             return None
         slot = f"{match[1]}{match[2]}"
@@ -1684,6 +1693,111 @@ def _solar_loading_logic_settings():
 
 
 BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS = tuple(_solar_loading_logic_settings())
+
+
+def _solar_dedicated_settings():
+    """Ordinary adjustments for independently assigned native solar functions."""
+    output = RangeDependency("Solar_Relais1_Nr", 3452, 1, 100)
+
+    def collector_conditions(name, index, mask):
+        return (
+            output,
+            Dependency(name, index, (mask,)),
+            *(
+                RangeDependency(f"Solar_Kol{slot}_Sensor1_Nr", 3536 + 14 * (slot - 1), 1, 65)
+                for slot in range(1, 4)
+                if mask & (1 << (slot - 1))
+            ),
+        )
+
+    # The native mask is a read-only selection. Each mutually exclusive
+    # contract requires every selected collector, not just a default bit.
+    for slot in range(1, 4):
+        offset = (slot - 1) * 31
+        root = f"Solar_Wf{slot}_Bypass"
+        installed = RangeDependency(f"{root}_Sensor1_Nr", 3896 + offset, 1, 65)
+        for mask in range(1, 8):
+            yield from _operating_pair(
+                f"{root}_dTein",
+                3908 + offset,
+                f"{root}_dTaus",
+                3911 + offset,
+                f"Solar bypass {slot} differential",
+                installed,
+                (
+                    Dependency(f"{root}_Aktiviert_Modus", 3888 + offset, (1, 2)),
+                    Dependency(f"{root}_Variante", 3894 + offset, (0, 1)),
+                    RangeDependency(f"{root}_Relais1_Nr", 3900 + offset, 1, 100),
+                    *collector_conditions(f"{root}_KollektorMaske", 3893 + offset, mask),
+                ),
+                (
+                    (0, "_K", "K", ("1", "20", "0.5", "0.1"), ("0.5", "19.5", "0.5", "0.1")),
+                    (1, "_R", "°R", ("2", "40", "1", "0.1"), ("1", "39", "1", "0.1")),
+                ),
+                rising=True,
+            )
+    root = "Solar_Wf1_CsBypass"
+    installed = RangeDependency(f"{root}_SensorEinstrahlung_Nr", 3988, 1, 65)
+    for mask in range(1, 8):
+        for suffix, index, limits, unit, label in (
+            ("Einstrahlung", 3991, ("100", "500", "50", "1"), "W/m²", "irradiation"),
+            ("Verzoegerung", 3992, ("10", "300", "1", "1"), "s", "delay"),
+        ):
+            yield Setting(
+                f"{root}_{suffix}",
+                index,
+                f"Solar CS bypass {label}",
+                "number",
+                True,
+                limits=limits,
+                unit=unit,
+                installed_by=installed,
+                dependencies=(
+                    Dependency(f"{root}_Aktiviert_Modus", 3981, (1, 2)),
+                    *collector_conditions(f"{root}_KollektorMaske", 3986, mask),
+                ),
+            )
+    root = "Solar_Wf1_Zieltemperatur"
+    installed = RangeDependency(f"{root}_Sensor1_Nr", 4341, 1, 65)
+    deps = (
+        output,
+        RangeDependency("Solar_Kol1_Sensor1_Nr", 3536, 1, 65),
+        RangeDependency("Solar_Sp1_Sensor1_Nr", 3576, 1, 65),
+        Dependency("Solar_Sp1_Aktiviert_Modus", 3604, (1, 2)),
+        Dependency(f"{root}_Aktiviert_Modus", 4335, (1, 2)),
+    )
+    for suffix, index, label, variants in (
+        (
+            "Zieltemperatur", 4344, "target temperature",
+            (
+                (0, "_C", "°C", ("20", "110", "1", "0.1")),
+                (1, "_F", "°F", ("68", "230", "2", "0.1")),
+            ),
+        ),
+        (
+            "Anstieg", 4347, "rise",
+            (
+                (0, "_K", "K", ("1", "20", "0.5", "0.1")),
+                (1, "_R", "°R", ("2", "40", "1", "0.1")),
+            ),
+        ),
+    ):
+        name = f"{root}_{suffix}"
+        for selector, alias, unit, limits in variants:
+            yield Setting(
+                name, index, f"Solar {label}", "number", True,
+                limits=limits,
+                unit=unit,
+                installed_by=installed,
+                dependencies=(
+                    *deps,
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                compound_mirrors=((name, index, name + alias, index + selector + 1),),
+            )
+
+
+BX_PLUS_SOLAR_DEDICATED_SETTINGS = tuple(_solar_dedicated_settings())
 
 
 def _heating_comfort_settings():
