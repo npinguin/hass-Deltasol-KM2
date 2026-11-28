@@ -17,37 +17,14 @@ from functools import cached_property
 from threading import RLock
 from time import monotonic, sleep
 
+from .bx_plus import (
+    SETTINGS,
+    WEEKLY_OWNERS,
+    native_menu_review_reason,
+    weekly_settings_for,
+)
 from .catalog import CatalogError
 from .configuration import (
-    BX_PLUS_ACTIVITY_SETTINGS,
-    BX_PLUS_ADDITIONAL_OPERATING_SETTINGS,
-    BX_PLUS_COORDINATION_OPTIONS,
-    BX_PLUS_DIFFERENTIAL_SETTINGS,
-    BX_PLUS_HEATING_COMFORT_SETTINGS,
-    BX_PLUS_HEATING_OPERATING_SETTINGS,
-    BX_PLUS_HEATING_SETTINGS,
-    BX_PLUS_HQM_SETTINGS,
-    BX_PLUS_LOADING_SETTINGS,
-    BX_PLUS_LOGGING_SETTINGS,
-    BX_PLUS_MIXER_SETTINGS,
-    BX_PLUS_OPERATING_MODE_OPTIONS,
-    BX_PLUS_PROGRAM_OPTIONS,
-    BX_PLUS_PUMP_SETTINGS,
-    BX_PLUS_REFERENCE_SETTINGS,
-    BX_PLUS_REMAINING_OPERATING_SETTINGS,
-    BX_PLUS_ROOM_THERMAL_CONTROLS,
-    BX_PLUS_SETTINGS,
-    BX_PLUS_SOLAR_COLLECTOR_SETTINGS,
-    BX_PLUS_SOLAR_DEDICATED_SETTINGS,
-    BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS,
-    BX_PLUS_SOLAR_STORE_SETTINGS,
-    BX_PLUS_SOLID_FUEL_MIXER_SETTINGS,
-    BX_PLUS_THERMAL_OPTIONS,
-    BX_PLUS_THERMOSTAT_SETTINGS,
-    BX_PLUS_TIMING_SETTINGS,
-    BX_PLUS_TRANSFER_SETTINGS,
-    BX_PLUS_WEEKLY_TIMER_OPTIONS,
-    WEEKLY_OWNERS,
     ActorReferences,
     ConfigurationCapability,
     Setting,
@@ -55,8 +32,7 @@ from .configuration import (
     WeeklyProgram,
     bind_setting,
     encode_action,
-    native_menu_review_reason,
-    weekly_settings_for,
+    observed_function_assignments,
 )
 from .vbus import (
     ERROR_CODES,
@@ -201,36 +177,7 @@ PROFILES = (
         weekly_owners=WEEKLY_OWNERS,
         weekly_factory=weekly_settings_for,
         menu_review=native_menu_review_reason,
-        settings=(
-            *BX_PLUS_SETTINGS,
-            *BX_PLUS_LOGGING_SETTINGS,
-            *BX_PLUS_MIXER_SETTINGS,
-            *BX_PLUS_HQM_SETTINGS,
-            *BX_PLUS_HEATING_SETTINGS,
-            *BX_PLUS_HEATING_COMFORT_SETTINGS,
-            *BX_PLUS_HEATING_OPERATING_SETTINGS,
-            *BX_PLUS_PUMP_SETTINGS,
-            *BX_PLUS_PROGRAM_OPTIONS,
-            *BX_PLUS_THERMAL_OPTIONS,
-            *BX_PLUS_WEEKLY_TIMER_OPTIONS,
-            *BX_PLUS_COORDINATION_OPTIONS,
-            *BX_PLUS_OPERATING_MODE_OPTIONS,
-            *BX_PLUS_ROOM_THERMAL_CONTROLS,
-            *BX_PLUS_ACTIVITY_SETTINGS,
-            *BX_PLUS_REMAINING_OPERATING_SETTINGS,
-            *BX_PLUS_REFERENCE_SETTINGS,
-            *BX_PLUS_DIFFERENTIAL_SETTINGS,
-            *BX_PLUS_TRANSFER_SETTINGS,
-            *BX_PLUS_SOLID_FUEL_MIXER_SETTINGS,
-            *BX_PLUS_ADDITIONAL_OPERATING_SETTINGS,
-            *BX_PLUS_SOLAR_STORE_SETTINGS,
-            *BX_PLUS_SOLAR_COLLECTOR_SETTINGS,
-            *BX_PLUS_SOLAR_DEDICATED_SETTINGS,
-            *BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS,
-            *BX_PLUS_THERMOSTAT_SETTINGS,
-            *BX_PLUS_TIMING_SETTINGS,
-            *BX_PLUS_LOADING_SETTINGS,
-        ),
+        settings=SETTINGS,
     ),
 )
 
@@ -345,9 +292,11 @@ class RelayDiscovery:
     # authorization and not changes to the historical Discovery capture.
     selector_hints: dict[str, ParameterObservation] = field(default_factory=dict)
     selector_cursor: int = 0
+    selector_total: int = 0
 
 
 SELECTORS_PER_REFRESH = 4
+INITIAL_SELECTORS_PER_REFRESH = 16
 
 
 def _checked_parameters(session, profile, changeset, expected):
@@ -647,6 +596,7 @@ def _read_settings(
                 if setting.timer_reference
                 else None
             ),
+            assignment_observations=observed_function_assignments(setting, values),
             reference_context=tuple(
                 sorted(
                     {
@@ -1156,6 +1106,7 @@ class RelayParameters:
             contracts = profile.settings_for(changeset, catalog)
             selector_hints = {}
             cursor = 0
+            selectors = []
             # A completed capture is historical. Rotate a small number of
             # exact, authorized selectors through normal polling so a native
             # installer change is discovered without a new 12,812-item scan.
@@ -1176,22 +1127,35 @@ class RelayParameters:
                     selector_hints.update(previous.selector_hints)
                     cursor = previous.selector_cursor
                 if any(setting.weekly_slot is not None for setting in contracts):
-                    selectors = sorted(
-                        {
-                            *selectors,
-                            *(
+                    # Discover installed functions before the potentially much
+                    # larger weekly-owner reference set. Both remain bounded.
+                    known = set(selectors)
+                    selectors.extend(
+                        sorted(
+                            {
                                 (owner.name, owner.index)
                                 for owner in profile.weekly_owners
-                            ),
-                        },
-                        key=lambda item: item[1],
+                            }
+                            - known,
+                            key=lambda item: item[1],
+                        )
                     )
                 if selectors:
-                    cursor %= len(selectors)
-                    count = min(SELECTORS_PER_REFRESH, len(selectors))
-                    batch = dict(
-                        selectors[(cursor + i) % len(selectors)] for i in range(count)
-                    )
+                    missing = [
+                        (name, index)
+                        for name, index in selectors
+                        if name not in selector_hints
+                    ]
+                    if missing:
+                        batch = dict(missing[:INITIAL_SELECTORS_PER_REFRESH])
+                        count = len(batch)
+                    else:
+                        cursor %= len(selectors)
+                        count = min(SELECTORS_PER_REFRESH, len(selectors))
+                        batch = dict(
+                            selectors[(cursor + i) % len(selectors)]
+                            for i in range(count)
+                        )
                     selector_hints.update(
                         session.read_parameter_observations(
                             profile.address,
@@ -1257,6 +1221,7 @@ class RelayParameters:
                 configuration,
                 selector_hints,
                 cursor,
+                len(selectors),
             )
 
         return self._read_only_session(profile.address, read)

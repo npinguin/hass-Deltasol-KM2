@@ -1,6 +1,7 @@
 {
   "domain": "deltasol",
   "name": "Resol KM1/KM2, DL2/DL2Plus/DL3, VBus/LAN, VBus/USB",
+  "after_dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
   "codeowners": [
     "@npinguin"
   ],
@@ -10,5 +11,5 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/npinguin/hass-Deltasol-KM2/issues",
   "requirements": [],
-  "version": "1.2.17"
+  "version": "1.2.18"
 }

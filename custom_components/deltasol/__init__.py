@@ -38,6 +38,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .catalog import (
+    Catalog,
     CatalogError,
     CatalogMissing,
     download_catalog,
@@ -46,6 +47,7 @@ from .catalog import (
 )
 from .configuration import encode_action
 from .const import (
+    CONF_DASHBOARD,
     CONF_VBUS_PASSWORD,
     DEFAULT_NAME,
     DEFAULT_SCAN_INTERVAL,
@@ -98,8 +100,12 @@ class RuntimeData:
 
     coordinator: DataUpdateCoordinator
     relay_coordinator: "DeltasolRelayCoordinator | None" = None
+    # One verified catalogue, independent of historical capture compatibility.
+    catalogue_identity: tuple[object, int, Catalog] | None = None
     capture: ConfigurationCapture | None = None
     previous_capture: ConfigurationCapture | None = None
+    rejected_previous: dict | None = None
+    rejected_capture: dict | None = None
     capture_task: asyncio.Task | None = None
     capture_lock: asyncio.Lock = dataclass_field(default_factory=asyncio.Lock)
     stop_capture: bool = False
@@ -110,6 +116,7 @@ class RuntimeData:
     resume_on_load: bool = False
     auto_start_task: asyncio.Task | None = None
     closing: bool = False
+    dashboard_registered: bool = False
 
     def notify_capture(self):
         for listener in tuple(self.capture_listeners):
@@ -205,6 +212,11 @@ async def async_setup_entry(
 
             config_entry.async_on_unload(relay.async_add_listener(restore_when_ready))
 
+    if config_entry.options.get(CONF_DASHBOARD, False):
+        from .dashboard import async_setup_dashboard
+
+        await async_setup_dashboard(hass, config_entry.entry_id)
+        runtime.dashboard_registered = True
     # Return true to denote a successful setup.
     return True
 
@@ -238,6 +250,10 @@ async def async_unload_entry(
         runtime.closing = False
         if runtime.relay_coordinator:
             runtime.relay_coordinator.closing = False
+    elif runtime.dashboard_registered:
+        from .dashboard import async_remove_dashboard
+
+        await async_remove_dashboard(hass, config_entry.entry_id)
     return unloaded
 
 
@@ -257,7 +273,8 @@ async def _async_save_capture(runtime):
                 "capture": runtime.capture.storage_checkpoint(),
                 "previous": runtime.previous_capture.storage_checkpoint()
                 if runtime.previous_capture
-                else None,
+                else runtime.rejected_previous,
+                "rejected_capture": runtime.rejected_capture,
                 "resume": runtime.capture.status not in ("complete", "incomplete")
                 and (
                     runtime.resume_on_load
@@ -286,39 +303,78 @@ def _catalog_identity(runtime):
     return controller, source_for(controller.address, relay.data.changeset)
 
 
-async def _async_catalog(hass, source, *, acquire=False):
+async def _async_catalog(hass, source, *, acquire=False, runtime=None):
+    if runtime and runtime.catalogue_identity:
+        _, changeset, catalog = runtime.catalogue_identity
+        if changeset == source.changeset and catalog.matches(
+            source.address, source.changeset
+        ):
+            return catalog
     path = hass.config.path("deltasol", source.filename)
-    try:
-        return await hass.async_add_executor_job(load_catalog, path, source)
-    except CatalogMissing:
-        if not acquire:
-            raise
-        return await hass.async_add_executor_job(download_catalog, path, source)
+
+    def load():
+        try:
+            catalog = load_catalog(path, source)
+        except CatalogMissing:
+            if not acquire:
+                raise
+            catalog = download_catalog(path, source)
+        # Static binding can take seconds. Compile on the existing executor,
+        # not on HA's event loop during the next entity refresh.
+        if catalog.matches(source.address, source.changeset):
+            from .parameters import PROFILES
+
+            for profile in PROFILES:
+                if profile.address == source.address:
+                    profile.settings_for(source.changeset, catalog)
+        return catalog
+
+    return await hass.async_add_executor_job(load)
+
+
+def _remember_catalogue(runtime, controller, source, catalog):
+    """Keep the exact catalogue independently of snapshot restore success."""
+    if catalog.matches(controller.address, source.changeset):
+        runtime.catalogue_identity = (controller, source.changeset, catalog)
 
 
 async def _async_restore_capture(hass, runtime, *, catalog=None):
     """Restore only against the current verified controller and exact local archive."""
     if not runtime.coordinator.api.supports_parameter_access:
         return False
+    stored = None
     try:
         stored = await runtime.capture_store.async_load()
         if stored is None:
             runtime.checkpoint_error = None
             return False
         controller, source = _catalog_identity(runtime)
+        if isinstance(stored, dict):
+            runtime.rejected_capture = stored.get("rejected_capture")
         if catalog is None:
-            catalog = await _async_catalog(hass, source)
+            try:
+                catalog = await _async_catalog(hass, source, runtime=runtime)
+            except CatalogMissing:
+                raise
+            except (CatalogError, OSError, ValueError):
+                runtime.checkpoint_error = "checkpoint_catalogue_unavailable"
+                return False
+        _remember_catalogue(runtime, controller, source, catalog)
         capture = ConfigurationCapture.restore(
             stored["capture"], catalog, controller, source.changeset
         )
         previous = stored.get("previous")
-        runtime.previous_capture = (
-            ConfigurationCapture.restore(
-                previous, catalog, controller, source.changeset
-            )
-            if previous
-            else None
-        )
+        runtime.previous_capture = None
+        if previous:
+            try:
+                runtime.previous_capture = ConfigurationCapture.restore(
+                    previous, catalog, controller, source.changeset
+                )
+            except (CatalogError, ValueError, TypeError, KeyError):
+                # A rejected comparison baseline must not discard the valid
+                # current capture. Preserve the stored baseline until an
+                # explicit new capture is requested.
+                runtime.rejected_previous = previous
         runtime.capture = capture
         runtime.resume_on_load = (
             stored.get("resume") is True or capture.extension_pending
@@ -337,6 +393,8 @@ async def _async_restore_capture(hass, runtime, *, catalog=None):
         KeyError,
         HomeAssistantError,
     ):
+        if isinstance(stored, dict) and isinstance(stored.get("capture"), dict):
+            runtime.rejected_capture = stored["capture"]
         runtime.checkpoint_error = "checkpoint_incompatible"
         _LOGGER.warning("RESOL Discovery checkpoint unavailable or incompatible")
         return False
@@ -352,8 +410,13 @@ async def _async_restore_and_resume(hass, entry, runtime):
                 await _start_capture(hass, entry, runtime)
             runtime.notify_capture()
         elif (
-            runtime.checkpoint_error in (None, "checkpoint_catalogue_missing")
+            runtime.checkpoint_error
+            in (None, "checkpoint_catalogue_missing", "checkpoint_incompatible")
             and runtime.auto_start_task is None
+            and not (
+                runtime.checkpoint_error == "checkpoint_incompatible"
+                and runtime.catalogue_identity is not None
+            )
         ):
             runtime.auto_start_task = entry.async_create_background_task(
                 hass,
@@ -370,6 +433,7 @@ async def _async_start_initial_capture(hass, entry, runtime):
         if runtime.closing or runtime.capture is not None:
             return
         restore_required = runtime.checkpoint_error == "checkpoint_catalogue_missing"
+        incompatible = runtime.checkpoint_error == "checkpoint_incompatible"
         try:
             controller, source = _catalog_identity(runtime)
         except (CatalogError, VBusError):
@@ -377,7 +441,7 @@ async def _async_start_initial_capture(hass, entry, runtime):
             runtime.notify_capture()
             return
         try:
-            catalog = await _async_catalog(hass, source, acquire=True)
+            catalog = await _async_catalog(hass, source, acquire=True, runtime=runtime)
         except (CatalogError, OSError, ValueError):
             runtime.checkpoint_error = "discovery_catalogue_unavailable"
             runtime.notify_capture()
@@ -394,6 +458,12 @@ async def _async_start_initial_capture(hass, entry, runtime):
             return
         if (current_controller, current_source) != (controller, source):
             runtime.checkpoint_error = "discovery_controller_unverified"
+            runtime.notify_capture()
+            return
+        _remember_catalogue(runtime, controller, source, catalog)
+        if incompatible:
+            # Keep the rejected checkpoint untouched. Operational selectors
+            # now progress in normal bounded refreshes without a full scan.
             runtime.notify_capture()
             return
         if restore_required:
@@ -429,11 +499,12 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
         raise HomeAssistantError("Controller parameter access is unavailable")
     try:
         controller, source = _catalog_identity(runtime)
-        catalog = await _async_catalog(hass, source, acquire=True)
+        catalog = await _async_catalog(hass, source, acquire=True, runtime=runtime)
     except (CatalogError, VBusError) as err:
         raise HomeAssistantError(str(err)) from err
+    _remember_catalogue(runtime, controller, source, catalog)
     if runtime.capture is None:
-        await _async_restore_capture(hass, runtime)
+        await _async_restore_capture(hass, runtime, catalog=catalog)
     capture = runtime.capture
     if (
         capture is None
@@ -442,6 +513,7 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
         or capture.catalog.digest != catalog.digest
         or capture.changeset != source.changeset
     ):
+        runtime.rejected_previous = None
         runtime.previous_capture = (
             capture
             if capture
@@ -567,16 +639,20 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             await asyncio.sleep(self.api.parameter_cooldown_remaining())
 
     def _configuration_catalog(self):
-        """Use the existing capture's verified catalogue, no second cache."""
-        capture = self.runtime.capture
-        if capture is None:
+        """Resolve static metadata independently from historical observations."""
+        identity = self.runtime.catalogue_identity
+        if identity is None or not self.data:
             return None
+        owner, changeset, catalog = identity
         _, controller = find_profile(self.telemetry.observed_inventory)
-        if capture.controller != controller:
+        if (
+            owner != controller
+            or self.data.controller != controller
+            or self.data.changeset != changeset
+            or not catalog.matches(owner.address, changeset)
+        ):
             return None
-        if not capture.catalog.matches(capture.controller.address, capture.changeset):
-            return None
-        return capture.catalog
+        return catalog
 
     def _configuration_hints(self):
         profile, controller = find_profile(self.telemetry.observed_inventory)
@@ -609,6 +685,17 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         return hints
 
     async def _async_update_data(self):
+        # A replaced controller or temporarily missing local archive can
+        # recover on normal polling. No additional VBus session is opened.
+        if self.data and self._configuration_catalog() is None:
+            try:
+                controller, source = _catalog_identity(self.runtime)
+                catalog = await _async_catalog(self.hass, source, runtime=self.runtime)
+                _remember_catalogue(self.runtime, controller, source, catalog)
+            except (CatalogError, VBusError, OSError, ValueError):
+                # Keep the last valid catalogue and historical checkpoint
+                # intact; normal telemetry and relay refresh remain independent.
+                pass
         try:
             result = await refresh_relay_modes(
                 self.telemetry,
@@ -625,8 +712,10 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             self.update_interval = timedelta(seconds=30)
             raise UpdateFailed(str(error)) from error
         else:
-            self.update_interval = max(
-                self.telemetry.update_interval, timedelta(seconds=60)
+            self.update_interval = (
+                timedelta(seconds=30)
+                if result.selector_total > len(result.selector_hints)
+                else max(self.telemetry.update_interval, timedelta(seconds=60))
             )
             return result
         finally:
@@ -681,17 +770,19 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         ):
             await self.async_refresh()
 
-    async def async_set_configuration(self, unique_id, value):
-        """Native entities use one live validated configuration action."""
+    async def async_set_configuration(self, unique_id, value, *, review=None):
+        """Native entities and reviewed actions use one validated owner."""
         try:
-            refresh_dependents = await self._async_set_configuration(unique_id, value)
+            refresh_dependents = await self._async_set_configuration(
+                unique_id, value, review=review
+            )
         except VBusError as error:
             await self._async_action_failed(error)
             raise HomeAssistantError(str(error)) from error
         if refresh_dependents:
             await self.async_refresh()
 
-    async def _async_set_configuration(self, unique_id, value):
+    async def _async_set_configuration(self, unique_id, value, *, review=None):
         async with self._lock:
             if (
                 self.closing
@@ -702,6 +793,11 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             ):
                 raise HomeAssistantError("Configuration capability is unavailable")
             capability = self.data.configuration[unique_id]
+            if review is not None:
+                try:
+                    review.validate(capability)
+                except ValueError as error:
+                    raise HomeAssistantError(str(error)) from error
             try:
                 encode_action(capability.setting, value)
             except VBusError as error:

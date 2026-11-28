@@ -87,7 +87,8 @@ class DeltasolSensorRegressionTests(unittest.TestCase):
         attr_name="test_sensor",
     ):
         sensor = self.sensor_type()
-        sensor.unique_id = "vbus-field-1"
+        sensor.unique_id = "gateway_vbus-field-1"
+        sensor.data_key = "vbus-field-1"
         sensor.name = "test_sensor"
         sensor._attr_name = attr_name
         sensor.coordinator = SimpleNamespace(

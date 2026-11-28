@@ -6,6 +6,9 @@ on:
 
 jobs:
   validate-version:
+    # The fork publishes only the already qualified artifact from dev.
+    # Never regenerate or overwrite its release ZIP on a publication event.
+    if: github.repository == 'dm82m/hass-Deltasol-KM2'
     name: Validates if the version in manifest.json matches the release version and deletes the release if it doesn't
     runs-on: ubuntu-latest
     steps:
@@ -36,6 +39,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-zip-file:
+    if: github.repository == 'dm82m/hass-Deltasol-KM2'
     name: Archive and upload release asset
     needs: validate-version
     runs-on: ubuntu-latest

@@ -25,6 +25,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - name: Regression tests
         run: python -m unittest discover -s tests -p "test_*.py" -v
+      - name: Dashboard frontend regression
+        run: |
+          node --check custom_components/deltasol/frontend/dashboard.js
+          node --test tests/test_dashboard_ui.mjs
+      - name: Dashboard browser journeys
+        if: matrix.python-version == '3.14'
+        run: node --test tests/test_dashboard_browser.mjs
       - name: Verify exact vendor catalogue (no redistribution)
         if: matrix.python-version == '3.13'
         shell: bash
@@ -92,12 +99,29 @@ jobs:
           unzip -Z1 "$PACKAGE" | grep -Fx switch.py
           unzip -Z1 "$PACKAGE" | grep -Fx button.py
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
-          gh release download 1.2.16 --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
-          echo "0ebc0ff72b57a4c3938a520d0edbd7973644e417a47a6463a4ac3267c35c9945  $Q/rollback/deltasol.zip" | sha256sum -c -
+          unzip -Z1 "$PACKAGE" | grep -Fx services.yaml
+          unzip -Z1 "$PACKAGE" | grep -Fx dashboard.py
+          unzip -Z1 "$PACKAGE" | grep -Fx bx_plus.py
+          unzip -Z1 "$PACKAGE" | grep -Fx frontend/dashboard.js
+          unzip -Z1 "$PACKAGE" | grep -Fx DASHBOARD-LICENSE.txt
+          read -r ROLLBACK_VERSION ROLLBACK_DIGEST < <(
+            python -c 'import json; v=json.load(open("tests/qualification-inputs.json")); print(v["rollback_version"],v["rollback_sha256"])'
+          )
+          gh release download "$ROLLBACK_VERSION" --repo "$GITHUB_REPOSITORY" --pattern deltasol.zip --dir "$Q/rollback"
+          echo "$ROLLBACK_DIGEST  $Q/rollback/deltasol.zip" | sha256sum -c -
           sha256sum "$PACKAGE" "$Q/rollback/deltasol.zip"
           curl --fail --location --retry 2 --connect-timeout 10 --max-time 60 https://www.mastersolar.rs/wp-content/uploads/2021/02/BXPLUS_2.08.zip -o "$Q/BXPLUS_2.08.zip"
           echo "1bcc59cac3d4176c68de255fced3b95840bada06db33b0bdae0cddb007a9f079  $Q/BXPLUS_2.08.zip" | sha256sum -c -
           docker pull "$HA_IMAGE"
+          # Real native HA frontend qualification uses the runner's existing
+          # Chromium, with a loopback-only debugging port and disposable profile.
+          google-chrome --headless --no-sandbox --disable-dev-shm-usage \
+            --remote-debugging-address=127.0.0.1 --remote-debugging-port=9222 \
+            --user-data-dir="$Q/chrome" about:blank >"$Q/chrome.log" 2>&1 &
+          CHROME_PID=$!
+          trap 'kill "$CHROME_PID" 2>/dev/null || true' EXIT
+          curl --fail --silent --retry 15 --retry-connrefused --retry-delay 1 \
+            http://127.0.0.1:9222/json/version >/dev/null
           install_zip() {
             rm -rf "$Q/config/custom_components/deltasol"
             mkdir -p "$Q/config/custom_components/deltasol"
@@ -112,7 +136,7 @@ jobs:
               phase_timeout=1800
             fi
             echo "QUALIFICATION_PHASE $1 (limit ${phase_timeout}s)"
-            timeout "$phase_timeout" docker run --rm --entrypoint python3 \
+            timeout "$phase_timeout" docker run --rm --network host --entrypoint python3 \
               -e PYTHONDONTWRITEBYTECODE=1 \
               -v "$Q/config:/qualification" \
               -v "$GITHUB_WORKSPACE/tests/qualify_ha.py:/qualify.py:ro" \

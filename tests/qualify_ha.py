@@ -12,6 +12,7 @@ import socketserver
 import struct
 import sys
 import threading
+import time
 from contextlib import ExitStack, nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -1231,8 +1232,13 @@ class VBusServer(socketserver.ThreadingTCPServer):
 class HttpHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         assert self.path == "/cgi-bin/get_resol_device_information"
+        serial = (
+            "isolated-secondary"
+            if self.server.server_port == 18081
+            else "isolated-gateway"
+        )
         data = (
-            'product = "KM2"\nvendor = "RESOL"\nserial = "isolated-gateway"\n'
+            f'product = "KM2"\nvendor = "RESOL"\nserial = "{serial}"\n'
             'version = "2.0"\nbuild = "test"\nname = "KM2"\nfeatures = "VBus"\n'
         )
         self.send(data.encode())
@@ -1308,10 +1314,175 @@ class HttpHandler(BaseHTTPRequestHandler):
         pass
 
 
+async def qualify_native_browser(hass, user, entry_id, *, heating_mode=None):
+    """Exercise the installed panel in a real HA frontend, not mocked callWS."""
+    from aiohttp import ClientSession
+
+    origin = "http://127.0.0.1:18123"
+    refresh = await hass.auth.async_create_refresh_token(user, client_id=origin + "/")
+    token_data = {
+        "hassUrl": origin,
+        "clientId": origin + "/",
+        "access_token": hass.auth.async_create_access_token(refresh),
+        "refresh_token": refresh.token,
+        "expires_in": 1800,
+        "expires": int(time.time() * 1000) + 1800000,
+        "token_type": "Bearer",
+    }
+    async with ClientSession() as session:
+        async with session.get("http://127.0.0.1:9222/json/list") as response:
+            pages = await response.json()
+        page = next(item for item in pages if item["type"] == "page")
+        async with session.ws_connect(page["webSocketDebuggerUrl"]) as ws:
+            counter = 0
+
+            async def cdp(method, **params):
+                nonlocal counter
+                counter += 1
+                await ws.send_json({"id": counter, "method": method, "params": params})
+                async with asyncio.timeout(20):
+                    while True:
+                        result = await ws.receive_json()
+                        if result.get("id") == counter:
+                            if "error" in result:
+                                raise AssertionError(
+                                    f"Browser command failed: {method}"
+                                )
+                            return result["result"]
+
+            async def evaluate(expression):
+                result = await cdp(
+                    "Runtime.evaluate",
+                    expression=expression,
+                    returnByValue=True,
+                    awaitPromise=True,
+                )
+                if "exceptionDetails" in result:
+                    raise AssertionError("Browser panel evaluation failed")
+                return result["result"].get("value")
+
+            find_panel = """const find = root => {
+              const direct = root.querySelector('deltasol-dashboard');
+              if (direct) return direct;
+              for (const node of root.querySelectorAll('*')) {
+                if (node.shadowRoot) {
+                  const found = find(node.shadowRoot);
+                  if (found) return found;
+                }
+              }
+              return null;
+            };
+            const p = find(document);"""
+
+            async def panel(expression):
+                return await evaluate("(()=>{" + find_panel + expression + "})()")
+
+            async def ready(expression):
+                async with asyncio.timeout(90):
+                    while True:
+                        try:
+                            if await panel(expression):
+                                return
+                        except AssertionError:
+                            # The document may be replaced during navigation.
+                            pass
+                        await asyncio.sleep(0.25)
+
+            await cdp("Page.enable")
+            # Seed only this isolated browser's native HA authentication
+            # storage. Never log or persist these test credentials in GitHub.
+            script = await cdp(
+                "Page.addScriptToEvaluateOnNewDocument",
+                source=(
+                    f"if(location.origin==={json.dumps(origin)})"
+                    "localStorage.setItem('hassTokens',"
+                    f"{json.dumps(json.dumps(token_data))});"
+                ),
+            )
+            try:
+                await cdp("Page.navigate", url=origin + "/resol")
+                await ready(
+                    "return !!p?.loaded && !!p.shadowRoot && "
+                    f"p.current()?.id==={json.dumps(entry_id)};"
+                )
+                assert await panel(
+                    "return p.current().engineering==="
+                    + json.dumps(user.is_admin)
+                    + " && p.current().settings==="
+                    + json.dumps(user.is_admin)
+                    + ";"
+                )
+                for width in (390, 768, 1280):
+                    await cdp(
+                        "Emulation.setDeviceMetricsOverride",
+                        width=width,
+                        height=900,
+                        deviceScaleFactor=1,
+                        mobile=width == 390,
+                    )
+                    await panel("p.render();return true;")
+                    assert await panel(
+                        "return p.shadowRoot.querySelector('main').scrollWidth"
+                        "<=p.getBoundingClientRect().width+2;"
+                    ), f"Native HA panel overflows at width {width}"
+                assert await panel(
+                    "return !!p.shadowRoot.querySelector('[data-tab=energy]');"
+                )
+                await panel(
+                    "p.shadowRoot.querySelector('[data-tab=energy]').click();"
+                    "return true;"
+                )
+                assert await panel(
+                    "return p.tab==='energy' && "
+                    "!!p.shadowRoot.querySelector('[data-history]');"
+                )
+                if user.is_admin:
+                    await panel(
+                        "p.shadowRoot.querySelector('[data-tab=engineering]').click();"
+                        "return true;"
+                    )
+                    await ready("return !!p?.report && p.tab==='engineering';")
+                    assert await panel(
+                        "return !!p.shadowRoot.querySelector('#inventory');"
+                    )
+                else:
+                    assert await panel(
+                        "return !p.shadowRoot.querySelector('[data-tab=engineering]')"
+                        " && !p.shadowRoot.querySelector('[data-tab=settings]');"
+                    )
+                if heating_mode:
+                    selector = json.dumps(f'[data-input="{heating_mode}"]')
+                    apply = json.dumps(f'[data-apply="{heating_mode}"]')
+                    await panel(
+                        "p.shadowRoot.querySelector('[data-tab=heating]').click();"
+                        "return true;"
+                    )
+                    await ready(f"return !!p?.shadowRoot.querySelector({selector});")
+                    assert await panel(
+                        f"const input=p.shadowRoot.querySelector({selector});"
+                        "input.value='Day';"
+                        f"p.shadowRoot.querySelector({apply}).click();return true;"
+                    )
+                    await ready(
+                        "return !!p && !p.pending && "
+                        f"p._hass.states[{json.dumps(heating_mode)}]?.state==='Day';"
+                    )
+                    assert hass.states.get(heating_mode).state == "Day"
+            finally:
+                await cdp(
+                    "Page.removeScriptToEvaluateOnNewDocument",
+                    identifier=script["identifier"],
+                )
+                await evaluate(
+                    "if(location.protocol==='http:')localStorage.removeItem('hassTokens');true"
+                )
+                await cdp("Page.navigate", url="about:blank")
+
+
 async def qualify(directory, phase):
     from homeassistant import bootstrap, loader
     from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-    from homeassistant.core import HomeAssistant
+    from homeassistant.core import Context, HomeAssistant
     from homeassistant.exceptions import HomeAssistantError
     from homeassistant.helpers import entity_registry as er
 
@@ -1329,6 +1500,16 @@ async def qualify(directory, phase):
         },
         "deltasol": {},
     }
+    if phase in ("upgrade", "restart"):
+        config.update({"http": {"server_port": 18123}, "frontend": {}})
+        # The baseline fixture already represents a commissioned installation.
+        # Complete only the isolated HA onboarding metadata, not product state.
+        from homeassistant.components.onboarding.const import STEPS
+        from homeassistant.helpers.storage import Store
+
+        await Store(hass, 4, "onboarding", private=True).async_save(
+            {"done": list(STEPS)}
+        )
     # Load the installed candidate's own catalogue types from the actual
     # isolated HA config directory, before entry setup can start Discovery.
     sys.path.insert(0, str(directory))
@@ -1431,10 +1612,10 @@ async def qualify(directory, phase):
             if phase == "upgrade":
                 (initial_entry,) = hass.config_entries.async_entries("deltasol")
                 initial = initial_entry.runtime_data
-                assert initial.auto_start_task is not None
-                await initial.auto_start_task
-                assert initial.capture_task is not None
-                await initial.capture_task
+                if initial.auto_start_task:
+                    await initial.auto_start_task
+                if initial.capture_task:
+                    await initial.capture_task
                 assert initial.capture.status == "complete"
                 assert initial.capture.offset == 3 and Peer.writes == 0
         if phase == "baseline":
@@ -1465,11 +1646,19 @@ async def qualify(directory, phase):
             options = hass.config_entries.options
             result = await options.async_init(entry.entry_id)
             assert result["step_id"] == "init", result
-            result = await options.async_configure(
-                result["flow_id"], {"vbus_password": "local-test"}
-            )
-            assert result["type"] == "create_entry", result
-            await hass.async_block_till_done()
+            with patch("custom_components.deltasol.load_catalog", return_value=fixture):
+                result = await options.async_configure(
+                    result["flow_id"], {"vbus_password": "local-test"}
+                )
+                assert result["type"] == "create_entry", result
+                await hass.async_block_till_done()
+                initial = entry.runtime_data
+                if initial.auto_start_task:
+                    await initial.auto_start_task
+                if initial.capture_task:
+                    await initial.capture_task
+                assert initial.capture.status == "complete"
+                assert initial.capture.offset == 3
         assert entry.options["vbus_password"] == "local-test"
         assert entry.state == ConfigEntryState.LOADED
         select = registry.async_get_entity_id("select", "deltasol", SELECT_UID)
@@ -1634,7 +1823,7 @@ async def qualify(directory, phase):
         if phase == "restart":
             assert (
                 diagnostic["configuration_discovery"]["checkpoint_error"]
-                == "checkpoint_incompatible"
+                == "checkpoint_catalogue_unavailable"
             )
         with (
             nullcontext()
@@ -2298,6 +2487,281 @@ async def qualify(directory, phase):
         archive = directory / "deltasol" / "BXPLUS_2.08.zip"
         archive.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile("/reference/BXPLUS_2.08.zip", archive)
+        # Reproduce the field regression with the existing private checkpoint
+        # from the earlier fixture, whose catalogue identity is incompatible
+        # with the actual verified archive. Reload through native HA.
+        before = (Peer.writes, Peer.saves)
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        runtime = entry.runtime_data
+        assert runtime.capture is None
+        assert runtime.checkpoint_error == "checkpoint_incompatible"
+        assert runtime.rejected_capture is not None
+        assert runtime.relay_coordinator._configuration_catalog().matches(
+            ADDRESS, CHANGESET
+        )
+        for _ in range(32):
+            await runtime.relay_coordinator.async_refresh()
+            await hass.async_block_till_done()
+            if any(
+                cap.setting.name.startswith("Anlage_Wf1_")
+                for cap in runtime.relay_coordinator.data.configuration.values()
+            ):
+                break
+        else:
+            raise AssertionError(
+                "Native function not recovered without historical capture"
+            )
+        assert runtime.capture is None
+        assert (Peer.writes, Peer.saves) == before
+        print("ISOLATED_HA independent live capability recovery PASS", flush=True)
+        from homeassistant.auth.const import (
+            GROUP_ID_ADMIN,
+            GROUP_ID_READ_ONLY,
+            GROUP_ID_USER,
+        )
+        from homeassistant.components.frontend import DATA_PANELS
+
+        from custom_components.deltasol.dashboard import (
+            dashboard_objects,
+            scoped_control,
+        )
+
+        admin = await hass.auth.async_create_user(
+            "Qualification administrator", group_ids=[GROUP_ID_ADMIN]
+        )
+        resident = await hass.auth.async_create_user(
+            "Qualification resident", group_ids=[GROUP_ID_USER]
+        )
+        readonly = await hass.auth.async_create_user(
+            "Qualification reader", group_ids=[GROUP_ID_READ_ONLY]
+        )
+        assert not resident.is_admin and not readonly.is_admin
+        assert not dashboard_objects(hass, admin)
+        assert "resol" not in hass.data.get(DATA_PANELS, {})
+        options = hass.config_entries.options
+        result = await options.async_init(entry.entry_id)
+        result = await options.async_configure(
+            result["flow_id"],
+            {
+                "vbus_password": "local-test",
+                "enable_dashboard": True,
+                "show_engineering": True,
+            },
+        )
+        assert result["type"] == "create_entry"
+        await hass.async_block_till_done()
+        assert entry.state == ConfigEntryState.LOADED
+        assert "resol" in hass.data[DATA_PANELS]
+        (admin_view,) = dashboard_objects(hass, admin)
+        (resident_view,) = dashboard_objects(hass, resident)
+        (reader_view,) = dashboard_objects(hass, readonly)
+        assert admin_view["engineering"] and admin_view["settings"]
+        # Every readable, enabled native entity in this installed fixture must
+        # occur exactly once in the administrator's scoped projection.
+        from homeassistant.helpers import device_registry as dashboard_devices
+
+        devices = dashboard_devices.async_get(hass)
+        expected_entities = {
+            row.entity_id
+            for row in registry.entities.values()
+            if row.config_entry_id == entry.entry_id
+            and row.platform == "deltasol"
+            and row.disabled_by is None
+            and row.hidden_by is None
+            and row.device_id
+            and (device := devices.async_get(row.device_id))
+            and entry.entry_id in device.config_entries
+            and any(domain == "deltasol" for domain, _ in device.identifiers)
+        }
+        projected_entities = [
+            row["entity_id"]
+            for asset in admin_view["objects"]
+            for row in asset["capabilities"]
+        ]
+        assert len(projected_entities) == len(set(projected_entities))
+        assert set(projected_entities) == expected_entities
+        admin_sensor = next(
+            row
+            for asset in admin_view["objects"]
+            for row in asset["capabilities"]
+            if row["entity_id"] == sensor
+        )
+        assert admin_sensor["telemetry_packet"] == SENSOR_UID.split("__")[0]
+        assert admin_sensor["telemetry_field"] == SENSOR_UID.split("__")[1]
+        assert all(
+            "telemetry_packet" not in row
+            for asset in resident_view["objects"]
+            for row in asset["capabilities"]
+        )
+        assert not resident_view["engineering"] and not resident_view["settings"]
+        assert not reader_view["engineering"]
+        assert all(
+            not row["control"]
+            for asset in reader_view["objects"]
+            for row in asset["capabilities"]
+        )
+        assert any(
+            row["entity_id"] == sensor
+            for asset in resident_view["objects"]
+            for row in asset["capabilities"]
+        )
+        assert scoped_control(hass, admin, entry.entry_id, select)["control"]
+        second = ConfigEntry(
+            version=entry.version,
+            minor_version=entry.minor_version,
+            domain="deltasol",
+            title="Second installation",
+            data={**entry.data, "port": 18081},
+            source="user",
+            unique_id="isolated-secondary",
+            options={"enable_dashboard": True, "show_engineering": False},
+            discovery_keys=MappingProxyType({}),
+            subentries_data=None,
+        )
+        await hass.config_entries.async_add(second)
+        await hass.async_block_till_done()
+        assert second.state == ConfigEntryState.LOADED
+        second_sensor = registry.async_get_entity_id(
+            "sensor", "deltasol", f"isolated-secondary_{SENSOR_UID}"
+        )
+        assert second_sensor and second_sensor != sensor
+        assert registry.async_get(second_sensor).config_entry_id == second.entry_id
+        assert float(hass.states.get(second_sensor).state) == 42
+        views = {view["id"]: view for view in dashboard_objects(hass, admin)}
+        assert set(views) == {entry.entry_id, second.entry_id}
+        assert views[entry.entry_id]["engineering"]
+        assert not views[second.entry_id]["engineering"]
+        assert "resol" in hass.data[DATA_PANELS]
+        assert await hass.config_entries.async_remove(second.entry_id)
+        assert "resol" in hass.data[DATA_PANELS]
+        assert len(dashboard_objects(hass, admin)) == 1
+        assert registry.async_get(sensor).config_entry_id == entry.entry_id
+        for user, ident in ((resident, entry.entry_id), (admin, "other-entry")):
+            try:
+                scoped_control(hass, user, ident, select)
+            except HomeAssistantError:
+                pass
+            else:
+                raise AssertionError("Engineering or foreign entry control leaked")
+        from aiohttp import ClientSession
+
+        async def dashboard_request(user, command, **payload):
+            token = await hass.auth.async_create_refresh_token(
+                user, client_id="http://127.0.0.1:18123/"
+            )
+            access_token = hass.auth.async_create_access_token(token)
+            async with (
+                ClientSession() as session,
+                session.ws_connect("http://127.0.0.1:18123/api/websocket") as ws,
+            ):
+                assert (await ws.receive_json())["type"] == "auth_required"
+                await ws.send_json({"type": "auth", "access_token": access_token})
+                assert (await ws.receive_json())["type"] == "auth_ok"
+                await ws.send_json({"id": 1, "type": command, **payload})
+                response = await ws.receive_json()
+                assert response["id"] == 1
+                return response
+
+        # A resident subscription receives native coordinator updates without
+        # another VBus session or registry mutation.
+        token = await hass.auth.async_create_refresh_token(
+            resident, client_id="http://127.0.0.1:18123/"
+        )
+        access_token = hass.auth.async_create_access_token(token)
+        async with (
+            ClientSession() as session,
+            session.ws_connect("http://127.0.0.1:18123/api/websocket") as ws,
+        ):
+            assert (await ws.receive_json())["type"] == "auth_required"
+            await ws.send_json({"type": "auth", "access_token": access_token})
+            assert (await ws.receive_json())["type"] == "auth_ok"
+            sessions_before = Peer.sessions
+            await ws.send_json({"id": 1, "type": "deltasol/dashboard/subscribe"})
+            assert (await ws.receive_json())["success"]
+            initial = (await ws.receive_json())["event"][0]
+            assert not initial["engineering"]
+            assert initial["health"]["parameter_current"]
+            relay = entry.runtime_data.relay_coordinator
+            relay.async_set_update_error(HomeAssistantError("qualification outage"))
+            changed = (await ws.receive_json(timeout=5))["event"][0]
+            assert not changed["health"]["parameter_current"]
+            relay.async_set_updated_data(relay.data)
+            recovered = (await ws.receive_json(timeout=5))["event"][0]
+            assert recovered["health"]["parameter_current"]
+            assert Peer.sessions == sessions_before
+            await ws.send_json(
+                {"id": 2, "type": "unsubscribe_events", "subscription": 1}
+            )
+            assert (await ws.receive_json())["success"]
+
+        # Authenticate against the real HA websocket and exercise registration,
+        # schemas, permissions and the native action context, not just wrappers.
+        listed = await dashboard_request(admin, "deltasol/dashboard/list")
+        assert listed["success"]
+        assert listed["result"][0]["id"] == entry.entry_id
+        report = await dashboard_request(
+            admin, "deltasol/dashboard/engineering", entry_id=entry.entry_id
+        )
+        assert report["success"]
+        assert report["result"]["operational_contracts_source"]["changeset"] == (
+            f"{CHANGESET:08X}"
+        )
+        assert "Schema" in report["result"]["reference_inventory"]
+        denied = await dashboard_request(
+            resident, "deltasol/dashboard/engineering", entry_id=entry.entry_id
+        )
+        assert not denied["success"]
+        await qualify_native_browser(hass, admin, entry.entry_id)
+        print("ISOLATED_HA actual admin frontend browser PASS", flush=True)
+        response = await dashboard_request(
+            admin,
+            "deltasol/dashboard/action",
+            entry_id=entry.entry_id,
+            entity_id=select,
+            value=hass.states.get(select).state,
+        )
+        assert response["success"]
+        assert response["result"] == {
+            "outcome": "observed",
+            "value": hass.states.get(select).state,
+        }
+        response = await dashboard_request(
+            resident,
+            "deltasol/dashboard/action",
+            entry_id=entry.entry_id,
+            entity_id=select,
+            value="Off",
+        )
+        assert not response["success"]
+        assert (Peer.writes, Peer.saves) == before
+        # Disable using the native options flow, verify single panel removal.
+        result = await options.async_init(entry.entry_id)
+        result = await options.async_configure(
+            result["flow_id"],
+            {
+                "vbus_password": "local-test",
+                "enable_dashboard": False,
+                "show_engineering": False,
+            },
+        )
+        assert result["type"] == "create_entry"
+        await hass.async_block_till_done()
+        assert entry.state == ConfigEntryState.LOADED
+        assert "resol" not in hass.data.get(DATA_PANELS, {})
+        assert not dashboard_objects(hass, admin)
+        assert (Peer.writes, Peer.saves) == before
+        print("ISOLATED_HA native dashboard lifecycle and role scope PASS", flush=True)
+        result = await options.async_init(entry.entry_id)
+        result = await options.async_configure(
+            result["flow_id"],
+            {
+                "vbus_password": "local-test",
+                "enable_dashboard": True,
+                "show_engineering": True,
+            },
+        )
+        assert result["type"] == "create_entry"
+        await hass.async_block_till_done()
         await hass.services.async_call(
             "button", "press", {"entity_id": button}, blocking=True
         )
@@ -3036,7 +3500,32 @@ async def qualify(directory, phase):
         before = Peer.saves
         await reject_mode(heating_mode, "Holiday")
         assert Peer.saves == before
-        await set_mode(heating_mode, "Day")
+        denied = await dashboard_request(
+            readonly,
+            "deltasol/dashboard/action",
+            entry_id=entry.entry_id,
+            entity_id=heating_mode,
+            value="Day",
+        )
+        assert not denied["success"] and Peer.saves == before
+        # The resident actually changes the mode from the installed HA UI.
+        await qualify_native_browser(
+            hass, resident, entry.entry_id, heating_mode=heating_mode
+        )
+        assert Peer.saves == before + 1 and Peer.settings[14014] == 1
+        print("ISOLATED_HA actual resident frontend action PASS", flush=True)
+        # Repeat via the authenticated endpoint: it must remain a no-op.
+        changed = await dashboard_request(
+            resident,
+            "deltasol/dashboard/action",
+            entry_id=entry.entry_id,
+            entity_id=heating_mode,
+            value="Day",
+        )
+        assert changed["success"] and changed["result"] == {
+            "outcome": "observed",
+            "value": "Day",
+        }
         await set_mode(heating_mode, "Day")
         assert Peer.saves == before + 1 and Peer.settings[14014] == 1
         await number("Urlaubsfunktion_Tage", 7)
@@ -3385,12 +3874,68 @@ async def qualify(directory, phase):
         assert hass.states.get(schedule).attributes["active_references"] == [
             "Anlage_Wf4_SchaltuhrNr"
         ]
-        await hass.services.async_call(
-            "text",
-            "set_value",
-            {"entity_id": schedule, "value": "08:30-10:00, 18:00-20:00"},
-            blocking=True,
+        request = {
+            "entry_id": entry.entry_id,
+            "entity_id": schedule,
+            "value": "08:30-10:00, 18:00-20:00",
+        }
+        preview = await dashboard_request(
+            admin, "deltasol/dashboard/action", preview=True, **request
         )
+        assert preview["success"] and Peer.bulk_saves == 0
+        review = preview["result"]
+        assert review["expected"] == "08:00-10:00, 18:00-20:00"
+        assert len(review["references"]) == 2
+        denial = await dashboard_request(
+            resident, "deltasol/dashboard/action", preview=True, **request
+        )
+        assert not denial["success"] and Peer.bulk_saves == 0
+        # The reviewed HA action itself must reject an unauthorized caller,
+        # independently of dashboard visibility and websocket checks.
+        try:
+            await hass.services.async_call(
+                "deltasol",
+                "save_reviewed_weekly_program",
+                {
+                    **request,
+                    "expected": review["expected"],
+                    "reference_token": review["reference_token"],
+                },
+                blocking=True,
+                context=Context(user_id=resident.id),
+            )
+        except HomeAssistantError:
+            pass
+        else:
+            raise AssertionError("Resident invoked reviewed weekly service")
+        assert Peer.bulk_saves == 0
+        stale = await dashboard_request(
+            admin,
+            "deltasol/dashboard/action",
+            **request,
+            expected="",
+            references=review["references"],
+            reference_token=review["reference_token"],
+        )
+        assert not stale["success"] and Peer.bulk_saves == 0
+        # Two independently authenticated dashboard clients review the same
+        # old day. Exactly one may commit, even when both request the same value.
+        competing = await asyncio.gather(
+            *(
+                dashboard_request(
+                    admin,
+                    "deltasol/dashboard/action",
+                    **request,
+                    expected=review["expected"],
+                    references=review["references"],
+                    reference_token=review["reference_token"],
+                )
+                for _ in range(2)
+            )
+        )
+        successful = [result for result in competing if result["success"]]
+        assert len(successful) == 1, competing
+        assert successful[0]["result"]["outcome"] == "observed"
         assert hass.states.get(schedule).state == "08:30-10:00, 18:00-20:00"
         assert Peer.weekly_words[18419] == [0x50482822, -1, -1]
         assert Peer.bulk_saves == 1
@@ -3514,9 +4059,10 @@ def main():
         }
     with (
         ThreadingHTTPServer(("127.0.0.1", 18080), HttpHandler) as http,
+        ThreadingHTTPServer(("127.0.0.1", 18081), HttpHandler) as secondary,
         VBusServer(("127.0.0.1", 7053), VBusHandler) as vbus,
     ):
-        for server in (http, vbus):
+        for server in (http, secondary, vbus):
             threading.Thread(target=server.serve_forever, daemon=True).start()
         asyncio.run(qualify(directory, phase))
     print(f"ISOLATED_HA {phase} PASS (controlled loopback protocol peer)")

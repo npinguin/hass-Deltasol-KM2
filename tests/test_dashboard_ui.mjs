@@ -1,0 +1,328 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import {spawnSync} from "node:child_process";
+import test from "node:test";
+import vm from "node:vm";
+
+let Panel;
+const scope = {
+  HTMLElement: class {},
+  customElements: {get:()=>undefined,define:(_name,cls)=>{Panel=cls;}},
+};
+vm.runInNewContext(readFileSync(new URL("../custom_components/deltasol/frontend/dashboard.js",import.meta.url),"utf8"),scope);
+
+function model(admin=false,engineering=false){
+  const panel=Object.create(Panel.prototype);
+  panel.context="one";panel.tab="overview";panel.pending=false;
+  panel.installations=[{id:"one",settings:admin,engineering,objects:[{id:"device",capabilities:[
+    {entity_id:"sensor.temperature",depth:"status",section:"overview",kind:"sensor"},
+    {entity_id:"select.heating",depth:"controls",section:"heating",kind:"select",control:true},
+    {entity_id:"text.week",depth:"settings",section:"schedule",kind:"text",control:admin,schedule:true},
+    {entity_id:"button.discovery",depth:"engineering",section:"overview",kind:"button",control:engineering}
+  ]}]}];
+  panel._hass={language:"nl",states:{"sensor.temperature":{state:"42",attributes:{unit_of_measurement:"°C"}},"select.heating":{state:"Auto",attributes:{}},"text.week":{state:"08:00-10:00",attributes:{}},"button.discovery":{state:"unknown",attributes:{}}}};
+  return panel;
+}
+test("single navigation, object context, role and unavailable state",()=>{
+  const p=model();
+  assert.ok(p.tabs().includes("heating"));
+  assert.ok(!p.tabs().includes("engineering"));
+  assert.ok(!p.tabs().includes("settings"));
+  assert.equal(p.value(p.row("sensor.temperature")),"42 °C");
+  assert.equal(p.visibleRows(p.current().objects[0]).length,2);
+  p._hass.states["select.heating"].state="unavailable";
+  assert.equal(p.allowed(p.row("select.heating")),false);
+  assert.equal(p.value(p.row("select.heating")),"Niet beschikbaar");
+});
+test("administrator Settings and optional Engineering share same object",()=>{
+  const p=model(true,true);
+  assert.ok(p.tabs().includes("settings"));
+  assert.ok(p.tabs().includes("engineering"));
+  p.tab="settings";
+  assert.equal(p.visibleRows(p.current().objects[0]).length,2);
+  p.tab="engineering";
+  assert.equal(p.visibleRows(p.current().objects[0]).length,1);
+  assert.equal(p.allowed(p.row("button.discovery")),true);
+});
+test("weekly preview carries authoritative baseline to native action",async()=>{
+  const p=model(true,true);
+  p.editor={id:"text.week",windows:[["08:00","10:00"]],review:null};
+  p.render=()=>{};
+  let request;
+  p._hass.callWS=async msg=>{
+    request=msg;
+    return msg.preview?{value:"08:00-10:00",expected:"07:00-09:00",references:["Heating"],reference_token:"verified-owners"}:{outcome:"observed",value:msg.value};
+  };
+  await p.action(p.row("text.week"),"08:00-10:00",true);
+  assert.equal(p.editor.review.expected,"07:00-09:00");
+  await p.action(p.row("text.week"),p.editor.review.value);
+  assert.equal(request.expected,"07:00-09:00");
+  assert.equal(request.references[0],"Heating");
+  assert.equal(request.reference_token,"verified-owners");
+  assert.equal(request.entry_id,"one");
+  assert.equal(p.editor,null);
+});
+
+test("settings-only native function remains visible in the object overview",()=>{
+  const p=model(true,false);
+  const object={id:"thermostat",capabilities:[{entity_id:"number.thermostat",depth:"settings",section:"overview",kind:"number",control:true}]};
+  assert.equal(p.visibleRows(object).length,1);
+});
+
+test("engineering inventory merges live and historical evidence without claiming write access",()=>{
+  const p=model(true,true);
+  p.query="";p.filter="all";p.report={configuration_discovery:{parameters:{Old:{status:"stale"}},comparison:{changes:{Old:{before_raw:1,after_raw:2}}}},configuration_controls:{Live:{status:"supported",write_access:"profile_verified"}},operational_contracts:{Live:{label:"Heating target"},Other:{label:"Unverified"}}};
+  assert.equal(p.inventoryEntries().length,3);
+  p.filter="live";assert.equal(p.inventoryEntries()[0][0],"Live");
+  p.filter="changes";assert.equal(p.inventoryEntries()[0][0],"Old");
+  p.filter="all";p.query="heating";assert.equal(p.inventoryEntries()[0][0],"Live");
+});
+
+test("reference inventory remains searchable without a historical capture",()=>{
+  const p=model(true,true);
+  p.filter="all";p.query="14014";p.report={reference_inventory:{HeatingMode:{reference_index:14014,status:"reference_only",write_access:"not_confirmed"}}};
+  assert.equal(p.inventoryEntries()[0][0],"HeatingMode");
+  assert.equal(p.inventoryEntries()[0][1].reference.write_access,"not_confirmed");
+  p.filter="live";assert.equal(p.inventoryEntries().length,0);
+});
+
+test("native labels retain custom names and localize known capability semantics",()=>{
+  const p=model(true,true);
+  assert.equal(p.capabilityLabel({name:"Heating circuit 1 configured mode"}),"Verwarmingscircuit 1 · Bedrijfsmodus");
+  assert.equal(p.capabilityLabel({name:"Hoxter target",renamed:true,native_label:"Heating circuit 1 configured mode"}),"Hoxter target");
+  p._hass.language="fr";
+  assert.equal(p.capabilityLabel({name:"Heating circuit 1 heating curve"}),"Circuit de chauffage 1 · Courbe de chauffe");
+});
+
+test("weekly programs use native object and program identity, not duplicate schedules",()=>{
+  const p=model(true,true);
+  const asset=p.current().objects[0];
+  const row=p.row("text.week");row.program=1;row.day="Mo";row.shared_references=["Heating"];
+  asset.capabilities.push({...row,entity_id:"text.tuesday",day:"Di"});
+  assert.equal(p.weekPrograms().length,1);
+  assert.equal(p.weekPrograms()[0].days.size,2);
+  assert.equal(p.capabilityLabel(row),"Weekprogramma 1 · Maandag");
+  assert.ok(p.weekView().includes("08:00-10:00"));
+  p.object="other";assert.equal(p.weekPrograms().length,0);
+});
+
+test("semantic summary prioritizes real mode and measurements over registry order",()=>{
+  const p=model(true,true);
+  const rows=[{name:"Preference",depth:"settings",priority:10},{name:"Temperature",depth:"status",priority:95},{name:"Mode",depth:"controls",priority:100},{name:"Power",depth:"status",priority:90},{name:"Alarm",depth:"status",priority:120},{name:"Flow",depth:"status",priority:75}];
+  assert.equal(p.prominentRows(rows).map(row=>row.name).join(","),"Alarm,Mode,Temperature,Power");
+});
+test("function detail follows a positively observed shared program without duplicating it",()=>{
+  const p=model(true,true);
+  const asset=p.current().objects[0], row=p.row("text.week");
+  row.program=3;row.day="Mo";
+  asset.capabilities=asset.capabilities.filter(item=>item!==row);
+  asset.capabilities[0].linked_program=3;
+  p.current().objects.push({id:"program-owner",capabilities:[row]});
+  p.object=asset.id;
+  assert.equal(p.weekPrograms().length,1);
+  assert.equal(p.weekPrograms()[0].number,3);
+  assert.ok(!p.weekView(false).includes("data-edit"));
+  assert.ok(p.weekView(true).includes("data-edit"));
+  asset.capabilities[0].linked_program=null;
+  assert.equal(p.weekPrograms().length,0);
+});
+
+test("cached values are not presented as current when native availability is lost",()=>{
+  const p=model(true,true),row=p.row("sensor.temperature");
+  row.availability="telemetry_unavailable";
+  assert.equal(p.valid(row),false);
+  assert.equal(p.value(row),"Niet beschikbaar");
+  row.availability="available";assert.equal(p.value(row),"42 °C");
+});
+test("recorded numeric trends preserve gaps and do not invent readings",()=>{
+  const p=model(true,true),items=[{lu:1,s:"42"},{lu:2,s:"unavailable"},{lu:3,s:"44"},{lu:4,s:"45"}];
+  assert.equal(p.historyPoints(items).filter(x=>Number.isFinite(x.value)).length,3);
+  const chart=p.historyChart(items,"°C");
+  assert.equal((chart.match(/<polyline/g)||[]).length,2);
+  assert.equal(p.historyChart([{lu:1,s:"Auto"},{lu:2,s:"Off"}],""),"");
+});
+
+test("object relations use a readable source object and do not fabricate sensor readings",()=>{
+  const p=model(true,true);
+  const asset=p.current().objects[0];
+  p.current().objects.push({id:"module",name:"EM 1",capabilities:[]});
+  asset.relations=[{kind:"relay_assignment",number:15,source_object:"module",resolution:"linked"},{kind:"sensor_reference",number:3,resolution:"native_reference_only"}];
+  const html=p.relationView(asset);
+  assert.ok(html.includes('data-source-object="module"'));
+  assert.ok(html.includes("bronmeting niet bevestigd"));
+  assert.ok(!html.includes("42 °C"));
+});
+
+test("attention is grouped by observed condition and gateway failure is not repeated per entity",()=>{
+  const p=model(true,true),asset=p.current().objects[0];asset.name="Heating";
+  p.current().health={telemetry:true,parameter_access:true,parameter_current:true};
+  const row=p.row("sensor.temperature");row.availability="requirements_not_confirmed";
+  assert.equal(p.attentionItems().length,1);
+  assert.equal(p.attentionItems()[0].reason,"requirements_not_confirmed");
+  assert.ok(p.attentionView().includes("Controleer de geïnstalleerde functie"));
+  p.current().health.telemetry=false;
+  assert.equal(p.attentionItems().length,1);assert.equal(p.attentionItems()[0].reason,"telemetry_unavailable");
+});
+test("daily controls only use currently permitted native capabilities",()=>{
+  const p=model(true,true),asset=p.current().objects[0];asset.name="Heating";
+  assert.equal(p.routineControls().length,1);
+  assert.equal(p.routineControls()[0].row.entity_id,"select.heating");
+  p.row("select.heating").control=false;assert.equal(p.routineControls().length,0);
+  p.row("select.heating").control=true;p.row("select.heating").availability="parameter_unavailable";assert.equal(p.routineControls().length,0);
+});
+
+test("engineering separates live relay controls from captured values and reference evidence",()=>{
+  const p=model(true,true);p.filter="all";p.query="";p.report={configuration_discovery:{parameters:{Schema:{decoded_value:42,status:"read"},Old:{decoded_value:12,status:"read",write_access:"profile_verified"}}},reference_inventory:{Schema:{reference_index:1,write_access_reason:"hardware_or_topology_assignment"}},parameter_access:{relays:{R1:{parameter:"Relais_Regler_R1_Handbetrieb",status:"supported",mode:"Auto",writable_options:["Auto","Off"]}}}};
+  const rows=new Map(p.inventoryEntries());assert.equal(rows.get("Old").liveVerified,false);assert.equal(rows.get("Relais_Regler_R1_Handbetrieb").liveVerified,true);
+  const html=p.inventoryEvidence(rows.get("Schema"));assert.ok(html.includes("Hardware- of topologietoewijzing"));assert.ok(html.includes("Historische snapshot: 42"));assert.ok(!html.includes("Actueel: 42"));
+  p.filter="readonly";assert.ok(!new Map(p.inventoryEntries()).has("Relais_Regler_R1_Handbetrieb"));
+});
+
+test("engineering details navigate only to the existing scoped entity and show typed limits",()=>{
+  const p=model(true,true),asset=p.current().objects[0],row=p.row("select.heating");asset.name="Heating";row.parameter="Mode";p.query="";p.filter="all";p.report={configuration_controls:{Mode:{status:"supported",write_access:"profile_verified",value:"Auto"}},operational_contracts:{Mode:{variants:[{kind:"number",storage_action:"save",limits:["5","90","1"],unit:"°C",prerequisites:[{parameter:"Type",reference_index:10}],relative_constraints:[]}]}}};
+  const item=new Map(p.inventoryEntries()).get("Mode");const html=p.inventoryDetails(item);assert.ok(html.includes('data-parameter-entity="select.heating"'));assert.ok(html.includes("5 – 90"));assert.ok(html.includes("Type · 10"));assert.ok(html.includes("live validatie vereist"));
+  row.control=false;assert.ok(p.inventoryDetails(item).includes("Alleen lezen of geen toestemming"));
+});
+
+test("one locale dictionary covers all shell keys and preserves native numeric input",()=>{
+  const p=model(true,true);p._hass.states["sensor.temperature"].state="42.5";assert.equal(p.value(p.row("sensor.temperature")),"42,5 °C");
+  for(const lang of ["en","nl","fr"]){p._hass.language=lang;for(const key of ["overview","settings","engineering","save","live_verified","requirements_not_confirmed","native_index","navigation"])assert.notEqual(p.t(key),key);}
+  p._hass.language="nl";assert.equal(p.capabilityLabel({native_label:"Arrangement function 1 mixer target temperature"}),"Controllerfunctie 1 · Mengklepdoeltemperatuur");
+});
+test("navigation does not keep a selected object outside the target domain",()=>{
+  const p=model(true,true);p.render=()=>{};p.object="device";p.current().objects.push({id:"solar",capabilities:[{section:"solar",depth:"status"}]});p.editor={id:"text.week"};p.selectTab("solar");assert.equal(p.object,"");assert.equal(p.editor,null);assert.equal(p.objectsForTab().length,1);p.selectObject("device");assert.equal(p.object,"");p.selectObject("solar");assert.equal(p.object,"solar");p.current().settings=false;p.selectTab("settings");assert.equal(p.tab,"solar");
+});
+
+test("linked native schedule remains reachable from the same function context in Settings",()=>{
+  const p=model(true,true);p.render=()=>{};const asset=p.current().objects[0],row=p.row("text.week");row.program=3;row.day="Mo";asset.capabilities=[{entity_id:"sensor.temperature",depth:"status",section:"overview",linked_program:3}];p.current().objects.push({id:"program-owner",capabilities:[row]});p.object=asset.id;p.selectTab("settings");assert.equal(p.object,asset.id);assert.equal(p.weekPrograms().length,1);
+});
+test("stale engineering response cannot replace a newer authorized request",async()=>{
+  const p=model(true,true);p.tab="engineering";p.render=()=>{};const requests=[];p._hass.callWS=()=>new Promise(resolve=>requests.push(resolve));const first=p.engineering(),second=p.engineering();requests[1]({newer:true});await second;requests[0]({older:true});await first;assert.equal(p.report.newer,true);assert.equal(p.report.older,undefined);
+});
+
+
+test("native projection updates invalidate reviewed values and permission changes even while editing",()=>{
+  const p=model(true,true),row=p.row("text.week");
+  p.render=()=>{};p.object="device";row.reference_token="original";
+  p.editor={id:row.entity_id,review:{expected:"08:00-10:00",reference_token:"original"}};
+  const snapshot=JSON.parse(JSON.stringify(p.installations));
+  snapshot[0].objects[0].capabilities.find(item=>item.entity_id===row.entity_id).reference_token="changed";
+  p.applyProjection(snapshot);assert.equal(p.editor.review,null);
+  p.editor={id:row.entity_id};
+  const denied=JSON.parse(JSON.stringify(snapshot));
+  denied[0].objects[0].capabilities.find(item=>item.entity_id===row.entity_id).control=false;
+  p.applyProjection(denied);assert.equal(p.editor,null);
+  assert.equal(p.row(row.entity_id).control,false);
+});
+
+test("newer native subscription projection wins over an older list response",async()=>{
+  const p=model(true,true);p.render=()=>{};
+  let resolveList;p._hass.callWS=()=>new Promise(resolve=>resolveList=resolve);
+  const older=JSON.parse(JSON.stringify(p.installations));
+  const loading=p.load();
+  p.projectionRevision=1;
+  const newer=JSON.parse(JSON.stringify(older));newer[0].engineering=false;
+  p.applyProjection(newer);
+  resolveList(older);await loading;
+  assert.equal(p.current().engineering,false);
+});
+
+
+test("room controls and native schedule owner labels use the selected locale",()=>{
+  const p=model(true,true);
+  assert.equal(p.capabilityLabel({native_label:"Heating circuit 2 thermostat 3 room setpoint"}),"Verwarmingscircuit 2 · Kamerthermostaat 3 · Gewenste kamertemperatuur");
+  assert.equal(p.weeklyOwnerLabel("Heating circuit 2 / Room thermostat 3"),"Verwarmingscircuit 2 / Kamerthermostaat 3");
+  assert.equal(p.capabilityLabel({native_label:"Solar standby cooling priority 2"}),"Zonnefunctie stand-by · Koelvoorrang 2");
+  p._hass.language="fr";
+  assert.equal(p.capabilityLabel({native_label:"Heating function 1 loading on temperature"}),"Fonction de chauffage 1 · Température d’enclenchement de charge");
+  assert.equal(p.weeklyOwnerLabel("Heating circuit 2 / Room thermostat 3"),"Circuit de chauffage 2 / Thermostat d’ambiance 3");
+});
+
+test("selected Engineering object exposes exact telemetry source without promoting it to a control",()=>{
+  const p=model(true,true);p.tab="engineering";p.object="device";
+  const row=p.row("sensor.temperature");row.telemetry_packet="00_0010_7112_0100";row.telemetry_field="000_2_0";
+  assert.ok(p.visibleRows(p.current().objects[0]).includes(row));
+  assert.ok(p.detail(row,false).includes("000_2_0"));
+  p.tab="overview";assert.ok(!p.detail(row,false).includes("000_2_0"));
+});
+test("configured function with no observed measurement explicitly shows unknown measurement coverage",()=>{
+  const p=model(true,true);const asset=p.current().objects[0];
+  asset.name="RESOL Heating circuit 1";asset.object_kind="circuit";asset.object_number=1;
+  asset.capabilities=asset.capabilities.filter(row=>row.kind!=="sensor");
+  p.tab="heating";
+  const html=p.cards();assert.ok(html.includes(p.t("unconfirmed")));assert.ok(!html.includes("1 / 1"));
+});
+
+test("every supported entity depth is reachable in the shared dashboard navigation",()=>{
+  const p=model(true,true);const asset=p.current().objects[0];
+  asset.capabilities.push({entity_id:"number.solar",depth:"settings",section:"solar",kind:"number",control:true},{entity_id:"switch.dhw",depth:"settings",section:"hot_water",kind:"switch",control:true},{entity_id:"sensor.yield",depth:"status",section:"energy",kind:"sensor"});
+  p.object="device";
+  for(const row of asset.capabilities){
+    p.tab=row.depth==="engineering"?"engineering":row.depth==="settings"?"settings":"overview";
+    assert.ok(p.tabs().includes(p.tab));assert.ok(p.visibleRows(asset).includes(row),row.entity_id);
+  }
+  p.current().engineering=false;
+  assert.ok(!p.tabs().includes("engineering"));
+});
+
+test("energy and history exposes actual readings from every operational source without inventing totals",()=>{
+  const p=model(true,true),a=p.current().objects[0];a.name="Source";
+  a.capabilities.push({entity_id:"sensor.yield",depth:"status",section:"energy",kind:"sensor",role:"energy"});
+  p._hass.states["sensor.yield"]={state:"1200",attributes:{unit_of_measurement:"Wh"}};
+  p.tab="energy";
+  assert.ok(p.objectsForTab().includes(a));
+  assert.ok(p.visibleRows(a).some(row=>row.entity_id==="sensor.temperature"));
+  assert.ok(!p.visibleRows(a).some(row=>row.entity_id==="select.heating"));
+  assert.ok(p.cards().includes(p.t("energy_measurements")));
+  assert.ok(p.cards().includes(p.t("other_measurements")));
+  assert.ok(p.cards().includes("1200 Wh"));
+  assert.ok(!p.domainTask().includes(p.t("no_energy_measurement")));
+  p.row("sensor.yield").availability="telemetry_unavailable";
+  assert.ok(p.domainTask().includes(p.t("no_energy_measurement")));
+});
+test("functional views use existing controls and offer one scoped route to settings",()=>{
+  const p=model(true,true),a=p.current().objects[0];a.name="Heating";
+  p.tab="heating";
+  assert.ok(p.domainTask().includes(p.t("heating_task")));
+  const html=p.cards();
+  assert.equal((html.match(/data-input="select.heating"/g)||[]).length,1);
+  assert.ok(html.includes('data-object-settings="device"'));
+  p.current().settings=false;
+  assert.ok(!p.cards().includes("data-object-settings"));
+  p.tab="hot_water";
+  assert.ok(!p.cards().includes("data-input"));
+});
+
+test("native meter, solar and controller preferences localize without changing their native identity",()=>{
+  const p=model(true,true);
+  assert.equal(p.capabilityLabel({native_label:"HQM 2 alternative display unit"}),"Warmtemeter 2 · Alternatieve weergave-eenheid");
+  assert.equal(p.capabilityLabel({native_label:"Solar exchanger 1 target temperature"}),"Zonnewarmtewisselaar 1 · Doeltemperatuur");
+  assert.equal(p.capabilityLabel({native_label:"Controller-wide holiday remaining days"}),"Resterende vakantiedagen (hele regelaar)");
+  p._hass.language="fr";
+  assert.equal(p.capabilityLabel({native_label:"Heating demand 1 minimum runtime"}),"Demande de chauffage 1 · Durée minimale de fonctionnement");
+});
+
+test("all typed BX Plus profile labels and option values have EN/NL/FR coverage",()=>{
+  const code=`
+import importlib, json, pathlib, sys, types
+package = types.ModuleType("_resol_label_inventory")
+package.__path__ = [str(pathlib.Path("custom_components/deltasol").resolve())]
+sys.modules[package.__name__] = package
+profile = importlib.import_module(f"{package.__name__}.bx_plus")
+labels = sorted({s.label for s in profile.SETTINGS})
+options = sorted({name for s in profile.SETTINGS for name, _ in s.options})
+print(json.dumps({"labels": labels, "options": options}))
+`;
+  const result=spawnSync("python",["-c",code],{encoding:"utf8"});
+  assert.equal(result.status,0,result.stderr);
+  const inventory=JSON.parse(result.stdout);
+  assert.ok(inventory.labels.length>100);
+  const p=model(true,true);
+  for(const lang of ["en","nl","fr"]){
+    p._hass.language=lang;
+    const missing=inventory.labels.filter(label=>!p.nativeLabelTranslation(label));
+    assert.deepEqual(missing,[],lang+" native labels");
+    assert.deepEqual(inventory.options.filter(value=>!p.optionTranslation(value)),[],lang+" native options");
+  }
+  console.log("RESOL_LOCALIZATION_PASS "+inventory.labels.length+" labels / "+inventory.options.length+" options");
+});

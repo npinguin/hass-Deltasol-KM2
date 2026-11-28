@@ -59,10 +59,14 @@
       "init": {
         "description": "Lokaler VBus-Parameterzugriff (KM2/DL2 Plus). Leer lassen, um die bisherige Messwertabfrage beizubehalten. Handbetrieb kann nach Verbindungsverlust aktiv bleiben; anschließend wieder Auto wählen.",
         "data": {
-          "vbus_password": "VBus-Passwort für Fernzugriff"
+          "vbus_password": "VBus-Passwort für Fernzugriff",
+          "enable_dashboard": "RESOL-Dashboard aktivieren",
+          "show_engineering": "Engineering-Register anzeigen"
         },
         "data_description": {
-          "vbus_password": "Separat vom HTTP/Web-Passwort. In der Fernzugriff-Konfiguration des RESOL-Gateways einstellen."
+          "vbus_password": "Separat vom HTTP/Web-Passwort. In der Fernzugriff-Konfiguration des RESOL-Gateways einstellen.",
+          "enable_dashboard": "Eine optionale Seitenleisten-Anwendung für alle aktivierten RESOL-Anlagen.",
+          "show_engineering": "Engineering nur für Administratoren im selben Dashboard."
         }
       }
     }

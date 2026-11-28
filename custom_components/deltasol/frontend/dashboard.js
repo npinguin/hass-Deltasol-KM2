@@ -1,0 +1,604 @@
+/* RESOL single native HA dashboard. No protocol or business logic here. */
+const COPY = {
+  en: {overview:"Overview",solar:"Solar",heating:"Heating",hot_water:"Hot water",energy:"Energy & history",settings:"Settings",engineering:"Engineering",schedule:"Weekly schedules",refresh:"Refresh view",installation:"Installation",all:"All objects",unknown:"Unknown",unavailable:"Unavailable",empty:"No observed capabilities in this view.",error:"Request failed or uncertain. Check the current value.",loading:"Loading RESOL…",apply:"Apply",preview:"Review",cancel:"Cancel",add:"Add interval",remove:"Remove",history:"History",observed:"Observed and confirmed",submitted:"Submitted; check discovery progress",not_confirmed:"Outcome not confirmed",shared:"Shared program references",no_refs:"No references reported",configure:"Integration settings",configure_help:"Manage dashboard, Engineering access and gateway credentials in native Home Assistant settings.",search:"Search technical evidence",export:"Export redacted diagnostics",diagnostics:"Diagnostics",inventory:"Parameter inventory",none:"No captured parameters",close:"Close",time:"Last updated",no_history:"No recorded history",start:"Start",end:"End",confirm_schedule:"Review shared effects before saving. Each day is saved independently.",choose:"Choose an object",attention:"Needs attention",ready:"Observed",operation:"Operation",preferences:"Preferences",status:"Status",details:"Details",readonly:"Read only",back:"Back",enabled:"Enabled",select:"Select",on:"On",off:"Off",working:"Working…"},
+  nl: {overview:"Overzicht",solar:"Zonne-energie",heating:"Verwarming",hot_water:"Warm water",energy:"Energie & historiek",settings:"Instellingen",engineering:"Engineering",schedule:"Weekprogramma’s",refresh:"Weergave vernieuwen",installation:"Installatie",all:"Alle objecten",unknown:"Onbekend",unavailable:"Niet beschikbaar",empty:"Geen waargenomen functies in deze weergave.",error:"Opdracht geweigerd of onzeker. Controleer de actuele waarde.",loading:"RESOL laden…",apply:"Toepassen",preview:"Controleren",cancel:"Annuleren",add:"Interval toevoegen",remove:"Verwijderen",history:"Historiek",observed:"Waargenomen en bevestigd",submitted:"Verstuurd; controleer de voortgang",not_confirmed:"Resultaat niet bevestigd",shared:"Gedeelde programmaverwijzingen",no_refs:"Geen verwijzingen gemeld",configure:"Integratie-instellingen",configure_help:"Beheer dashboard, Engineering en gatewaygegevens in de standaardinstellingen van Home Assistant.",search:"Technische informatie zoeken",export:"Geanonimiseerde diagnose exporteren",diagnostics:"Diagnose",inventory:"Parameterinventaris",none:"Geen parameters vastgelegd",close:"Sluiten",time:"Laatst bijgewerkt",no_history:"Geen geregistreerde historiek",start:"Begin",end:"Einde",confirm_schedule:"Controleer de gedeelde gevolgen voor je opslaat. Elke dag wordt afzonderlijk opgeslagen.",choose:"Kies een object",attention:"Aandacht nodig",ready:"Waargenomen",operation:"Bediening",preferences:"Voorkeuren",status:"Status",details:"Details",readonly:"Alleen lezen",back:"Terug",enabled:"Ingeschakeld",select:"Selecteren",on:"Aan",off:"Uit",working:"Bezig…"},
+  fr: {overview:"Vue d’ensemble",solar:"Solaire",heating:"Chauffage",hot_water:"Eau chaude",energy:"Énergie et historique",settings:"Paramètres",engineering:"Ingénierie",schedule:"Programmes hebdomadaires",refresh:"Actualiser la vue",installation:"Installation",all:"Tous les objets",unknown:"Inconnu",unavailable:"Indisponible",empty:"Aucune fonction observée dans cette vue.",error:"Action refusée ou incertaine. Vérifiez la valeur actuelle.",loading:"Chargement de RESOL…",apply:"Appliquer",preview:"Vérifier",cancel:"Annuler",add:"Ajouter une plage",remove:"Supprimer",history:"Historique",observed:"Observé et confirmé",submitted:"Envoyé ; vérifiez la progression",not_confirmed:"Résultat non confirmé",shared:"Références du programme partagé",no_refs:"Aucune référence signalée",configure:"Paramètres de l’intégration",configure_help:"Gérez le tableau de bord, l’ingénierie et les accès dans les paramètres natifs de Home Assistant.",search:"Rechercher des données techniques",export:"Exporter le diagnostic expurgé",diagnostics:"Diagnostic",inventory:"Inventaire des paramètres",none:"Aucun paramètre capturé",close:"Fermer",time:"Dernière mise à jour",no_history:"Aucun historique enregistré",start:"Début",end:"Fin",confirm_schedule:"Vérifiez les effets partagés avant d’enregistrer. Chaque jour est enregistré séparément.",choose:"Choisir un objet",attention:"Attention requise",ready:"Observé",operation:"Commande",preferences:"Préférences",status:"État",details:"Détails",readonly:"Lecture seule",back:"Retour",enabled:"Activé",select:"Choisir",on:"Activé",off:"Désactivé",working:"En cours…"}
+};
+const STATUS_COPY = {
+  en:{solid_fuel:"Solid-fuel heating",function:"Controller function",store:"Solar store",collector:"Solar collector",circuit:"Heating circuit",heating_function:"Heating function",meter:"Heat meter",solar_function:"Solar function",telemetry_ok:"Gateway connected",telemetry_bad:"Gateway connection interrupted",catalogue_pending:"Firmware capabilities not yet confirmed",selectors:"Live function discovery",checkpoint:"Historical discovery needs attention; live capabilities are checked separately.",available:"Available",not_confirmed:"Not currently confirmed",controls:"Controls",summary:"Installation status"},
+  nl:{solid_fuel:"Vastebrandstofverwarming",function:"Controllerfunctie",store:"Zonneboiler",collector:"Zonnecollector",circuit:"Verwarmingscircuit",heating_function:"Verwarmingsfunctie",meter:"Warmtemeter",solar_function:"Zonnefunctie",telemetry_ok:"Gateway verbonden",telemetry_bad:"Gatewayverbinding onderbroken",catalogue_pending:"Firmwarecapabilities nog niet bevestigd",selectors:"Live functiedetectie",checkpoint:"Historische discovery vraagt aandacht; live capabilities worden afzonderlijk gecontroleerd.",available:"Beschikbaar",not_confirmed:"Momenteel niet bevestigd",controls:"Bediening",summary:"Installatiestatus"},
+  fr:{solid_fuel:"Chauffage à combustible solide",function:"Fonction du régulateur",store:"Ballon solaire",collector:"Capteur solaire",circuit:"Circuit de chauffage",heating_function:"Fonction de chauffage",meter:"Compteur de chaleur",solar_function:"Fonction solaire",telemetry_ok:"Passerelle connectée",telemetry_bad:"Connexion à la passerelle interrompue",catalogue_pending:"Fonctions du micrologiciel non confirmées",selectors:"Détection des fonctions en direct",checkpoint:"La découverte historique nécessite une vérification ; les fonctions actuelles sont contrôlées séparément.",available:"Disponible",not_confirmed:"Non confirmé actuellement",controls:"Commandes",summary:"État de l’installation"}
+};
+const ENGINEERING_COPY={en:{live:"Live",capture:"Historical capture",comparison:"Comparison",changes:"changes",transport:"Transport and source evidence",filter:"Filter parameters",readonly:"Not verified writable",object:"Selected object",next:"Next"},nl:{live:"Actueel",capture:"Historische snapshot",comparison:"Vergelijking",changes:"wijzigingen",transport:"Transport en bronbewijs",filter:"Parameters filteren",readonly:"Niet bevestigd schrijfbaar",object:"Geselecteerd object",next:"Volgende"},fr:{live:"En direct",capture:"Capture historique",comparison:"Comparaison",changes:"modifications",transport:"Transport et preuves source",filter:"Filtrer les paramètres",readonly:"Écriture non confirmée",object:"Objet sélectionné",next:"Suivant"}};
+const WEEK_COPY={en:{program:"Weekly program",Mo:"Monday",Di:"Tuesday",Mi:"Wednesday",Do:"Thursday",Fr:"Friday",Sa:"Saturday",So:"Sunday",unsupported:"Structural commissioning and SET/JobParam import are not supported.",no_intervals:"No active intervals",reference:"Known references; full ownership is checked on save."},nl:{program:"Weekprogramma",Mo:"Maandag",Di:"Dinsdag",Mi:"Woensdag",Do:"Donderdag",Fr:"Vrijdag",Sa:"Zaterdag",So:"Zondag",unsupported:"Structurele inbedrijfstelling en SET/JobParam-import worden niet ondersteund.",no_intervals:"Geen actieve intervallen",reference:"Bekende verwijzingen; volledig eigenaarschap wordt bij opslaan gecontroleerd."},fr:{program:"Programme hebdomadaire",Mo:"Lundi",Di:"Mardi",Mi:"Mercredi",Do:"Jeudi",Fr:"Vendredi",Sa:"Samedi",So:"Dimanche",unsupported:"La mise en service structurelle et l’import SET/JobParam ne sont pas pris en charge.",no_intervals:"Aucun intervalle actif",reference:"Références connues ; les liens sont vérifiés lors de l’enregistrement."}};
+const OBJECT_COPY={en:{mode:"Operating mode",target:"Target",configured_activity:"Configured activity",attention:"Needs attention",measurements:"Measurements",controls:"Controls",preferences:"Operating preferences",linked:"Linked weekly programs",unconfirmed:"No confirmed measurement for this object",status:"Status",history:"History",settings:"Settings",engineering:"Engineering"},nl:{mode:"Bedrijfsmodus",target:"Doelwaarde",configured_activity:"Ingestelde activiteit",attention:"Aandacht nodig",measurements:"Metingen",controls:"Bediening",preferences:"Bedrijfsinstellingen",linked:"Gekoppelde weekprogramma’s",unconfirmed:"Geen bevestigde meting voor dit object",status:"Status",history:"Historiek",settings:"Instellingen",engineering:"Engineering"},fr:{mode:"Mode de fonctionnement",target:"Consigne",configured_activity:"Activité configurée",attention:"Attention requise",measurements:"Mesures",controls:"Commandes",preferences:"Préférences de fonctionnement",linked:"Programmes hebdomadaires liés",unconfirmed:"Aucune mesure confirmée pour cet objet",status:"État",history:"Historique",settings:"Paramètres",engineering:"Ingénierie"}};
+const LIVE_COPY={en:{telemetry_unavailable:"Telemetry connection unavailable",parameter_unavailable:"Parameter connection unavailable",requirements_not_confirmed:"Installed function or dependencies not confirmed",last_observed:"Last observed",parameter_pending:"Parameter access not confirmed",range:"Period",day:"24 hours",week:"7 days",month:"30 days",history_error:"History could not be loaded",recorded_values:"Recorded values",source:"Source and references"},nl:{telemetry_unavailable:"Telemetrieverbinding niet beschikbaar",parameter_unavailable:"Parameterverbinding niet beschikbaar",requirements_not_confirmed:"Geïnstalleerde functie of afhankelijkheden niet bevestigd",last_observed:"Laatst waargenomen",parameter_pending:"Parametertoegang niet bevestigd",range:"Periode",day:"24 uur",week:"7 dagen",month:"30 dagen",history_error:"Historiek kon niet worden geladen",recorded_values:"Geregistreerde waarden",source:"Bron en verwijzingen"},fr:{telemetry_unavailable:"Connexion télémétrique indisponible",parameter_unavailable:"Connexion paramètres indisponible",requirements_not_confirmed:"Fonction installée ou dépendances non confirmées",last_observed:"Dernière observation",parameter_pending:"Accès aux paramètres non confirmé",range:"Période",day:"24 heures",week:"7 jours",month:"30 jours",history_error:"Impossible de charger l’historique",recorded_values:"Valeurs enregistrées",source:"Source et références"}};
+const RELATION_COPY={en:{relations:"Native assignments",sensor_reference:"Sensor reference",relay_assignment:"Assigned relay",relay_dependency:"Referenced relay",analog_assignment:"Assigned analogue output",analog_dependency:"Referenced analogue output",native_reference_only:"Native reference; source measurement not confirmed",open_source:"Open source device",assignment_help:"Configured relationships, not proof of an active pump or heat flow."},nl:{relations:"Native toewijzingen",sensor_reference:"Sensorreferentie",relay_assignment:"Toegewezen relais",relay_dependency:"Gerefereerd relais",analog_assignment:"Toegewezen analoge uitgang",analog_dependency:"Gerefereerde analoge uitgang",native_reference_only:"Native referentie; bronmeting niet bevestigd",open_source:"Open bronapparaat",assignment_help:"Ingestelde relaties, geen bewijs van een actieve pomp of warmtestroom."},fr:{relations:"Affectations natives",sensor_reference:"Référence capteur",relay_assignment:"Relais affecté",relay_dependency:"Relais référencé",analog_assignment:"Sortie analogique affectée",analog_dependency:"Sortie analogique référencée",native_reference_only:"Référence native ; mesure source non confirmée",open_source:"Ouvrir l’appareil source",assignment_help:"Relations configurées, sans preuve de pompe active ou de flux thermique."}};
+const TASK_COPY={en:{solar_task:"Check collector and store temperatures and solar operation.",heating_task:"Check heating status and adjust the available mode or setpoint.",hot_water_task:"Check hot water status and available operating preferences.",energy_task:"Inspect recorded heat, power and other measurements. Values stay with their native source; no inferred totals.",energy_measurements:"Energy and power",other_measurements:"Other recorded measurements",source_measurements:"View other source measurements",domain_settings:"Open operating preferences",domain_schedule:"View linked schedules",no_energy_measurement:"No confirmed energy or power measurement for this selection.",unsupported_native_topology_slot:"Unsupported native topology slot",native_registration_clears_assignment:"Native registration changes hardware assignment",native_input_source_configuration:"Native input source configuration",native_output_assignment_configuration:"Native output assignment configuration",native_function_registry_membership:"Native function registry membership",native_menu_permanently_hidden:"Native menu permanently hidden",manual_override_contract_unverified:"Manual override contract not verified",hydraulic_applicability_review_required:"Hydraulic applicability review required",program_option_review_required:"Program option review required",attention_title:"Needs attention",connection_action:"Check gateway connection and integration settings.",parameter_action:"Check parameter access and allow discovery to recover.",requirements_action:"Check installed function and its prerequisites in Settings or Engineering.",unknown_action:"Check the native source device.",alarm_action:"Inspect the reported condition before changing settings.",view_object:"View object",all_clear:"No current attention items among the visible operational capabilities.",routine_controls:"Daily controls",no_routine_controls:"No confirmed daily control available for this selection.",range_limits:"Allowed range",increment:"Step",not_writable:"Read only or not permitted",back_overview:"All objects",more_preferences:"View all operating preferences"},nl:{solar_task:"Controleer collector- en boilertemperaturen en de werking van de zonne-installatie.",heating_task:"Controleer de verwarming en wijzig de beschikbare modus of gewenste temperatuur.",hot_water_task:"Controleer warm water en de beschikbare bedrijfsinstellingen.",energy_task:"Bekijk gemeten warmte, vermogen en andere metingen. Waarden blijven bij hun bron; geen afgeleide totalen.",energy_measurements:"Energie en vermogen",other_measurements:"Overige geregistreerde metingen",source_measurements:"Bekijk overige bronmetingen",domain_settings:"Open bedrijfsinstellingen",domain_schedule:"Bekijk gekoppelde weekprogramma’s",no_energy_measurement:"Geen bevestigde energie- of vermogensmeting voor deze selectie.",unsupported_native_topology_slot:"Niet ondersteunde topologiepositie",native_registration_clears_assignment:"Native registratie wijzigt hardwaretoewijzing",native_input_source_configuration:"Configuratie van de native ingangsbron",native_output_assignment_configuration:"Configuratie van de native uitgang",native_function_registry_membership:"Registratie van native functie",native_menu_permanently_hidden:"Native menu permanent verborgen",manual_override_contract_unverified:"Handbedieningscontract niet bevestigd",hydraulic_applicability_review_required:"Hydraulische toepasbaarheid nog te beoordelen",program_option_review_required:"Programmaoptie nog te beoordelen",attention_title:"Aandacht nodig",connection_action:"Controleer de gatewayverbinding en integratie-instellingen.",parameter_action:"Controleer parametertoegang en laat functiedetectie herstellen.",requirements_action:"Controleer de geïnstalleerde functie en voorwaarden in Instellingen of Engineering.",unknown_action:"Controleer het native bronapparaat.",alarm_action:"Controleer de gemelde toestand voordat je instellingen wijzigt.",view_object:"Bekijk object",all_clear:"Geen actuele aandachtspunten bij de zichtbare operationele functies.",routine_controls:"Dagelijkse bediening",no_routine_controls:"Geen bevestigde dagelijkse bediening voor deze selectie.",range_limits:"Toegestaan bereik",increment:"Stap",not_writable:"Alleen lezen of geen toestemming",back_overview:"Alle objecten",more_preferences:"Bekijk alle bedrijfsinstellingen"},fr:{solar_task:"Vérifiez les températures des capteurs et ballons et le fonctionnement solaire.",heating_task:"Vérifiez le chauffage et ajustez le mode ou la consigne disponible.",hot_water_task:"Vérifiez l’eau chaude et les préférences de fonctionnement disponibles.",energy_task:"Consultez la chaleur, la puissance et les autres mesures enregistrées. Les valeurs restent liées à leur source ; aucun total déduit.",energy_measurements:"Énergie et puissance",other_measurements:"Autres mesures enregistrées",source_measurements:"Voir les autres mesures sources",domain_settings:"Ouvrir les réglages de fonctionnement",domain_schedule:"Voir les programmes associés",no_energy_measurement:"Aucune mesure d’énergie ou de puissance confirmée pour cette sélection.",unsupported_native_topology_slot:"Emplacement topologique non pris en charge",native_registration_clears_assignment:"L’enregistrement natif modifie l’affectation matérielle",native_input_source_configuration:"Configuration de la source d’entrée native",native_output_assignment_configuration:"Configuration de la sortie native",native_function_registry_membership:"Enregistrement de la fonction native",native_menu_permanently_hidden:"Menu natif toujours masqué",manual_override_contract_unverified:"Contrat de commande manuelle non vérifié",hydraulic_applicability_review_required:"Applicabilité hydraulique à vérifier",program_option_review_required:"Option du programme à vérifier",attention_title:"Attention requise",connection_action:"Vérifiez la connexion à la passerelle et les paramètres de l’intégration.",parameter_action:"Vérifiez l’accès aux paramètres et laissez la détection se rétablir.",requirements_action:"Vérifiez la fonction installée et ses prérequis dans les paramètres ou l’ingénierie.",unknown_action:"Vérifiez l’appareil source natif.",alarm_action:"Examinez la condition signalée avant de modifier les paramètres.",view_object:"Voir l’objet",all_clear:"Aucun point d’attention actuel parmi les fonctions opérationnelles visibles.",routine_controls:"Commandes quotidiennes",no_routine_controls:"Aucune commande quotidienne confirmée pour cette sélection.",range_limits:"Plage autorisée",increment:"Pas",not_writable:"Lecture seule ou accès non autorisé",back_overview:"Tous les objets",more_preferences:"Voir toutes les préférences"}};
+const EVIDENCE_COPY={en:{native_index:"Reference index",live_verified:"Native control currently verified; action rechecks prerequisites",live_capability_not_confirmed:"Live prerequisites not confirmed",catalogue_contract_not_confirmed:"Exact catalogue contract not confirmed",hardware_or_topology_assignment:"Hardware or topology assignment; commissioning scope",existing_relay_owner:"Existing relay control owner",runtime_or_history_preserved:"Runtime or history value; not an operating setting",engineering_or_commissioning_only:"Engineering or commissioning scope",commissioning_or_control_scheme:"Commissioning or control scheme",protection_or_safety_configuration:"Protection or safety configuration",native_operating_contract_unverified:"Operating contract not verified",stale:"Stale; not current"},nl:{native_index:"Referentie-index",live_verified:"Native bediening bevestigd; opdracht controleert voorwaarden opnieuw",live_capability_not_confirmed:"Live voorwaarden niet bevestigd",catalogue_contract_not_confirmed:"Exact cataloguscontract niet bevestigd",hardware_or_topology_assignment:"Hardware- of topologietoewijzing; commissioning",existing_relay_owner:"Bestaande relaisbediening",runtime_or_history_preserved:"Runtime- of historiekwaarde; geen bedrijfsinstelling",engineering_or_commissioning_only:"Engineering of commissioning",commissioning_or_control_scheme:"Commissioning of regelschema",protection_or_safety_configuration:"Beveiligings- of veiligheidsconfiguratie",native_operating_contract_unverified:"Bedrijfscontract niet bevestigd",stale:"Verouderd; niet actueel"},fr:{native_index:"Index de référence",live_verified:"Commande native vérifiée ; prérequis revérifiés lors de l’action",live_capability_not_confirmed:"Prérequis actuels non confirmés",catalogue_contract_not_confirmed:"Contrat exact du catalogue non confirmé",hardware_or_topology_assignment:"Affectation matérielle ou topologique ; mise en service",existing_relay_owner:"Commande de relais existante",runtime_or_history_preserved:"Valeur de fonctionnement ou historique ; pas un réglage",engineering_or_commissioning_only:"Ingénierie ou mise en service",commissioning_or_control_scheme:"Mise en service ou schéma de régulation",protection_or_safety_configuration:"Configuration de protection ou sécurité",native_operating_contract_unverified:"Contrat de fonctionnement non confirmé",stale:"Obsolète ; non actuel"}};
+const CONTRACT_COPY={en:{open_native_control:"Open native control",entity_not_exposed:"No readable enabled entity in this dashboard context.",relative_conditions:"Relative conditions (native encoding)",prerequisites:"Native prerequisite references",live_recheck:"Static contract only; live validation is required before changing a value."},nl:{open_native_control:"Open native bediening",entity_not_exposed:"Geen leesbare ingeschakelde entity in deze dashboardcontext.",relative_conditions:"Relatieve voorwaarden (native codering)",prerequisites:"Native vereiste referenties",live_recheck:"Statisch contract; live validatie vereist vóór wijziging."},fr:{open_native_control:"Ouvrir la commande native",entity_not_exposed:"Aucune entité active et lisible dans ce contexte.",relative_conditions:"Conditions relatives (codage natif)",prerequisites:"Références natives requises",live_recheck:"Contrat statique ; validation en direct requise avant modification."}};
+const UX_COPY={en:{save:"Save",all_objects:"All objects",selected_object:"Selected object",choose_context:"Choose installation",navigation:"RESOL navigation",unmapped_label:"Setting",technical_status:"Technical status",native_evidence:"Native evidence",focus_object:"Object details",outcome_value:"Confirmed value",capture:"Historical capture",readonly:"Not verified writable"},nl:{save:"Opslaan",all_objects:"Alle objecten",selected_object:"Geselecteerd object",choose_context:"Kies installatie",navigation:"RESOL-navigatie",unmapped_label:"Instelling",technical_status:"Technische status",native_evidence:"Native bronbewijs",focus_object:"Objectdetails",outcome_value:"Bevestigde waarde",capture:"Historische snapshot",readonly:"Niet bevestigd schrijfbaar"},fr:{save:"Enregistrer",all_objects:"Tous les objets",selected_object:"Objet sélectionné",choose_context:"Choisir l’installation",navigation:"Navigation RESOL",unmapped_label:"Réglage",technical_status:"État technique",native_evidence:"Preuves natives",focus_object:"Détails de l’objet",outcome_value:"Valeur confirmée",capture:"Capture historique",readonly:"Écriture non confirmée"}};
+const TEXT_SOURCES=[CONTRACT_COPY,EVIDENCE_COPY,TASK_COPY,RELATION_COPY,LIVE_COPY,OBJECT_COPY,WEEK_COPY,ENGINEERING_COPY,STATUS_COPY,COPY,UX_COPY];
+const TEXT=Object.fromEntries(["en","nl","fr"].map(lang=>[lang,Object.assign({},...TEXT_SOURCES.map(source=>source[lang]))]));
+const LABELS={
+  en:{"anlage wf# activity":"Arrangement function # · Activity","anlage wf# weekly timer enabled":"Arrangement function # · Weekly timer enabled","anlauf mode":"Startup mode","drainback befuellzeit":"Drainback filling time","drainback drainimpuls_dauer":"Drainback drain pulse duration","drainback drainimpuls_verzoegerung":"Drainback drain pulse delay","drainback erholungszeit":"Drainback recovery time","drainback initialisierungszeit":"Drainback initialization time","feststoffkessel modulation rise":"Solid-fuel boiler modulation rise","feststoffkessel sink maximum temperature":"Solid-fuel boiler sink maximum temperature","feststoffkessel source minimum temperature":"Solid-fuel boiler source minimum temperature","feststoffkessel switch-off differential":"Solid-fuel boiler switch-off differential","feststoffkessel switch-on differential":"Solid-fuel boiler switch-on differential","feststoffkessel target differential":"Solid-fuel boiler target differential","feststoffkessel target temperature":"Solid-fuel boiler target temperature","funktionsblock switch-off differential":"Function block switch-off differential","funktionsblock switch-on differential":"Function block switch-on differential","funktionsblock target differential":"Function block target differential","heating pumpe # manual mode":"Heating pump # · Manual mode","heating ventil # manual mode":"Heating valve # · Manual mode","heizung heizkreis# activity":"Heating circuit # · Activity","heizung heizkreis# nachheizung activity":"Heating circuit # · Supplementary heating activity","heizung heizkreis# raumthermostat# temporary activation":"Heating circuit # · Room thermostat # · Temporary activation","heizung heizkreis# raumthermostat# weekly timer enabled":"Heating circuit # · Room thermostat # · Weekly timer enabled","heizung heizkreis# weekly timer enabled":"Heating circuit # · Weekly timer enabled","heizung wf# activity":"Heating function # · Activity","heizung wf# weekly timer enabled":"Heating function # · Weekly timer enabled","nachlauf mode":"Run-on mode","ruecklaufanhebung switch-off differential":"Return temperature boost switch-off differential","ruecklaufanhebung switch-on differential":"Return temperature boost switch-on differential","solar sp# activity":"Solar store # · Activity","solar wf# activity":"Solar function # · Activity","solar wf# bereitschaft activity":"Solar function # · Standby activity","solar wf# bypass activity":"Solar function # · Bypass activity","solar wf# csbypass activity":"Solar function # · CS bypass activity","solar wf# drainback activity":"Solar function # · Drainback activity","solar wf# roehrenkollektor activity":"Solar function # · Tube collector activity","solar wf# zieltemperatur activity":"Solar function # · Target temperature activity","waermeaustausch modulation rise":"Heat exchange modulation rise","waermeaustausch sink maximum temperature":"Heat exchange sink maximum temperature","waermeaustausch source minimum temperature":"Heat exchange source minimum temperature","waermeaustausch switch-off differential":"Heat exchange switch-off differential","waermeaustausch switch-on differential":"Heat exchange switch-on differential","waermeaustausch target differential":"Heat exchange target differential","wmz# activity":"Heat meter # · Activity"},
+  nl:{"configured mode":"Bedrijfsmodus","configured mode (including coupled circuits)":"Bedrijfsmodus (inclusief gekoppelde circuits)","day correction":"Dagcorrectie","night correction":"Nachtcorrectie","heating curve":"Stooklijn","thermostat 1 on":"Thermostaat 1 inschakeltemperatuur","thermostat 1 off":"Thermostaat 1 uitschakeltemperatuur","thermostat 2 on":"Thermostaat 2 inschakeltemperatuur","thermostat 2 off":"Thermostaat 2 uitschakeltemperatuur","automatic daylight saving time":"Automatische zomertijd","power":"Vermogen","temperature":"Temperatuur","energy":"Energie","mixer target temperature":"Mengklepdoeltemperatuur","return mixing target differential":"Retourmengverschil","summer switch-off temperature":"Zomeruitschakeltemperatuur","dhw loading pump overrun enabled":"Naloop laadpomp warm water ingeschakeld","dhw loading pump overrun":"Nalooptijd laadpomp warm water","circulation temperature":"Circulatietemperatuur","dhw preheat differential":"Voorverwarmingsverschil warm water","dhw preheat differential enabled":"Voorverwarmingsverschil warm water ingeschakeld","summer cut-off enabled":"Zomeruitschakeling ingeschakeld","summer cut-off mode":"Zomeruitschakelmodus","energy saving enabled":"Energiebesparing ingeschakeld","automatic holiday participation":"Automatisch vakantieprogramma","target temperature enabled":"Doeltemperatuur ingeschakeld","solid fuel target temperature enabled":"Doeltemperatuur vaste brandstof ingeschakeld","dhw off during holiday":"Warm water uit tijdens vakantie","supplementary heating":"Bijverwarming","supplementary heating mode":"Bijverwarmingsmodus","dhw heating mode":"Verwarmingsmodus warm water","weekly timer mode":"Weekprogramm modus","cooling trigger":"Koeltrigger","minimum temperature enabled":"Minimumtemperatuur ingeschakeld","dhw priority":"Voorrang warm water","manual mode":"Handbediening","minimum runtime":"Minimale bedrijfstijd","minimum runtime enabled":"Minimale bedrijfstijd ingeschakeld","solid fuel suppression":"Blokkering door vastebrandstofverwarming","twin pump runtime":"Bedrijfstijd dubbele pomp","loading on temperature":"Laadinschakeltemperatuur","loading off temperature":"Laaduitschakeltemperatuur","constant flow setpoint":"Vaste aanvoertemperatuur","room setpoint":"Gewenste kamertemperatuur","room hysteresis":"Kamerhysterese","room setback":"Nachtverlaging","room thermostat":"Kamerthermostaat","solar holiday":"Zonnefunctie vakantie","solar standby":"Zonnefunctie stand-by","store cooling":"Boilerkoeling","store cooling differential":"Temperatuurverschil boilerkoeling","collector cooling limit":"Grens collectorkoeling","cooling priority":"Koelvoorrang","resol program reference":"RESOL-programmaverwijzing","solar function":"Zonnefunctie","solar exchanger":"Zonnewarmtewisselaar","solar bypass":"Zonnebypass","solar tube collector":"Vacuümbuiscollector","heating demand":"Warmtevraag","heating pump":"Verwarmingspomp","heating valve":"Verwarmingsklep","hqm":"Warmtemeter","relay":"Relais","analog output":"Analoge uitgang","holiday store":"Vakantieboiler","alternative display":"Alternatieve weergave","alternative display unit":"Alternatieve weergave-eenheid","alternative display conversion factor":"Omrekenfactor alternatieve weergave","display temperature unit":"Temperatuureenheid","display flow unit":"Debieteenheid","display pressure unit":"Drukeenheid","display energy unit":"Energie-eenheid","invert controller display":"Regelaarscherm omkeren","sd card logging interval":"SD-kaart registratie-interval","sd card logging method":"SD-kaart registratiemethode","controller-wide holiday remaining days":"Resterende vakantiedagen (hele regelaar)","loading priority":"Laadvoorrang","maximum temperature":"Maximumtemperatuur","minimum temperature":"Minimumtemperatuur","target temperature":"Doeltemperatuur","temperature target":"Doeltemperatuur","maximum":"Maximum","minimum":"Minimum","mixer interval":"Mengklepinterval","mixer hysteresis":"Mengklephysterese","restart delay":"Herstartvertraging","restart delay enabled":"Herstartvertraging ingeschakeld","reference logic enabled":"Referentielogica ingeschakeld","reference logic":"Referentielogica","dhw":"Warm water","day heating cut-off":"Dagverwarmingsgrens","night heating cut-off":"Nachtverwarmingsgrens","heating limit day period start":"Begin dagperiode verwarmingsgrens","heating limit day period end":"Einde dagperiode verwarmingsgrens","room influence factor":"Kamerinvloedsfactor","room deviation aggregation":"Aggregatie kamerafwijking","room thermostat heating-off option":"Kamerthermostaatoptie verwarming uit","cooling daily timer enabled":"Dagprogramma koeling ingeschakeld","solar loading mode":"Zonnelaadmodus","solar holiday cooling mode":"Vakantiekoelmodus zonne-installatie","solar pump startup pulse duration":"Startpulsduur zonnepomp","solar loading break speed enabled":"Pompsnelheid laadpauze ingeschakeld","solar pump delay enabled":"Zonnepompvertraging ingeschakeld","solar spread loading temperature differential":"Temperatuurverschil gespreid laden","solar spread loading enabled":"Gespreid laden ingeschakeld","differential":"Temperatuurverschil","rise":"Stijging","start":"Begin","end":"Einde","target":"Doelwaarde","flow predicate":"Debietvoorwaarde","pump minimum speed":"Minimaal pomptoerental","pump maximum speed":"Maximaal pomptoerental","automatic holiday participation (including coupled circuits)":"Automatisch vakantieprogramma (inclusief gekoppelde circuits)","heat exchange hysteresis":"Warmtewisselaarhysterese","return mixing differential":"Retourmengverschil","anlage wf# activity":"Controllerfunctie # · Activiteit","anlage wf# weekly timer enabled":"Controllerfunctie # · Weekprogramma ingeschakeld","anlauf mode":"Aanloopmodus","backup suppression set-temperature condition":"Doeltemperatuurvoorwaarde blokkering naverwarming","circulation break time":"Circulatiepauze","circulation demand delay":"Vertraging circulatievraag","circulation runtime":"Circulatieduur","circulation temperature off":"Uitschakeltemperatuur circulatie","circulation temperature on":"Inschakeltemperatuur circulatie","constant cooling flow target":"Vaste koelaanvoertemperatuur","cooling timer end":"Einde koelprogramma","cooling timer start":"Begin koelprogramma","correction interval":"Correctie-interval","dhw preheat delay":"Vertraging voorverwarming warm water","dhw preheat differential off":"Uitschakelverschil voorverwarming warm water","dhw preheat differential on":"Inschakelverschil voorverwarming warm water","dhw preheat speed step":"Toerentalstap voorverwarming warm water","dhw preheat speed-regulation hysteresis":"Hysterese toerentalregeling voorverwarming warm water","dhw preheat start speed":"Starttoerental voorverwarming warm water","dhw preheat temperature target":"Doeltemperatuur voorverwarming warm water","dhw solar off enabled":"Zonneblokkering warm water ingeschakeld","dhw solar off set-temperature condition":"Doeltemperatuurvoorwaarde zonneblokkering warm water","differential enabled":"Temperatuurverschilregeling ingeschakeld","differential off":"Uitschakelverschil","differential on":"Inschakelverschil","drainback befuellzeit":"Drainback vultijd","drainback drain pulse enabled":"Drainback leeglooppuls ingeschakeld","drainback drainimpuls_dauer":"Drainback leeglooppulsduur","drainback drainimpuls_verzoegerung":"Drainback leeglooppulsvertraging","drainback erholungszeit":"Drainback hersteltijd","drainback initialisierungszeit":"Drainback initialisatietijd","energy saving off differential":"Uitschakelverschil energiebesparing","energy saving pause":"Energiebesparingspauze","energy saving runtime":"Bedrijfstijd energiebesparing","feststoffkessel modulation rise":"Modulatiestijging vastebrandstofketel","feststoffkessel sink maximum temperature":"Maximumtemperatuur afnemer vastebrandstofketel","feststoffkessel source minimum temperature":"Minimumtemperatuur bron vastebrandstofketel","feststoffkessel switch-off differential":"Uitschakelverschil vastebrandstofketel","feststoffkessel switch-on differential":"Inschakelverschil vastebrandstofketel","feststoffkessel target differential":"Doelverschil vastebrandstofketel","feststoffkessel target temperature":"Doeltemperatuur vastebrandstofketel","flow correction hysteresis":"Hysterese aanvoercorrectie","flow predicate off":"Uitschakelvoorwaarde debiet","flow predicate on":"Inschakelvoorwaarde debiet","flow target offset":"Aanvoertemperatuurcorrectie","function block rise":"Stijging functieblok","funktionsblock switch-off differential":"Uitschakelverschil functieblok","funktionsblock switch-on differential":"Inschakelverschil functieblok","funktionsblock target differential":"Doelverschil functieblok","heat exchanger circulation pump idle duration":"Rustduur circulatiepomp warmtewisselaar","heat exchanger circulation pump idle mode enabled":"Rustmodus circulatiepomp warmtewisselaar ingeschakeld","heat exchanger circulation pump overrun":"Nalooptijd circulatiepomp warmtewisselaar","heat exchanger circulation pump run-on enabled":"Naloop circulatiepomp warmtewisselaar ingeschakeld","heat exchanger circulation pump speed":"Toerental circulatiepomp warmtewisselaar","heating pumpe # manual mode":"Verwarmingspomp # · Handbediening","heating ventil # manual mode":"Verwarmingsklep # · Handbediening","heizung heizkreis# activity":"Verwarmingscircuit # · Activiteit","heizung heizkreis# nachheizung activity":"Verwarmingscircuit # · Bijverwarmingsactiviteit","heizung heizkreis# raumthermostat# temporary activation":"Verwarmingscircuit # · Kamerthermostaat # · Tijdelijke activering","heizung heizkreis# raumthermostat# weekly timer enabled":"Verwarmingscircuit # · Kamerthermostaat # · Weekprogramma ingeschakeld","heizung heizkreis# weekly timer enabled":"Verwarmingscircuit # · Weekprogramma ingeschakeld","heizung wf# activity":"Verwarmingsfunctie # · Activiteit","heizung wf# weekly timer enabled":"Verwarmingsfunctie # · Weekprogramma ingeschakeld","internal heating circuit return mixing":"Retourmenging intern verwarmingscircuit","irradiation duration":"Instralingsduur","irradiation threshold":"Instralingsdrempel","linear cooling flow point #":"Lineair koelaanvoerpunt #","linear cooling outdoor point #":"Lineair buitenkoelpunt #","linear flow point #":"Lineair aanvoerpunt #","linear outdoor point #":"Lineair buitenpunt #","manual heating input option":"Optie ingang handmatige verwarming","minimum speed":"Minimumtoerental","mixer hysteresis off":"Uitschakelhysterese mengklep","mixer hysteresis on":"Inschakelhysterese mengklep","nachlauf mode":"Naloopmodus","off differential":"Uitschakelverschil","on differential":"Inschakelverschil","operating mode switch off option":"Optie bedrijfsmodusschakelaar uit","outdoor cooling threshold":"Buitentemperatuurdrempel koeling","overrun duration":"Naloopduur","overrun temperature":"Nalooptemperatuur","parallel relay delay":"Vertraging parallelrelais","parallel relay delay enabled":"Vertraging parallelrelais ingeschakeld","parallel relay overrun":"Naloop parallelrelais","parallel relay overrun enabled":"Naloop parallelrelais ingeschakeld","pause":"Pauze","return mixing differential off":"Uitschakelverschil retourmenging","return mixing differential on":"Inschakelverschil retourmenging","return mixing mixer interval":"Mengklepinterval retourmenging","return mixing mixer runtime":"Mengkleplooptijd retourmenging","room control initial flow temperature":"Initiële aanvoertemperatuur kamerregeling","ruecklaufanhebung switch-off differential":"Uitschakelverschil retourverhoging","ruecklaufanhebung switch-on differential":"Inschakelverschil retourverhoging","run-on":"Naloop","runtime":"Bedrijfstijd","solar circulation time":"Zonnecirculatietijd","solar cs bypass delay":"Vertraging zonne-CS-bypass","solar cs bypass irradiation":"Instraling zonne-CS-bypass","solar holiday store cooling differential off":"Vakantie zonne-installatie · Uitschakelverschil boilerkoeling","solar holiday store cooling differential on":"Vakantie zonne-installatie · Inschakelverschil boilerkoeling","solar loading break":"Zonnelaadpauze","solar loading break speed":"Toerental zonnelaadpauze","solar pump delay":"Zonnepompvertraging","solar rise":"Zonnestijging","solar sp# activity":"Zonneboiler # · Activiteit","solar standby store cooling differential off":"Stand-by zonne-installatie · Uitschakelverschil boilerkoeling","solar standby store cooling differential on":"Stand-by zonne-installatie · Inschakelverschil boilerkoeling","solar target temperature":"Zonnedoeltemperatuur","solar wf# activity":"Zonnefunctie # · Activiteit","solar wf# bereitschaft activity":"Zonnefunctie # · Stand-byactiviteit","solar wf# bypass activity":"Zonnefunctie # · Bypassactiviteit","solar wf# csbypass activity":"Zonnefunctie # · CS-bypassactiviteit","solar wf# drainback activity":"Zonnefunctie # · Drainbackactiviteit","solar wf# roehrenkollektor activity":"Zonnefunctie # · Vacuümbuiscollectoractiviteit","solar wf# zieltemperatur activity":"Zonnefunctie # · Doeltemperatuuractiviteit","solid fuel mixer close differential":"Sluitverschil mengklep vaste brandstof","solid fuel mixer interval":"Mengklepinterval vaste brandstof","solid fuel mixer open differential":"Openverschil mengklep vaste brandstof","start duration":"Startduur","start optimization enabled":"Startoptimalisatie ingeschakeld","start temperature":"Starttemperatuur","stop optimization enabled":"Stopoptimalisatie ingeschakeld","store hysteresis":"Boilerhysterese","supplementary heating blocking":"Blokkering bijverwarming","supplementary heating differential off":"Uitschakelverschil bijverwarming","supplementary heating differential on":"Inschakelverschil bijverwarming","supplementary heating early start":"Vervroegde start bijverwarming","supplementary heating solar off enabled":"Zonneblokkering bijverwarming ingeschakeld","supplementary heating solar off set-temperature condition":"Doeltemperatuurvoorwaarde zonneblokkering bijverwarming","target differential":"Doelverschil","thermostat # enabled":"Thermostaat # ingeschakeld","thermostat # off":"Thermostaat # uitschakeltemperatuur","thermostat # on":"Thermostaat # inschakeltemperatuur","voltage correction":"Spanningscorrectie","waermeaustausch modulation rise":"Modulatiestijging warmte-uitwisseling","waermeaustausch sink maximum temperature":"Maximumtemperatuur afnemer warmte-uitwisseling","waermeaustausch source minimum temperature":"Minimumtemperatuur bron warmte-uitwisseling","waermeaustausch switch-off differential":"Uitschakelverschil warmte-uitwisseling","waermeaustausch switch-on differential":"Inschakelverschil warmte-uitwisseling","waermeaustausch target differential":"Doelverschil warmte-uitwisseling","wmz# activity":"Warmtemeter # · Activiteit"},
+  fr:{"configured mode":"Mode configuré","configured mode (including coupled circuits)":"Mode configuré (circuits couplés inclus)","day correction":"Correction de jour","night correction":"Correction de nuit","heating curve":"Courbe de chauffe","thermostat 1 on":"Thermostat 1 température d’enclenchement","thermostat 1 off":"Thermostat 1 température d’arrêt","thermostat 2 on":"Thermostat 2 température d’enclenchement","thermostat 2 off":"Thermostat 2 température d’arrêt","automatic daylight saving time":"Heure d’été automatique","power":"Puissance","temperature":"Température","energy":"Énergie","mixer target temperature":"Consigne du mélangeur","return mixing target differential":"Différentiel du mélange de retour","summer switch-off temperature":"Température d’arrêt été","dhw loading pump overrun enabled":"Post-circulation de charge ECS activée","dhw loading pump overrun":"Durée de post-circulation de charge ECS","circulation temperature":"Température de circulation","dhw preheat differential":"Différentiel de préchauffage ECS","dhw preheat differential enabled":"Différentiel de préchauffage ECS activé","summer cut-off enabled":"Arrêt été activé","summer cut-off mode":"Mode arrêt été","energy saving enabled":"Économie d’énergie activée","automatic holiday participation":"Programme vacances automatique","target temperature enabled":"Consigne activée","solid fuel target temperature enabled":"Consigne combustible solide activée","dhw off during holiday":"ECS arrêtée pendant les vacances","supplementary heating":"Chauffage d’appoint","supplementary heating mode":"Mode chauffage d’appoint","dhw heating mode":"Mode chauffage ECS","weekly timer mode":"Mode programme hebdomadaire","cooling trigger":"Déclenchement du refroidissement","minimum temperature enabled":"Température minimale activée","dhw priority":"Priorité ECS","manual mode":"Commande manuelle","minimum runtime":"Durée minimale de fonctionnement","minimum runtime enabled":"Durée minimale de fonctionnement activée","solid fuel suppression":"Blocage par chauffage à combustible solide","twin pump runtime":"Durée de fonctionnement pompe double","loading on temperature":"Température d’enclenchement de charge","loading off temperature":"Température d’arrêt de charge","constant flow setpoint":"Consigne de départ constante","room setpoint":"Consigne ambiante","room hysteresis":"Hystérésis ambiante","room setback":"Abaissement ambiant","room thermostat":"Thermostat d’ambiance","solar holiday":"Solaire vacances","solar standby":"Solaire veille","store cooling":"Refroidissement du ballon","store cooling differential":"Différentiel de refroidissement du ballon","collector cooling limit":"Limite de refroidissement du capteur","cooling priority":"Priorité de refroidissement","resol program reference":"Référence de programme RESOL","solar function":"Fonction solaire","solar exchanger":"Échangeur solaire","solar bypass":"Bypass solaire","solar tube collector":"Capteur tubulaire","heating demand":"Demande de chauffage","heating pump":"Pompe de chauffage","heating valve":"Vanne de chauffage","hqm":"Compteur de chaleur","relay":"Relais","analog output":"Sortie analogique","holiday store":"Ballon en vacances","alternative display":"Affichage alternatif","alternative display unit":"Unité d’affichage alternative","alternative display conversion factor":"Facteur de conversion de l’affichage alternatif","display temperature unit":"Unité de température","display flow unit":"Unité de débit","display pressure unit":"Unité de pression","display energy unit":"Unité d’énergie","invert controller display":"Inverser l’écran du régulateur","sd card logging interval":"Intervalle d’enregistrement sur carte SD","sd card logging method":"Méthode d’enregistrement sur carte SD","controller-wide holiday remaining days":"Jours de vacances restants (régulateur entier)","loading priority":"Priorité de charge","maximum temperature":"Température maximale","minimum temperature":"Température minimale","target temperature":"Température cible","temperature target":"Température cible","maximum":"Maximum","minimum":"Minimum","mixer interval":"Intervalle du mélangeur","mixer hysteresis":"Hystérésis du mélangeur","restart delay":"Délai de redémarrage","restart delay enabled":"Délai de redémarrage activé","reference logic enabled":"Logique de référence activée","reference logic":"Logique de référence","dhw":"Eau chaude","day heating cut-off":"Seuil d’arrêt du chauffage de jour","night heating cut-off":"Seuil d’arrêt du chauffage de nuit","heating limit day period start":"Début de la période de jour du seuil de chauffage","heating limit day period end":"Fin de la période de jour du seuil de chauffage","room influence factor":"Facteur d’influence ambiante","room deviation aggregation":"Agrégation des écarts ambiants","room thermostat heating-off option":"Option d’arrêt du chauffage par thermostat d’ambiance","cooling daily timer enabled":"Programme journalier de refroidissement activé","solar loading mode":"Mode de charge solaire","solar holiday cooling mode":"Mode de refroidissement solaire en vacances","solar pump startup pulse duration":"Durée de l’impulsion de démarrage de la pompe solaire","solar loading break speed enabled":"Vitesse en pause de charge activée","solar pump delay enabled":"Temporisation de la pompe solaire activée","solar spread loading temperature differential":"Différentiel de température de charge répartie","solar spread loading enabled":"Charge répartie activée","differential":"Différentiel","rise":"Augmentation","start":"Début","end":"Fin","target":"Consigne","flow predicate":"Condition de débit","pump minimum speed":"Vitesse minimale de pompe","pump maximum speed":"Vitesse maximale de pompe","automatic holiday participation (including coupled circuits)":"Programme vacances automatique (circuits couplés inclus)","heat exchange hysteresis":"Hystérésis de l’échangeur","return mixing differential":"Différentiel de mélange de retour","anlage wf# activity":"Fonction du régulateur # · Activité","anlage wf# weekly timer enabled":"Fonction du régulateur # · Programme hebdomadaire activé","anlauf mode":"Mode de démarrage","backup suppression set-temperature condition":"Condition de consigne du blocage de l’appoint","circulation break time":"Durée de pause de circulation","circulation demand delay":"Délai de demande de circulation","circulation runtime":"Durée de circulation","circulation temperature off":"Température d’arrêt de circulation","circulation temperature on":"Température d’enclenchement de circulation","constant cooling flow target":"Consigne constante de départ froid","cooling timer end":"Fin du programme de refroidissement","cooling timer start":"Début du programme de refroidissement","correction interval":"Intervalle de correction","dhw preheat delay":"Délai de préchauffage ECS","dhw preheat differential off":"Différentiel d’arrêt de préchauffage ECS","dhw preheat differential on":"Différentiel d’enclenchement de préchauffage ECS","dhw preheat speed step":"Pas de vitesse de préchauffage ECS","dhw preheat speed-regulation hysteresis":"Hystérésis de régulation de vitesse du préchauffage ECS","dhw preheat start speed":"Vitesse de démarrage du préchauffage ECS","dhw preheat temperature target":"Consigne de préchauffage ECS","dhw solar off enabled":"Blocage solaire ECS activé","dhw solar off set-temperature condition":"Condition de consigne du blocage solaire ECS","differential enabled":"Régulation différentielle activée","differential off":"Différentiel d’arrêt","differential on":"Différentiel d’enclenchement","drainback befuellzeit":"Durée de remplissage drainback","drainback drain pulse enabled":"Impulsion de vidange drainback activée","drainback drainimpuls_dauer":"Durée de l’impulsion de vidange drainback","drainback drainimpuls_verzoegerung":"Délai de l’impulsion de vidange drainback","drainback erholungszeit":"Temps de récupération drainback","drainback initialisierungszeit":"Durée d’initialisation drainback","energy saving off differential":"Différentiel d’arrêt de l’économie d’énergie","energy saving pause":"Pause d’économie d’énergie","energy saving runtime":"Durée de fonctionnement en économie d’énergie","feststoffkessel modulation rise":"Augmentation de modulation de la chaudière à combustible solide","feststoffkessel sink maximum temperature":"Température maximale du récepteur de la chaudière à combustible solide","feststoffkessel source minimum temperature":"Température minimale de la source de la chaudière à combustible solide","feststoffkessel switch-off differential":"Différentiel d’arrêt de la chaudière à combustible solide","feststoffkessel switch-on differential":"Différentiel d’enclenchement de la chaudière à combustible solide","feststoffkessel target differential":"Différentiel cible de la chaudière à combustible solide","feststoffkessel target temperature":"Consigne de la chaudière à combustible solide","flow correction hysteresis":"Hystérésis de correction du départ","flow predicate off":"Condition d’arrêt du débit","flow predicate on":"Condition d’enclenchement du débit","flow target offset":"Décalage de consigne de départ","function block rise":"Augmentation du bloc de fonctions","funktionsblock switch-off differential":"Différentiel d’arrêt du bloc de fonctions","funktionsblock switch-on differential":"Différentiel d’enclenchement du bloc de fonctions","funktionsblock target differential":"Différentiel cible du bloc de fonctions","heat exchanger circulation pump idle duration":"Durée de repos de la pompe de circulation de l’échangeur","heat exchanger circulation pump idle mode enabled":"Mode repos de la pompe de circulation de l’échangeur activé","heat exchanger circulation pump overrun":"Post-circulation de la pompe de l’échangeur","heat exchanger circulation pump run-on enabled":"Post-circulation de la pompe de l’échangeur activée","heat exchanger circulation pump speed":"Vitesse de la pompe de circulation de l’échangeur","heating pumpe # manual mode":"Pompe de chauffage # · Commande manuelle","heating ventil # manual mode":"Vanne de chauffage # · Commande manuelle","heizung heizkreis# activity":"Circuit de chauffage # · Activité","heizung heizkreis# nachheizung activity":"Circuit de chauffage # · Activité de l’appoint","heizung heizkreis# raumthermostat# temporary activation":"Circuit de chauffage # · Thermostat d’ambiance # · Activation temporaire","heizung heizkreis# raumthermostat# weekly timer enabled":"Circuit de chauffage # · Thermostat d’ambiance # · Programme hebdomadaire activé","heizung heizkreis# weekly timer enabled":"Circuit de chauffage # · Programme hebdomadaire activé","heizung wf# activity":"Fonction de chauffage # · Activité","heizung wf# weekly timer enabled":"Fonction de chauffage # · Programme hebdomadaire activé","internal heating circuit return mixing":"Mélange de retour du circuit de chauffage interne","irradiation duration":"Durée d’irradiation","irradiation threshold":"Seuil d’irradiation","linear cooling flow point #":"Point de départ froid linéaire #","linear cooling outdoor point #":"Point extérieur de refroidissement linéaire #","linear flow point #":"Point de départ linéaire #","linear outdoor point #":"Point extérieur linéaire #","manual heating input option":"Option d’entrée de chauffage manuel","minimum speed":"Vitesse minimale","mixer hysteresis off":"Hystérésis d’arrêt du mélangeur","mixer hysteresis on":"Hystérésis d’enclenchement du mélangeur","nachlauf mode":"Mode de post-circulation","off differential":"Différentiel d’arrêt","on differential":"Différentiel d’enclenchement","operating mode switch off option":"Option d’arrêt du commutateur de mode","outdoor cooling threshold":"Seuil extérieur de refroidissement","overrun duration":"Durée de post-circulation","overrun temperature":"Température de post-circulation","parallel relay delay":"Délai du relais parallèle","parallel relay delay enabled":"Délai du relais parallèle activé","parallel relay overrun":"Post-fonctionnement du relais parallèle","parallel relay overrun enabled":"Post-fonctionnement du relais parallèle activé","pause":"Pause","return mixing differential off":"Différentiel d’arrêt du mélange de retour","return mixing differential on":"Différentiel d’enclenchement du mélange de retour","return mixing mixer interval":"Intervalle du mélangeur de retour","return mixing mixer runtime":"Durée de course du mélangeur de retour","room control initial flow temperature":"Température de départ initiale de la régulation ambiante","ruecklaufanhebung switch-off differential":"Différentiel d’arrêt du rehaussement de retour","ruecklaufanhebung switch-on differential":"Différentiel d’enclenchement du rehaussement de retour","run-on":"Post-circulation","runtime":"Durée de fonctionnement","solar circulation time":"Durée de circulation solaire","solar cs bypass delay":"Délai du bypass solaire CS","solar cs bypass irradiation":"Irradiation du bypass solaire CS","solar holiday store cooling differential off":"Vacances solaire · Différentiel d’arrêt du refroidissement du ballon","solar holiday store cooling differential on":"Vacances solaire · Différentiel d’enclenchement du refroidissement du ballon","solar loading break":"Pause de charge solaire","solar loading break speed":"Vitesse en pause de charge solaire","solar pump delay":"Délai de la pompe solaire","solar rise":"Augmentation solaire","solar sp# activity":"Ballon solaire # · Activité","solar standby store cooling differential off":"Veille solaire · Différentiel d’arrêt du refroidissement du ballon","solar standby store cooling differential on":"Veille solaire · Différentiel d’enclenchement du refroidissement du ballon","solar target temperature":"Consigne solaire","solar wf# activity":"Fonction solaire # · Activité","solar wf# bereitschaft activity":"Fonction solaire # · Activité de veille","solar wf# bypass activity":"Fonction solaire # · Activité du bypass","solar wf# csbypass activity":"Fonction solaire # · Activité du bypass CS","solar wf# drainback activity":"Fonction solaire # · Activité drainback","solar wf# roehrenkollektor activity":"Fonction solaire # · Activité du capteur tubulaire","solar wf# zieltemperatur activity":"Fonction solaire # · Activité de consigne","solid fuel mixer close differential":"Différentiel de fermeture du mélangeur combustible solide","solid fuel mixer interval":"Intervalle du mélangeur combustible solide","solid fuel mixer open differential":"Différentiel d’ouverture du mélangeur combustible solide","start duration":"Durée de démarrage","start optimization enabled":"Optimisation du démarrage activée","start temperature":"Température de démarrage","stop optimization enabled":"Optimisation de l’arrêt activée","store hysteresis":"Hystérésis du ballon","supplementary heating blocking":"Blocage du chauffage d’appoint","supplementary heating differential off":"Différentiel d’arrêt du chauffage d’appoint","supplementary heating differential on":"Différentiel d’enclenchement du chauffage d’appoint","supplementary heating early start":"Démarrage anticipé du chauffage d’appoint","supplementary heating solar off enabled":"Blocage solaire du chauffage d’appoint activé","supplementary heating solar off set-temperature condition":"Condition de consigne du blocage solaire du chauffage d’appoint","target differential":"Différentiel cible","thermostat # enabled":"Thermostat # activé","thermostat # off":"Thermostat # température d’arrêt","thermostat # on":"Thermostat # température d’enclenchement","voltage correction":"Correction de tension","waermeaustausch modulation rise":"Augmentation de modulation de l’échange thermique","waermeaustausch sink maximum temperature":"Température maximale du récepteur de l’échange thermique","waermeaustausch source minimum temperature":"Température minimale de la source de l’échange thermique","waermeaustausch switch-off differential":"Différentiel d’arrêt de l’échange thermique","waermeaustausch switch-on differential":"Différentiel d’enclenchement de l’échange thermique","waermeaustausch target differential":"Différentiel cible de l’échange thermique","wmz# activity":"Compteur de chaleur # · Activité"}
+};
+const MODE_LABELS={"nl":{"AND":"EN","Activated":"Geactiveerd","Auto":"Auto","Average":"Gemiddelde","Both":"Beide","CO2":"CO₂","Coal":"Steenkool","Collector cooling":"Collectorkoeling","Cyclic (overwrite oldest)":"Cyclisch (oudste overschrijven)","Day":"Dag","Day/Night":"Dag/Nacht","Day/Off":"Dag/Uit","Deactivated":"Gedeactiveerd","Disabled":"Uitgeschakeld","External switch":"Externe schakelaar","Gallon":"Gallon","Gas":"Gas","Holiday":"Vakantie","Linear":"Lineair","Litre":"Liter","MBTU":"MBTU","Max":"Maximum","Maximum":"Maximum","Min":"Minimum","Minimum":"Minimum","NAND":"NIET-EN","NOR":"NIET-OF","Night":"Nacht","None":"Geen","OR":"OF","Off":"Uit","Oil":"Stookolie","On":"Aan","On/Off":"Aan/Uit","Outdoor":"Buiten","Pendulum":"Pendelladen","Successive":"Opeenvolgend","Summer":"Zomer","System cooling":"Systeemkoeling","Temperature":"Temperatuur","Thermostat":"Thermostaat","Time":"Tijd","Zone":"Zone","bar":"bar","kWh":"kWh","psi":"psi","°C":"°C","°F":"°F"},"fr":{"AND":"ET","Activated":"Activé","Auto":"Auto","Average":"Moyenne","Both":"Les deux","CO2":"CO₂","Coal":"Charbon","Collector cooling":"Refroidissement du capteur","Cyclic (overwrite oldest)":"Cyclique (écraser le plus ancien)","Day":"Jour","Day/Night":"Jour/Nuit","Day/Off":"Jour/Arrêt","Deactivated":"Désactivé","Disabled":"Désactivé","External switch":"Commutateur externe","Gallon":"Gallon","Gas":"Gaz","Holiday":"Vacances","Linear":"Linéaire","Litre":"Litre","MBTU":"MBTU","Max":"Maximum","Maximum":"Maximum","Min":"Minimum","Minimum":"Minimum","NAND":"NON-ET","NOR":"NON-OU","Night":"Nuit","None":"Aucun","OR":"OU","Off":"Arrêt","Oil":"Fioul","On":"Marche","On/Off":"Marche/Arrêt","Outdoor":"Extérieur","Pendulum":"Alternance","Successive":"Successif","Summer":"Été","System cooling":"Refroidissement du système","Temperature":"Température","Thermostat":"Thermostat","Time":"Temps","Zone":"Zone","bar":"bar","kWh":"kWh","psi":"psi","°C":"°C","°F":"°F"}};
+const DAYS=["Mo","Di","Mi","Do","Fr","Sa","So"];
+const SECTIONS = ["overview","solar","heating","hot_water","energy","settings","engineering"];
+const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const style = " :host{display:block;color:var(--primary-text-color);background:var(--primary-background-color);min-height:100%;font:inherit}*{box-sizing:border-box}main{max-width:1440px;margin:auto;padding:clamp(12px,3vw,32px)}header{display:flex;gap:12px;align-items:center;flex-wrap:wrap}h1{font-size:1.8rem;margin:0}h2{font-size:1.1rem;margin:0 0 12px}h3{font-size:1rem;margin:0 0 6px}p{line-height:1.45}nav{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color);padding:12px 0;margin:10px 0 18px}button,input,select{font:inherit;color:inherit;background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:9px;max-width:100%}button{cursor:pointer;min-height:40px}button:disabled{opacity:.5;cursor:not-allowed}button.active,button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px}.card{padding:16px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);min-width:0}.line{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--divider-color)}.line:last-child{border:0}.value{font-weight:600;overflow-wrap:anywhere}.muted,small{color:var(--secondary-text-color)}.warning{color:var(--warning-color,#aa6b00)}.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.grow{flex:1}.toolbar{margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.technical{overflow:auto;max-height:65vh}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}.notice{padding:10px 0;min-height:1.8em}.interval{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0}.interval input{max-width:135px}table{width:100%;border-collapse:collapse;text-align:left;font-size:.85rem}th,td{padding:8px;border-bottom:1px solid var(--divider-color);overflow-wrap:anywhere}a{color:var(--primary-color)}@media(max-width:520px){main{padding:12px}nav button{font-size:.9rem;padding:8px}.card{padding:12px}.line{align-items:flex-start}.actions{width:100%}header select{width:100%}}";
+class ResolDashboard extends HTMLElement {
+  constructor() {
+    super();
+    this.attachShadow({mode:"open"});
+    this.installations = [];
+    this.tab = "overview";
+    this.context = "";
+    this.object = "";
+    this.notice = "";
+    this.loaded = false;
+    this.loading = false;
+    this.pending = false;
+    this.report = null;
+    this.query = "";
+    this.filter = "all";
+    this.page = 0;
+    this.editor = null;
+    this.history = null;
+    this.shadowRoot.addEventListener("click", event => this.click(event));
+    this.shadowRoot.addEventListener("change", event => this.change(event));
+    this.shadowRoot.addEventListener("input", event => {
+      if(event.target.id==="technical-search"){this.query=event.target.value;this.page=0;this.renderInventory();}
+    });
+  }
+  connectedCallback(){this.render();if(this._hass&&!this.loaded)this.load();this.subscribeProjection();}
+  disconnectedCallback(){
+    const subscription=this.projectionSubscription;
+    this.projectionSubscription=null;
+    subscription?.unsubscribe?.();
+    clearTimeout(this.registryTimer);
+    this.unsubscribeRegistry?.();this.unsubscribeRegistry=null;
+    this.projectionRevision=(this.projectionRevision||0)+1;
+    this.loaded=false;
+  }
+  subscribeProjection(){
+    const connection=this._hass?.connection;
+    if(!connection)return;
+    if(this.projectionSubscription?.connection===connection)return;
+    this.projectionSubscription?.unsubscribe?.();
+    if(!connection.subscribeMessage){this.subscribeRegistry();return;}
+    const subscription={connection};
+    this.projectionSubscription=subscription;
+    connection.subscribeMessage(installations=>{
+      if(this.isConnected&&this.projectionSubscription===subscription){
+        this.projectionRevision=(this.projectionRevision||0)+1;
+        this.applyProjection(installations);
+      }
+    },{type:"deltasol/dashboard/subscribe"}).then(unsubscribe=>{
+      if(this.isConnected&&this.projectionSubscription===subscription)subscription.unsubscribe=unsubscribe;else unsubscribe();
+    }).catch(()=>{
+      if(this.projectionSubscription===subscription){this.projectionSubscription=null;this.subscribeRegistry();}
+    });
+  }
+  subscribeRegistry(){
+    if(this.unsubscribeRegistry||this.registrySubscription||!this._hass?.connection?.subscribeEvents)return;
+    this.registrySubscription=true;
+    this._hass.connection.subscribeEvents(()=>{
+      clearTimeout(this.registryTimer);
+      this.registryTimer=setTimeout(()=>{if(this.isConnected)this.load();},250);
+    },"entity_registry_updated").then(unsubscribe=>{
+      this.registrySubscription=false;
+      if(this.isConnected)this.unsubscribeRegistry=unsubscribe;else unsubscribe();
+    }).catch(()=>{this.registrySubscription=false;});
+  }
+  set hass(hass) {
+    const previous=this._hass;
+    this._hass=hass;
+    if(!this.isConnected)return;
+    this.subscribeProjection();
+    if(!this.loaded&&!this.loading){this.load();return;}
+    const rows=this.rows();
+    // Compatibility fallback for a connection without native subscriptions.
+    if(!this.projectionSubscription&&this.installations.some(installation=>installation.objects.some(asset=>asset.capabilities.some(row=>previous?.states?.[row.entity_id]!==hass.states?.[row.entity_id])))){this.load();return;}
+    if(this.editor||this.pending||this.shadowRoot.activeElement?.matches("input,select,textarea"))return;
+    if(previous?.language!==hass.language||rows.some(row=>previous?.states?.[row.entity_id]!==hass.states?.[row.entity_id])){
+      this.render();
+    }
+  }
+  language(){const code=(this._hass?.language||"en").slice(0,2);return TEXT[code]?code:"en";}
+  t(key){return TEXT[this.language()][key]??TEXT.en[key]??key;}
+  formatNumber(value){return new Intl.NumberFormat(this.language(),{maximumFractionDigits:6,useGrouping:false}).format(value);}
+
+  current(){return this.installations.find(item=>item.id===this.context);}
+  rows(){return this.current()?.objects.flatMap(asset=>asset.capabilities)||[];}
+  row(id){return this.rows().find(row=>row.entity_id===id);}
+  async load(){
+    if(!this._hass||this.loading)return;
+    this.loading=true;
+    const revision=this.projectionRevision||0;
+    try{
+      const installations=await this._hass.callWS({type:"deltasol/dashboard/list"});
+      if(revision===(this.projectionRevision||0))this.applyProjection(installations);
+    }catch{
+      if(revision===(this.projectionRevision||0)){this.notice=this.t("error");this.applyProjection([]);}
+    }finally{this.loading=false;}
+  }
+  applyProjection(installations){
+    const before=this.current(),oldContext=this.context;
+    const scope=installation=>JSON.stringify((installation?.objects||[]).flatMap(asset=>asset.capabilities.map(row=>[asset.id,row.entity_id,row.depth,row.control])).sort());
+    this.installations=installations;
+    if(!this.current()){this.context=installations[0]?.id||"";this.object="";}
+    const current=this.current();
+    const scopeChanged=oldContext!==this.context||before?.engineering!==current?.engineering||before?.settings!==current?.settings||scope(before)!==scope(current);
+    if(oldContext!==this.context||!current?.engineering){this.report=null;this.engineeringRequest=null;this.query="";this.filter="all";this.page=0;}
+    if(!this.tabs().includes(this.tab))this.tab="overview";
+    if(this.object&&!this.objectsForTab().some(asset=>asset.id===this.object))this.object="";
+    if(this.editor&&(oldContext!==this.context||!this.row(this.editor.id)?.control))this.editor=null;
+    let reviewChanged=false;
+    if(this.editor?.review){
+      const row=this.row(this.editor.id),review=this.editor.review;
+      if((row.reference_token&&row.reference_token!==review.reference_token)||this.state(row)?.state!==review.expected){
+        this.editor.review=null;reviewChanged=true;
+      }
+    }
+    if(this.history&&(oldContext!==this.context||!this.row(this.history.id)))this.history=null;
+    this.loaded=true;
+    if(scopeChanged||reviewChanged||!this.editor&&!this.pending&&!this.shadowRoot?.activeElement?.matches("input,select,textarea"))this.render();
+    if(this.tab==="engineering"&&current?.engineering&&!this.report&&!this.engineeringRequest)this.engineering();
+  }
+  tabs(){
+    const installation=this.current();
+    const groups=new Set(this.rows().filter(row=>row.depth!=="engineering").map(row=>row.section));
+    return SECTIONS.filter(tab=>tab==="settings"?Boolean(installation?.settings):tab==="engineering"?Boolean(installation?.engineering):tab==="overview"||tab==="energy"||groups.has(tab));
+  }
+  objectsForTab(tab=this.tab){
+    const objects=this.current()?.objects||[];
+    if(tab==="overview"||tab==="engineering")return objects;
+    if(tab!=="settings")return objects.filter(asset=>this.visibleRows(asset,tab).length>0);
+    const programs=new Set(objects.flatMap(asset=>asset.capabilities.filter(row=>row.schedule&&row.program).map(row=>row.program)));
+    return objects.filter(asset=>asset.capabilities.some(row=>row.depth==="settings"||row.depth==="controls"||programs.has(row.linked_program)));
+  }
+  selectTab(tab){
+    if(!this.tabs().includes(tab))return;
+    this.tab=tab;
+    if(tab!=="engineering"){this.report=null;this.engineeringRequest=null;}
+    if(this.object&&!this.objectsForTab(tab).some(asset=>asset.id===this.object))this.object="";
+    this.editor=null;this.history=null;this.notice="";this.page=0;
+    this.render();if(tab==="engineering")this.engineering();
+  }
+  selectObject(id){
+    if(id&&!this.objectsForTab().some(asset=>asset.id===id))return;
+    this.object=id;this.editor=null;this.history=null;this.page=0;this.render();
+  }
+  state(row){return this._hass?.states?.[row.entity_id];}
+  capabilityLabel(row){
+    if(row.renamed)return row.name;
+    if(row.schedule&&row.program&&DAYS.includes(row.day))return this.t("program")+" "+row.program+" · "+this.t(row.day);
+    const label=row.native_label||this.state(row)?.attributes?.friendly_name||row.name||"RESOL";
+    return this.nativeLabelTranslation(label)||label;
+  }
+  nativeLabelTranslation(label){
+    const lang=this.language(), names=LABELS[lang]||{};
+    const lookup=value=>{
+      const lower=value.toLowerCase(),numbers=value.match(/\d+/g)||[];
+      const translated=names[lower]??names[lower.replace(/\d+/g,"#")];
+      return translated?.replace(/#/g,()=>numbers.shift());
+    };
+    const match=label.match(/^(Heating circuit|Function block|Arrangement function|Solar store|Solar collector|Heating function|Solar function|Solar exchanger|Solar bypass|Solar tube collector|Heating demand|Heating pump|Heating valve|HQM|Relay|Analog output|Holiday store) (\d+) (.+)$/i);
+    if(match){
+      const type={"heating circuit":"circuit","function block":"function","arrangement function":"function","solar store":"store","solar collector":"collector","heating function":"heating_function"}[match[1].toLowerCase()];
+      const suffix=match[3],room=suffix.match(/^thermostat (\d+) (room setpoint|room hysteresis|room setback)$/i);
+      const prefix=type?this.t(type):lookup(match[1]);
+      const localized=room?(lookup("room thermostat")||"Room thermostat")+" "+room[1]+" · "+(lookup(room[2])||room[2]):lookup(suffix);
+      if(lang!=="en"&&(!prefix||!localized))return null;
+      return (prefix||match[1])+" "+match[2]+" · "+(localized||suffix);
+    }
+    const solar=label.match(/^(Solar holiday|Solar standby) (store cooling differential|store cooling|collector cooling limit|cooling priority)(?: (\d+))?$/i);
+    if(solar){
+      const prefix=lookup(solar[1]),suffix=lookup(solar[2]);
+      if(lang!=="en"&&(!prefix||!suffix))return null;
+      return (prefix||solar[1])+" · "+(suffix||solar[2])+(solar[3]?" "+solar[3]:"");
+    }
+    return lookup(label)??(lang==="en"?label:null);
+  }
+  weeklyOwnerLabel(label){
+    const lang=this.language(),names=LABELS[lang]||{};
+    const match=label.match(/^(Arrangement function|Heating function|Heating circuit) (\d+)(?: \/ Room thermostat (\d+))?$/);
+    if(!match)return names[label.toLowerCase()]||label;
+    const type={"Arrangement function":"function","Heating function":"heating_function","Heating circuit":"circuit"}[match[1]];
+    return this.t(type)+" "+match[2]+(match[3]?" / "+(names["room thermostat"]||"Room thermostat")+" "+match[3]:"");
+  }
+  optionLabel(value){
+    return this.optionTranslation(value)??value;
+  }
+  optionTranslation(value){
+    return this.language()==="en"?value:MODE_LABELS[this.language()]?.[value];
+  }
+  value(row){
+    const state=this.state(row);
+    if(!state||state.state==="unknown"||state.state==="unavailable"||row.availability&&row.availability!=="available")return this.t(state?.state==="unavailable"||row.availability&&row.availability!=="available"?"unavailable":"unknown");
+    const unit=state.attributes.unit_of_measurement;
+    const numeric=unit&&String(state.state).trim()!==""&&Number.isFinite(Number(state.state));
+    return (row.kind==="select"||row.kind==="switch"?this.optionLabel(row.kind==="switch"?(state.state==="on"?"On":"Off"):state.state):numeric?this.formatNumber(Number(state.state)):state.state)+(unit?" "+unit:"");
+  }
+  valid(row){const state=this.state(row);return Boolean(state&&state.state!=="unknown"&&state.state!=="unavailable"&&(!row.availability||row.availability==="available"));}
+  allowed(row){return row.control&&(this.valid(row)||row.kind==="button"&&this.state(row)?.state==="unknown")&&!this.pending;}
+  control(row){
+    const id=escape(row.entity_id), state=this.state(row), attrs=state?.attributes||{},disabled=this.allowed(row)?"":"disabled";
+    if(!row.control)return "";
+    if(row.schedule)return '<button data-edit="'+id+'" '+disabled+'>'+escape(this.t("preview"))+'</button>';
+    if(row.kind==="switch")return '<button data-action="'+id+'" data-value="'+(state?.state!=="on")+'" '+disabled+'>'+escape(this.t(state?.state==="on"?"off":"on"))+'</button>';
+    if(row.kind==="button")return '<button data-action="'+id+'" data-value="null" '+disabled+'>'+escape(this.t("apply"))+'</button>';
+    if(row.kind==="select")return '<select aria-label="'+escape(this.capabilityLabel(row))+'" data-input="'+id+'" '+disabled+'>'+ (attrs.options||[]).map(v=>'<option value="'+escape(v)+'" '+(state?.state===v?"selected":"")+'>'+escape(this.optionLabel(v))+'</option>').join("")+'</select><button data-apply="'+id+'" '+disabled+'>'+escape(this.t("apply"))+'</button>';
+    if(row.kind==="number"||row.kind==="text"){
+      const type=row.kind==="number"?"number":"text";
+      const limits=type==="number"?["min","max","step"].map(k=>attrs[k]===undefined?"":" "+k+'="'+escape(attrs[k])+'"').join(""):"";
+      return '<input aria-label="'+escape(this.capabilityLabel(row))+'" data-input="'+id+'" type="'+type+'" value="'+escape(state?.state||"")+'" '+limits+' '+disabled+'><button data-apply="'+id+'" '+disabled+'>'+escape(this.t("apply"))+'</button>';
+    }
+    return "";
+  }
+  detail(row,control){
+    const state=this.state(row),observed=state?.attributes?.["Last Updated"]||(row.depth!=="status"?this.current()?.health?.parameter_observed_at:null);
+    const updated=observed?new Date(observed).toLocaleString(this._hass?.language):"";
+    const reason=row.availability&&row.availability!=="available"?this.t(row.availability):"";
+    const attrs=state?.attributes||{};
+    const limits=control&&row.kind==="number"&&Number.isFinite(attrs.min)&&Number.isFinite(attrs.max)?'<small style="display:block">'+escape(this.t("range_limits")+": "+attrs.min+" – "+attrs.max+(attrs.unit_of_measurement?" "+attrs.unit_of_measurement:"")+(Number.isFinite(attrs.step)?" · "+this.t("increment")+" "+attrs.step:""))+'</small>':"";
+    const access=control&&["number","select","switch","text"].includes(row.kind)&&!row.control&&this.valid(row)?'<small>'+escape(this.t("not_writable"))+'</small>':"";
+    const evidence=this.tab==="engineering"?'<details><summary>'+escape(this.t("source"))+'</summary><pre>'+escape(JSON.stringify({entity_id:row.entity_id,parameter:row.parameter,index:row.reference_index,source_address:row.source_address,controller_address:row.controller_address,references:row.live_reference_context,telemetry_packet:row.telemetry_packet,telemetry_field:row.telemetry_field,availability:row.availability},null,2))+'</pre></details>':"";
+    return '<div class="line"><div class="grow"><div>'+escape(this.capabilityLabel(row))+'</div><div class="value'+(this.valid(row)?"":" warning")+'">'+escape(this.value(row))+'</div>'+(reason?'<small class="warning">'+escape(reason)+'</small>':"")+(updated?'<small style="display:block">'+escape(this.t("last_observed"))+': '+escape(updated)+'</small>':"")+limits+access+evidence+'</div><div class="actions">'+(control?this.control(row):"")+'<button data-history="'+escape(row.entity_id)+'" aria-label="'+escape(this.t("history")+' '+this.capabilityLabel(row))+'">'+escape(this.t("history"))+'</button></div></div>';
+  }
+  visibleRows(asset,tab=this.tab){
+    const rows=asset.capabilities;
+    if(tab==="settings")return rows.filter(row=>row.depth==="settings"||row.depth==="controls");
+    if(tab==="engineering")return this.object?rows:rows.filter(row=>row.depth==="engineering");
+    if(tab==="energy")return rows.filter(row=>row.depth==="status"||row.section==="energy"&&row.depth!=="engineering");
+    if(tab==="overview"){
+      const operational=rows.filter(row=>row.depth==="status"||row.depth==="controls"||row.role==="configured_activity");
+      return operational.length&&!this.object?operational:rows.filter(row=>row.depth!=="engineering");
+    }
+    return rows.filter(row=>row.section===tab&&row.depth!=="engineering");
+  }
+  objectTitle(asset){
+    const type=asset.object_kind?this.t(asset.object_kind)+" "+asset.object_number:"";
+    return type&&!asset.renamed&&asset.name.startsWith("RESOL ")?type:asset.name;
+  }
+  attentionItems(){
+    const current=this.current(),items=[];
+    if(!current)return items;
+    const h=current.health;
+    if(h?.telemetry===false)return [{reason:"telemetry_unavailable",action:"connection_action",asset:null,rows:[]}];
+    if(h?.parameter_access&&h.parameter_current===false)items.push({reason:"parameter_unavailable",action:"parameter_action",asset:null,rows:[]});
+    for(const asset of current.objects){
+      if(this.object&&asset.id!==this.object)continue;
+      const groups=new Map();
+      for(const row of this.visibleRows(asset)){
+        if(row.depth!=="status"&&row.depth!=="controls"&&row.role!=="configured_activity")continue;
+        let reason;
+        if(row.role==="attention"&&this.valid(row)&&this.state(row)?.state==="on")reason="alarm_action";
+        else if(!this.valid(row))reason=row.availability&&row.availability!=="available"?row.availability:"unknown";
+        else continue;
+        if(reason==="parameter_unavailable"&&h?.parameter_current===false)continue;
+        if(!groups.has(reason))groups.set(reason,[]);
+        groups.get(reason).push(row);
+      }
+      for(const [reason,rows] of groups){
+        const action=reason==="alarm_action"?"alarm_action":reason==="requirements_not_confirmed"?"requirements_action":reason==="telemetry_unavailable"?"connection_action":reason==="parameter_unavailable"?"parameter_action":"unknown_action";
+        items.push({reason,action,asset,rows});
+      }
+    }
+    return items;
+  }
+  attentionView(){
+    const items=this.attentionItems();
+    if(!items.length)return '<section class="card"><h2>'+escape(this.t("attention_title"))+'</h2><p class="muted">'+escape(this.t("all_clear"))+'</p></section>';
+    return '<section class="card"><h2>'+escape(this.t("attention_title"))+'</h2>'+items.map(item=>'<div class="line"><div class="grow"><strong class="warning">'+escape(item.asset?this.objectTitle(item.asset):this.t(item.reason))+'</strong>'+(item.rows.length?'<div>'+escape(item.rows.map(row=>this.capabilityLabel(row)).join(", "))+'</div>':"")+'<p class="muted">'+escape(this.t(item.action))+'</p></div>'+(item.asset&&this.object!==item.asset.id?'<button data-source-object="'+escape(item.asset.id)+'">'+escape(this.t("view_object"))+'</button>':"")+'</div>').join("")+'</section>';
+  }
+  routineControls(){
+    const assets=(this.current()?.objects||[]).filter(asset=>!this.object||asset.id===this.object);
+    const rows=assets.flatMap(asset=>asset.capabilities.filter(row=>row.depth==="controls"&&this.allowed(row)&&(this.tab==="overview"||row.section===this.tab)).map(row=>({asset,row})));
+    return rows.sort((a,b)=>(b.row.priority||0)-(a.row.priority||0)||String(a.asset.name).localeCompare(String(b.asset.name)));
+  }
+  routineView(){
+    const items=this.routineControls();
+    if(!items.length)return "";
+    return '<section class="card"><h2>'+escape(this.t("routine_controls"))+'</h2>'+items.map(({asset,row})=>'<div><small>'+escape(this.objectTitle(asset))+'</small>'+this.detail(row,true)+'</div>').join("")+'</section>';
+  }
+  summary(){
+    const h=this.current()?.health;
+    if(!h)return "";
+    if(this.tab!=="engineering"){
+      return '<section class="card" aria-label="'+escape(this.t("summary"))+'"><h2>'+escape(this.t("summary"))+'</h2><strong class="'+(h.telemetry?"":"warning")+'">'+escape(this.t(h.telemetry?"telemetry_ok":"telemetry_bad"))+'</strong></section>';
+    }
+    const rows=this.rows().filter(row=>row.depth!=="engineering");
+    const available=rows.filter(row=>this.valid(row)).length;
+    return '<section class="card" aria-label="'+escape(this.t("summary"))+'"><h2>'+escape(this.t("summary"))+'</h2><div class="grid"><div><strong class="'+(h.telemetry?"":"warning")+'">'+escape(this.t(h.telemetry?"telemetry_ok":"telemetry_bad"))+'</strong><p class="muted">'+available+' / '+rows.length+' '+escape(this.t("available"))+'</p></div>'+(h.parameter_access?'<div><strong>'+escape(this.t("selectors"))+'</strong><p>'+h.selectors_observed+' / '+h.selectors_total+'</p>'+(!h.catalogue?'<p class="warning">'+escape(this.t("catalogue_pending"))+'</p>':"")+(h.selectors_total?'<progress max="'+h.selectors_total+'" value="'+h.selectors_observed+'"></progress>':"")+(h.parameter_current===false?'<p class="warning">'+escape(this.t("parameter_pending"))+'</p>':"")+'</div>':"")+'</div>'+(h.checkpoint?'<p class="warning">'+escape(this.t("checkpoint"))+'</p>':"")+'</section>';
+  }
+  weekPrograms(){
+    const assets=this.current()?.objects||[];
+    const selected=assets.find(asset=>asset.id===this.object);
+    const linked=new Set((selected?.capabilities||[]).map(row=>row.linked_program).filter(Boolean));
+    const programs=new Map();
+    for(const asset of assets)for(const row of asset.capabilities){
+      if(!row.schedule||!row.program||!DAYS.includes(row.day))continue;
+      if(this.object&&asset.id!==this.object&&!linked.has(row.program))continue;
+      const key=asset.id+":"+row.program;
+      if(!programs.has(key))programs.set(key,{number:row.program,days:new Map()});
+      programs.get(key).days.set(row.day,row);
+    }
+    return [...programs.values()].sort((a,b)=>a.number-b.number);
+  }
+  weekView(editable=true){
+    const programs=this.weekPrograms();
+    if(!programs.length)return "";
+    return '<h2 style="margin-top:24px">'+escape(this.t("schedule"))+'</h2><div class="grid">'+programs.map(program=>{
+      const refs=[...new Set([...program.days.values()].flatMap(row=>row.shared_references||[]))];
+      return '<section class="card"><h3>'+escape(this.t("program")+" "+program.number)+'</h3><p class="muted">'+escape(this.t("reference"))+' '+escape(refs.map(label=>this.weeklyOwnerLabel(label)).join(", ")||this.t("no_refs"))+'</p>'+DAYS.map(day=>{
+        const row=program.days.get(day);
+        if(!row)return '<div class="line"><span>'+escape(this.t(day))+'</span><span class="muted">'+escape(this.t("not_confirmed"))+'</span></div>';
+        const value=this.state(row)?.state;
+        const intervals=this.valid(row)&&value?value.split(",").map(interval=>interval.trim().split("-")):[];
+        const bars=intervals.map(pair=>{
+          const minutes=clock=>{const parts=clock?.split(":").map(Number)||[];return parts.length===2?parts[0]*60+parts[1]:NaN;};
+          const a=minutes(pair[0]),b=minutes(pair[1]);
+          return Number.isFinite(a)&&Number.isFinite(b)&&a>=0&&b<=1440&&b>a?'<span style="position:absolute;left:'+(a/14.4)+'%;width:'+((b-a)/14.4)+'%;height:100%;background:var(--primary-color)"></span>':"";
+        }).join("");
+        return '<div class="line"><div class="grow"><strong>'+escape(this.t(day))+'</strong><div aria-hidden="true" style="height:10px;position:relative;border-radius:4px;overflow:hidden;background:var(--divider-color);margin:8px 0">'+bars+'</div><small>'+escape(this.valid(row)?value||this.t("no_intervals"):this.t("not_confirmed"))+'</small></div>'+(editable?this.control(row):"")+'</div>';
+      }).join("")+'</section>';
+    }).join("")+'</div>';
+  }
+  prominentRows(rows){
+    // Pick semantically useful facts rather than registry insertion order.
+    // No invented values; unavailable facts stay visibly unavailable.
+    const candidates=rows.filter(row=>row.depth==="status"||row.depth==="controls"||row.role==="configured_activity");
+    const sorted=[...candidates].sort((a,b)=>(b.priority||0)-(a.priority||0)||String(a.name).localeCompare(String(b.name)));
+    return sorted.slice(0,4);
+  }
+  relationView(asset){
+    const relations=asset.relations||[];
+    if(!relations.length)return "";
+    return '<h3 style="margin-top:18px">'+escape(this.t("relations"))+'</h3><p class="muted">'+escape(this.t("assignment_help"))+'</p>'+relations.map(rel=>{
+      const source=this.current()?.objects.find(item=>item.id===rel.source_object);
+      return '<div class="line"><div class="grow"><strong>'+escape(this.t(rel.kind))+' '+escape(rel.number)+'</strong><div class="muted">'+escape(source?this.objectTitle(source):this.t("native_reference_only"))+'</div>'+(this.tab==="engineering"&&rel.parameter?'<small>'+escape(rel.parameter)+'</small>':"")+'</div>'+(source&&source.id!==asset.id?'<button data-source-object="'+escape(source.id)+'">'+escape(this.t("open_source"))+'</button>':"")+'</div>';
+    }).join("");
+  }
+  objectDetail(rows,compact=false){
+    const byPriority=(a,b)=>(b.priority||0)-(a.priority||0)||String(a.name).localeCompare(String(b.name));
+    const measurements=rows.filter(row=>row.depth==="status").sort(byPriority);
+    const controls=rows.filter(row=>row.depth==="controls").sort(byPriority);
+    const activity=rows.filter(row=>row.role==="configured_activity"&&row.depth!=="controls");
+    const preferences=rows.filter(row=>row.depth==="settings"&&!row.schedule&&row.role!=="configured_activity");
+    const energy=row=>row.section==="energy"||["energy","power"].includes(row.role);
+    const groups=this.tab==="energy"?[
+      ["energy_measurements",measurements.filter(energy)],
+      ["other_measurements",measurements.filter(row=>!energy(row))],
+      ["controls",controls],["status",activity],["preferences",preferences]
+    ]:[
+      ["controls",controls],["measurements",compact?measurements.slice(0,3):measurements],
+      ["status",activity],["preferences",preferences]
+    ];
+    if(this.tab==="solar")groups.unshift(...groups.splice(1,1));
+    return groups.filter(([,items])=>items.length).map(([key,items])=>key==="preferences"?'<details><summary>'+escape(this.t("preferences"))+'</summary>'+items.map(row=>this.detail(row,false)).join("")+'</details>':'<h3 style="margin-top:18px">'+escape(this.t(key))+'</h3>'+items.map(row=>this.detail(row,key==="controls")).join("")).join("");
+  }
+  domainTask(){
+    if(!["solar","heating","hot_water","energy"].includes(this.tab))return "";
+    const assets=this.objectsForTab().filter(asset=>!this.object||asset.id===this.object);
+    const rows=assets.flatMap(asset=>this.visibleRows(asset));
+    const energy=rows.some(row=>row.depth==="status"&&["energy","power"].includes(row.role)&&this.valid(row));
+    const otherSources=this.tab!=="energy"&&(this.current()?.objects||[]).some(asset=>asset.capabilities.some(row=>row.depth==="status"&&row.section==="overview"));
+    return '<section class="card"><h2>'+escape(this.t(this.tab))+'</h2><p>'+escape(this.t(this.tab+"_task"))+'</p>'+(this.tab==="energy"&&!energy?'<p class="muted">'+escape(this.t("no_energy_measurement"))+'</p>':"")+(otherSources?'<button data-all-sources>'+escape(this.t("source_measurements"))+'</button>':"")+'</section>'+this.attentionView();
+  }
+  cards(){
+    const assets=(this.current()?.objects||[]).filter(asset=>!this.object||asset.id===this.object);
+    const cards=assets.map(asset=>{
+      const rows=this.visibleRows(asset).filter(row=>this.tab!=="settings"||!row.schedule||!row.program);
+      if(!rows.length)return "";
+      const available=rows.filter(row=>this.valid(row)).length;
+      const technical=this.tab==="engineering";
+      const header='<div class="toolbar"><div class="grow"><h2>'+escape(this.objectTitle(asset))+'</h2>'+(technical?'<small>'+available+' / '+rows.length+' '+escape(this.t("available"))+'</small>':"")+'</div>'+(this.object?"":'<button data-object="'+escape(asset.id)+'">'+escape(this.t("details"))+'</button>')+'</div>';
+      const measurementMissing=!technical&&this.tab!=="settings"&&asset.object_kind&&!rows.some(row=>row.depth==="status"&&this.valid(row));
+      const measurementNotice=measurementMissing?'<p class="muted">'+escape(this.t("unconfirmed"))+'</p>':"";
+      if(this.tab==="overview"&&!this.object){
+        const prominent=this.prominentRows(rows);
+        return '<article class="card">'+header+measurementNotice+prominent.map(row=>this.detail(row,false)).join("")+(!prominent.length&&!measurementNotice?'<p class="muted">'+escape(this.t("unconfirmed"))+'</p>':"")+(available!==rows.length?'<p class="warning">'+escape(this.t("not_confirmed"))+'</p>':"")+'</article>';
+      }
+      const ordinary=this.tab!=="settings"&&this.tab!=="engineering";
+      const settingsLink=ordinary&&this.current()?.settings&&asset.capabilities.some(row=>row.depth==="settings"||row.linked_program)?'<button data-object-settings="'+escape(asset.id)+'">'+escape(this.t("domain_settings"))+'</button>':"";
+      const scheduleLink=ordinary&&!this.object&&rows.some(row=>row.linked_program)?'<button data-object="'+escape(asset.id)+'">'+escape(this.t("domain_schedule"))+'</button>':"";
+      return '<article class="card">'+header+measurementNotice+(ordinary?this.objectDetail(rows,!this.object&&this.tab!=="energy"):rows.map(row=>this.detail(row,row.depth!=="status")).join(""))+(this.object?this.relationView(asset):"")+settingsLink+scheduleLink+'</article>';
+    }).filter(Boolean);
+    return cards.length?'<div class="grid">'+cards.join("")+'</div>':this.tab==="settings"&&this.weekPrograms().length?"":'<p class="muted">'+escape(this.t("empty"))+'</p>';
+  }
+  render(){
+    if(!this.shadowRoot)return;
+    // Keep keyboard focus through live refreshes without preserving stale input values.
+    const focused=this.shadowRoot.activeElement;
+    const focusKey=focused?.id?["id",focused.id]:focused?Object.entries(focused.dataset||{}).find(([key])=>["tab","object","objectSettings","allSources","sourceObject","parameterEntity","apply","history","edit","refresh","reportRefresh","export","closeHistory"].includes(key)):null;
+    const installation=this.current(), tabs=this.tabs(), assets=this.objectsForTab();
+    const count=this.attentionItems().length;
+    const options=this.installations.map(item=>'<option value="'+escape(item.id)+'" '+(item.id===this.context?"selected":"")+'>'+escape(item.name)+'</option>').join("");
+    const objects=assets.map(asset=>'<option value="'+escape(asset.id)+'" '+(asset.id===this.object?"selected":"")+'>'+escape(this.objectTitle(asset))+'</option>').join("");
+    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="'+escape(this.t("navigation"))+'">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" aria-live="polite" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("status"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><p class="muted">'+escape(this.t("unsupported"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.summary()+this.engineeringView():"")+(this.tab==="overview"?this.summary()+this.attentionView()+(!this.object?this.routineView():""):"")+this.domainTask()+this.cards()+(this.tab==="settings"?this.weekView():this.object&&this.tab!=="engineering"?this.weekView(false):""))+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
+    if(this.tab==="engineering")this.renderInventory();
+    if(focusKey){
+      const [key,value]=focusKey;
+      const replacement=Array.from(this.shadowRoot.querySelectorAll("button,input,select,textarea")).find(node=>key==="id"?node.id===value:node.dataset[key]===value);
+      replacement?.focus({preventScroll:true});
+    }
+  }
+  async engineering(){
+    if(!this.current()?.engineering)return;
+    this.report=null;
+    const request={id:this.context};
+    this.engineeringRequest=request;
+    this.render();
+    const active=()=>this.engineeringRequest===request&&this.context===request.id&&this.tab==="engineering"&&this.current()?.engineering;
+    try{
+      const report=await this._hass.callWS({type:"deltasol/dashboard/engineering",entry_id:request.id});
+      if(active())this.report=report;
+    }catch{if(active())this.notice=this.t("error");}
+    if(active())this.render();
+  }
+  engineeringView(){
+    if(!this.report)return '<p>'+escape(this.t("loading"))+'</p>';
+    const report=this.report, discovery=report.configuration_discovery||{},access=report.parameter_access||{};
+    const summary={gateway:report.gateway,telemetry:report.telemetry,parameter_access:access,configuration_discovery:{status:discovery.status,checkpoint_error:discovery.checkpoint_error,coverage:discovery.coverage,counts:discovery.counts,started_at:discovery.started_at,finished_at:discovery.finished_at,catalogue_source:discovery.catalogue_source},operational_contracts_source:report.operational_contracts_source};
+    const comparison=discovery.comparison||{};
+    const changes=Object.keys(comparison.changes||{}).length;
+    const object=this.current()?.objects.find(asset=>asset.id===this.object);
+    return '<section class="card"><div class="toolbar"><h2 class="grow">'+escape(this.t("diagnostics"))+'</h2><button data-report-refresh>'+escape(this.t("refresh"))+'</button><button data-export>'+escape(this.t("export"))+'</button></div><div class="grid"><div><h3>'+escape(this.t("live"))+'</h3><p>'+escape(access.status||this.t("unknown"))+'</p><p>'+escape(access.reference_profile||"")+' · '+escape(access.discovery_changeset||"")+'</p></div><div><h3>'+escape(this.t("capture"))+'</h3><p>'+escape(discovery.status||this.t("unknown"))+'</p><p>'+escape(discovery.finished_at||discovery.started_at||"")+'</p></div><div><h3>'+escape(this.t("comparison"))+'</h3><p>'+escape(comparison.status||this.t("not_confirmed"))+' · '+changes+' '+escape(this.t("changes"))+'</p></div></div><details><summary>'+escape(this.t("transport"))+'</summary><pre>'+escape(JSON.stringify(summary,null,2))+'</pre></details><h2>'+escape(this.t("inventory"))+'</h2>'+(object?'<p>'+escape(this.objectTitle(object))+'</p>':"")+'<div class="toolbar"><input id="technical-search" aria-label="'+escape(this.t("search"))+'" placeholder="'+escape(this.t("search"))+'" value="'+escape(this.query)+'"><select id="technical-filter" aria-label="'+escape(this.t("filter"))+'">'+["all","live","readonly","changes","object"].map(key=>'<option value="'+key+'" '+(this.filter===key?"selected":"")+'>'+escape(this.t(key))+'</option>').join("")+'</select></div><div class="technical" id="inventory"></div></section>';
+  }
+  inventoryEntries(){
+    const discovery=this.report?.configuration_discovery||{}, live=this.report?.configuration_controls||{}, contracts=this.report?.operational_contracts||{}, reference=this.report?.reference_inventory||{}, history=discovery.parameters||{}, changes=discovery.comparison?.changes||{};
+    const objects=this.current()?.objects||[];
+    const selected=new Set((objects.find(asset=>asset.id===this.object)?.capabilities||[]).map(row=>row.parameter).filter(Boolean));
+    const entityLinks=new Map(objects.flatMap(asset=>asset.capabilities.filter(row=>row.parameter).map(row=>[row.parameter,{asset,row}])));
+    const relays=Object.fromEntries(Object.values(this.report?.parameter_access?.relays||{}).map(row=>[row.parameter,row]));
+    const liveRows={...relays,...live};
+    const rows=[];
+    for(const key of new Set([...Object.keys(history),...Object.keys(contracts),...Object.keys(liveRows),...Object.keys(reference)])){
+      const current=liveRows[key];
+      const row={label:contracts[key]?.label||key,live:current,capture:history[key],contract:contracts[key],reference:reference[key],change:changes[key]};
+      row.liveVerified=current?.status==="supported"&&(current.write_access==="profile_verified"||Array.isArray(current.writable_options)&&current.writable_options.length>0);
+      row.reason=row.liveVerified?"live_verified":current&&current.status!=="supported"?current.status:row.reference?.write_access_reason||row.capture?.write_access_reason||"not_confirmed";
+      row.link=entityLinks.get(key)||null;
+
+      if(this.filter==="live"&&row.live?.status!=="supported")continue;
+      if(this.filter==="readonly"&&row.liveVerified)continue;
+      if(this.filter==="changes"&&!row.change)continue;
+      if(this.filter==="object"&&!selected.has(key))continue;
+      if(!(key+" "+row.label+" "+(row.capture?.reference_index??row.reference?.reference_index??"")).toLowerCase().includes((this.query||"").toLowerCase()))continue;
+      rows.push([key,row]);
+    }
+    return rows;
+  }
+  inventoryEvidence(row){
+    const live=row.live,capture=row.capture,reference=row.reference;
+    const value=live?.status==="supported"?(live.value??live.mode):null;
+    const historic=capture?.decoded_value??capture?.raw_value??capture?.last_observation?.raw_value;
+    const index=reference?.reference_index??capture?.reference_index;
+    const show=value=>value==null?this.t("not_confirmed"):typeof value==="object"?JSON.stringify(value):String(value);
+    return '<div><strong>'+escape(this.t("live"))+':</strong> '+escape(show(value))+'</div><small>'+escape(this.t(row.reason))+'</small>'+(historic!=null?'<div class="muted">'+escape(this.t("capture"))+': '+escape(show(historic))+'</div>':"")+(index!=null?'<small>'+escape(this.t("native_index")+": "+index)+'</small>':"");
+  }
+  inventoryDetails(row){
+    const variants=row.contract?.variants||[];
+    const link=row.link;
+    const safeControl=link&&row.liveVerified&&this.allowed(link.row);
+    const navigation=link?'<p><button data-parameter-entity="'+escape(link.row.entity_id)+'">'+escape(this.t("open_native_control"))+'</button> '+escape(this.objectTitle(link.asset))+(safeControl?"":' · '+escape(this.t("not_writable")))+'</p>':row.liveVerified?'<p class="muted">'+escape(this.t("entity_not_exposed"))+'</p>':"";
+    return navigation+variants.map(variant=>'<details><summary>'+escape(variant.kind+' · '+variant.storage_action)+'</summary>'+(variant.limits?'<p>'+escape(this.t("range_limits")+": "+variant.limits[0]+" – "+variant.limits[1]+(variant.unit?" "+variant.unit:"")+" · "+this.t("increment")+" "+variant.limits[2])+'</p>':"")+(variant.options?.length?'<p>'+escape(variant.options.join(", "))+'</p>':"")+(variant.relative_constraints?.length?'<p>'+escape(this.t("relative_conditions"))+'</p><ul>'+variant.relative_constraints.map(rule=>'<li>'+escape(rule.parameter+" · "+rule.operation)+'</li>').join("")+'</ul>':"")+(variant.prerequisites?.length?'<p>'+escape(this.t("prerequisites"))+'</p><ul>'+variant.prerequisites.map(rule=>'<li>'+escape(rule.parameter+" · "+rule.reference_index)+'</li>').join("")+'</ul>':"")+'<p class="muted">'+escape(this.t("live_recheck"))+'</p></details>').join("")+'<details><summary>'+escape(this.t("source"))+'</summary><pre>'+escape(JSON.stringify({...row,link:link?{object_id:link.asset.id,entity_id:link.row.entity_id}:null},null,2))+'</pre></details>';
+  }
+  renderInventory(){
+    const host=this.shadowRoot.querySelector("#inventory");
+    if(!host)return;
+    const entries=this.inventoryEntries(), size=50;
+    const pages=Math.max(1,Math.ceil(entries.length/size));
+    this.page=Math.min(this.page||0,pages-1);
+    const visible=entries.slice(this.page*size,(this.page+1)*size);
+    host.innerHTML=entries.length?'<div class="toolbar"><span>'+entries.length+' · '+(this.page+1)+' / '+pages+'</span><button data-page="-1" '+(!this.page?"disabled":"")+'>'+escape(this.t("back"))+'</button><button data-page="1" '+(this.page+1>=pages?"disabled":"")+'>'+escape(this.t("next"))+'</button></div><table><thead><tr><th>'+escape(this.t("inventory"))+'</th><th>'+escape(this.t("status"))+'</th><th>'+escape(this.t("details"))+'</th></tr></thead><tbody>'+visible.map(([key,row])=>'<tr><td>'+escape(row.label)+'<br><small>'+escape(key)+'</small></td><td>'+this.inventoryEvidence(row)+'</td><td><details><summary>'+escape(this.t("details"))+'</summary>'+this.inventoryDetails(row)+'</details></td></tr>').join("")+'</tbody></table>':'<p>'+escape(this.t("none"))+'</p>';
+  }
+  edit(row){
+    const observed=this.state(row)?.state;
+    if(!this.allowed(row)||!row.schedule||!this.valid(row))return;
+    this.editor={id:row.entity_id,windows:observed?observed.split(",").map(interval=>interval.trim().split("-")):[],review:null};
+    this.render();
+  }
+  editorView(){
+    const editor=this.editor,row=this.row(editor.id);
+    if(!row)return "";
+    return '<section class="card"><h2>'+escape(this.capabilityLabel(row))+'</h2><p>'+escape(this.t("confirm_schedule"))+'</p>'+editor.windows.map((pair,i)=>'<div class="interval"><label>'+escape(this.t("start"))+' <input type="time" step="900" data-window="'+i+'" data-edge="0" value="'+escape(pair[0])+'"></label><label>'+escape(this.t("end"))+' <input type="time" step="900" data-window="'+i+'" data-edge="1" value="'+escape(pair[1])+'"></label><button data-remove="'+i+'">'+escape(this.t("remove"))+'</button></div>').join("")+'<p>'+escape(this.t("shared"))+': '+escape((editor.review?.references||row.shared_references||[]).map(label=>this.weeklyOwnerLabel(label)).join(", ")||this.t("no_refs"))+'</p>'+(editor.review?'<p class="value">'+escape(editor.review.value)+'</p>':"")+'<div class="actions"><button data-add '+(editor.windows.length>=6?"disabled":"")+'>'+escape(this.t("add"))+'</button><button data-preview '+(this.pending?"disabled":"")+'>'+escape(this.t("preview"))+'</button><button data-save class="primary" '+(!editor.review||this.pending?"disabled":"")+'>'+escape(this.t("save"))+'</button><button data-cancel>'+escape(this.t("cancel"))+'</button></div></section>';
+  }
+  async action(row,value,preview=false){
+    if(!row||!this.allowed(row))return;
+    const editor=this.editor,context=this.context;
+    this.pending=true;
+    this.notice=this.t("working");
+    this.render();
+    try{
+      const review=row.schedule&&!preview?this.editor?.review:null;
+      const result=await this._hass.callWS({type:"deltasol/dashboard/action",entry_id:this.context,entity_id:row.entity_id,value,preview,...(review?{expected:review.expected,references:review.references,reference_token:review.reference_token}:{})});
+      if(this.context!==context)return;
+      if(preview){
+        if(this.editor&&this.editor===editor&&this.row(row.entity_id)?.control){this.editor.review=result;this.notice="";}
+      }else{this.notice=this.t(result.outcome)+(result.value==null?"":": "+(typeof result.value==="number"?this.formatNumber(result.value):this.optionLabel(result.value)));this.editor=null;}
+    }catch{this.notice=this.t("error");if(this.editor)this.editor.review=null;}
+    finally{this.pending=false;this.render();}
+  }
+  async openHistory(row,days=1){
+    if(!row)return;
+    const history={id:row.entity_id,name:this.capabilityLabel(row),items:null,days,unit:this.state(row)?.attributes?.unit_of_measurement||"",error:false};
+    this.history=history;
+    this.render();
+    try{
+      const end=new Date(), start=new Date(end.getTime()-days*86400000);
+      const result=await this._hass.callWS({type:"history/history_during_period",start_time:start.toISOString(),end_time:end.toISOString(),entity_ids:[row.entity_id],minimal_response:true,no_attributes:true,significant_changes_only:false});
+      if(this.history===history)history.items=result[row.entity_id]||[];
+    }catch{if(this.history===history){history.error=true;history.items=[];}}
+    this.render();
+  }
+  historyPoints(items){
+    return items.map(item=>{
+      const stamp=item.lu??item.last_updated??item.last_changed;
+      const time=typeof stamp==="number"?stamp*1000:Date.parse(stamp);
+      const raw=item.s??item.state;
+      const value=raw==null||String(raw).trim()===""?NaN:Number(raw);
+      return {time,value,raw};
+    }).filter(point=>Number.isFinite(point.time)).sort((a,b)=>a.time-b.time);
+  }
+  historyChart(items,unit){
+    const points=this.historyPoints(items);
+    const observed=points.filter(point=>Number.isFinite(point.value));
+    if(!observed.length)return "";
+    const first=points[0].time,last=points[points.length-1].time;
+    const min=observed.reduce((a,p)=>Math.min(a,p.value),Infinity),max=observed.reduce((a,p)=>Math.max(a,p.value),-Infinity);
+    const x=p=>48+(p.time-first)/Math.max(1,last-first)*540;
+    const y=p=>18+(max-p.value)/Math.max(max-min,0.000001)*142;
+    let segments=[],current=[];
+    for(const p of points){
+      if(!Number.isFinite(p.value)){if(current.length)segments.push(current);current=[];continue;}
+      current.push(p);
+    }
+    if(current.length)segments.push(current);
+    const lines=segments.map(segment=>'<polyline fill="none" stroke="var(--primary-color)" stroke-width="2" points="'+segment.map(p=>x(p).toFixed(2)+","+y(p).toFixed(2)).join(" ")+'"/>'+(segment.length===1?'<circle cx="'+x(segment[0]).toFixed(2)+'" cy="'+y(segment[0]).toFixed(2)+'" r="3" fill="var(--primary-color)"/>':"")).join("");
+    return '<svg role="img" aria-label="'+escape(this.t("recorded_values")+" "+unit)+'" viewBox="0 0 610 190" width="100%" style="max-height:280px"><line x1="48" x2="588" y1="18" y2="18" stroke="var(--divider-color)"/><line x1="48" x2="588" y1="160" y2="160" stroke="var(--divider-color)"/><text x="44" y="22" text-anchor="end" fill="currentColor" font-size="11">'+escape(String(max))+'</text><text x="44" y="164" text-anchor="end" fill="currentColor" font-size="11">'+escape(String(min))+'</text>'+lines+'<text x="48" y="180" font-size="10" fill="currentColor">'+escape(new Date(first).toLocaleDateString(this._hass?.language))+'</text><text x="588" y="180" text-anchor="end" font-size="10" fill="currentColor">'+escape(new Date(last).toLocaleDateString(this._hass?.language))+'</text></svg>';
+  }
+  historyView(){
+    const h=this.history;
+    return '<section class="card"><div class="toolbar"><h2 class="grow">'+escape(this.t("history")+' — '+h.name)+'</h2><select id="history-range" aria-label="'+escape(this.t("range"))+'">'+[[1,"day"],[7,"week"],[30,"month"]].map(([days,key])=>'<option value="'+days+'" '+(h.days===days?"selected":"")+'>'+escape(this.t(key))+'</option>').join("")+'</select><button data-close-history>'+escape(this.t("close"))+'</button></div>'+(h.items===null?'<p>'+escape(this.t("loading"))+'</p>':h.error?'<p class="warning">'+escape(this.t("history_error"))+'</p>':h.items.length?this.historyChart(h.items,h.unit)+'<details><summary>'+escape(this.t("recorded_values"))+'</summary><div class="technical"><table><tbody>'+h.items.slice(-200).reverse().map(item=>{const ts=item.lu??item.last_updated??item.last_changed;const date=typeof ts==="number"?new Date(ts*1000):new Date(ts);return '<tr><td>'+escape(Number.isNaN(date.getTime())?"":date.toLocaleString(this._hass?.language))+'</td><td>'+escape(item.s??item.state)+'</td></tr>';}).join("")+'</tbody></table></div></details>':'<p>'+escape(this.t("no_history"))+'</p>')+'</section>';
+  }
+  change(event){
+    const target=event.target;
+    if(this.pending){this.render();return;}
+    if(target.id==="installation"){this.context=target.value;this.object="";this.editor=null;this.history=null;this.report=null;this.engineeringRequest=null;if(!this.tabs().includes(this.tab))this.tab="overview";this.render();if(this.tab==="engineering")this.engineering();}
+    if(target.id==="object")this.selectObject(target.value);
+    if(target.id==="technical-filter"){this.filter=target.value;this.page=0;this.renderInventory();}
+    if(target.id==="history-range"&&this.history)this.openHistory(this.row(this.history.id),Number(target.value));
+    if(target.dataset.window!==undefined&&this.editor){this.editor.windows[Number(target.dataset.window)][Number(target.dataset.edge)]=target.value;this.editor.review=null;this.render();}
+  }
+  click(event){
+    const button=event.target.closest("button");if(!button||button.disabled||this.pending)return;
+    const d=button.dataset;
+    if(d.refresh!==undefined){this.load();if(this.tab==="engineering")this.engineering();}
+    else if(d.tab)this.selectTab(d.tab);
+    else if(d.allSources!==undefined){this.object="";this.selectTab("overview");}
+    else if(d.objectSettings&&this.current()?.settings&&this.objectsForTab("settings").some(asset=>asset.id===d.objectSettings)){this.object=d.objectSettings;this.selectTab("settings");}
+    else if(d.parameterEntity){const asset=this.current()?.objects.find(item=>item.capabilities.some(row=>row.entity_id===d.parameterEntity));const row=this.row(d.parameterEntity);if(asset&&row){this.object=asset.id;this.tab=row.depth==="engineering"?"engineering":row.depth==="settings"?"settings":"overview";this.editor=null;this.history=null;this.render();}}
+    else if(d.sourceObject){this.object=d.sourceObject;this.tab="overview";this.editor=null;this.history=null;this.render();}
+    else if(d.object)this.selectObject(d.object);
+    else if(d.history){this.openHistory(this.row(d.history));}
+    else if(d.closeHistory!==undefined){this.history=null;this.render();}
+    else if(d.edit){this.edit(this.row(d.edit));}
+    else if(d.action){this.action(this.row(d.action),JSON.parse(d.value));}
+    else if(d.apply){const input=Array.from(this.shadowRoot.querySelectorAll("[data-input]")).find(node=>node.dataset.input===d.apply);const row=this.row(d.apply);if(input&&row&&input.value!==""&&input.reportValidity())this.action(row,row.kind==="number"?Number(input.value):input.value);}
+    else if(d.add!==undefined&&this.editor){this.editor.windows.push(["08:00","09:00"]);this.editor.review=null;this.render();}
+    else if(d.remove!==undefined&&this.editor){this.editor.windows.splice(Number(d.remove),1);this.editor.review=null;this.render();}
+    else if(d.cancel!==undefined){this.editor=null;this.render();}
+    else if(d.preview!==undefined&&this.editor){this.action(this.row(this.editor.id),this.editor.windows.map(pair=>pair.join("-")).join(", "),true);}
+    else if(d.save!==undefined&&this.editor?.review){this.action(this.row(this.editor.id),this.editor.review.value);}
+    else if(d.reportRefresh!==undefined){this.engineering();}
+    else if(d.page!==undefined){this.page+=Number(d.page);this.renderInventory();}
+    else if(d.export!==undefined&&this.report){const url=URL.createObjectURL(new Blob([JSON.stringify(this.report,null,2)],{type:"application/json"}));const a=document.createElement("a");a.href=url;a.download="resol-diagnostics.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),0);}
+  }
+}
+if(!customElements.get("deltasol-dashboard"))customElements.define("deltasol-dashboard",ResolDashboard);

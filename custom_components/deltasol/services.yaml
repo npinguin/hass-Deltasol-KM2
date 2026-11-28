@@ -1,0 +1,31 @@
+save_reviewed_weekly_program:
+  name: Save reviewed weekly program
+  description: Save a reviewed native schedule day only if its value and references are unchanged. Use the RESOL dashboard to obtain the review.
+  fields:
+    entry_id:
+      name: RESOL installation
+      required: true
+      selector:
+        text:
+    entity_id:
+      name: Schedule day
+      required: true
+      selector:
+        entity:
+          domain: text
+          integration: deltasol
+    value:
+      name: Requested day intervals
+      required: true
+      selector:
+        text:
+    expected:
+      name: Reviewed day intervals
+      required: true
+      selector:
+        text:
+    reference_token:
+      name: Reviewed references token
+      required: true
+      selector:
+        text:
