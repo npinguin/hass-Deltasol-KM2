@@ -2839,9 +2839,7 @@ async def qualify(directory, phase):
         assert (Peer.writes, Peer.saves, Peer.settings[3425]) == before_rejected
         uid = registry.async_get(spread).unique_id
         try:
-            await entry.runtime_data.relay_coordinator.async_set_configuration(
-                uid, 80
-            )
+            await entry.runtime_data.relay_coordinator.async_set_configuration(uid, 80)
         except HomeAssistantError as error:
             assert "unavailable" in str(error)
         else:
