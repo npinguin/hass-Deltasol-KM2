@@ -130,6 +130,33 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(setting.accepts(values, 1))
         self.assertTrue(setting.accepts(values, 0))
 
+    def test_collector_cooling_margin(self):
+        c = parameters_configuration
+        setting = next(
+            s
+            for s in c.BX_PLUS_REMAINING_OPERATING_SETTINGS
+            if s.name == "Solar_Urlaubsfunktion_Kuehlung"
+        )
+        values = {
+            "Solar_SystemId": 20201,
+            "Solar_Kol1_Sensor1_Nr": 1,
+            "Solar_Relais1_Nr": 1,
+            "Solar_Sp1_Sensor1_Nr": 2,
+            "Solar_Urlaubsfunktion_Vorrang1": 1,
+            "Solar_Urlaubsfunktion_Vorrang2": 0,
+            "Solar_Urlaubsfunktion_Speicherkuehlung_Aktiviert": 0,
+            "TemperatureHysteresisSelector": 0,
+            "Solar_Kol1_Tnot": 1300,
+            "Solar_Kol1_Tnot_C": 1300,
+            "Solar_Urlaubsfunktion_Kollektorkuehlung_TKolMax": 1200,
+            "Solar_Urlaubsfunktion_Kollektorkuehlung_TKolMax_C": 1200,
+        }
+        self.assertTrue(setting.accepts(values, 2))
+        values["Solar_Urlaubsfunktion_Kollektorkuehlung_TKolMax"] = 1210
+        values["Solar_Urlaubsfunktion_Kollektorkuehlung_TKolMax_C"] = 1210
+        self.assertFalse(setting.accepts(values, 2))
+        self.assertTrue(setting.accepts(values, 0))
+
     def test_function_selection_uses_native_number_not_slot(self):
         c = parameters_configuration
         solid = c.FunctionSelection("mask", 1)
