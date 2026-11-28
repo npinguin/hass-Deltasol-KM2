@@ -507,7 +507,7 @@ class DiscoveryTests(unittest.TestCase):
                     '<type id="BaseBlob" base="Blob"><size>12</size></type>'
                     f'<value id="Day" index="10" idHash="{vbus.parameter_hash("Day")}">'
                     f'<type id="DayBlob" base="BaseBlob"><size>{derived}</size></type>'
-                    '</value></root>'
+                    "</value></root>"
                 ).encode()
                 definition = catalog.parse_menu(xml, "test").by_name["Day"]
                 self.assertEqual(definition.metadata.get("size_bytes"), expected)
@@ -526,7 +526,10 @@ class DiscoveryTests(unittest.TestCase):
                 index,
                 "unspecified",
                 kind,
-                {"type_chain": [kind], **({"size_bytes": 12} if kind == "Blob" else {})},
+                {
+                    "type_chain": [kind],
+                    **({"size_bytes": 12} if kind == "Blob" else {}),
+                },
             )
             for name, index, kind in (
                 ("Wsu1_Belegt", 18414, "Boolean"),
@@ -558,7 +561,11 @@ class DiscoveryTests(unittest.TestCase):
                 "candidate_windows",
                 capture.weekly_program_evidence()["programs"]["Wsu1"]["days"]["Mo"],
             )
-        day.metadata["size_bytes"] = 12
+        del day.metadata["size_bytes"]
+        fallback = capture.weekly_program_evidence()["programs"]["Wsu1"]["days"]["Mo"]
+        self.assertEqual(fallback["size_bytes"], 12)
+        self.assertEqual(fallback["size_evidence"], "exact_layout_mx_reference")
+        self.assertEqual(fallback["candidate_windows"], result["candidate_windows"])
         self.assertEqual(result["candidate_status"], "wire_word_mapping_unverified")
         self.assertEqual(
             exported["references"][reference.name]["candidate_program"], "Wsu1"
@@ -659,7 +666,10 @@ class DiscoveryTests(unittest.TestCase):
                 index,
                 "unspecified",
                 None,
-                {"type_chain": [kind], **({"size_bytes": 12} if kind == "Blob" else {})},
+                {
+                    "type_chain": [kind],
+                    **({"size_bytes": 12} if kind == "Blob" else {}),
+                },
             )
             for name, index, kind in (
                 ("Wsu2_Belegt", 10, "Boolean"),
@@ -1120,7 +1130,9 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(row.index, base + offset)
                 self.assertIn(kind, row.metadata["type_chain"])
                 if kind == "Blob":
-                    self.assertEqual(row.metadata.get("size_bytes"), 12)
+                    # Exact BX Plus 2.08 has no size declarations. Its
+                    # validated shape comes from matching MX/SET evidence.
+                    self.assertNotIn("size_bytes", row.metadata)
                 self.assertIsNone(row.excluded)
         # Corroborate the generic Solar function instance selector separately
         # from its type-specific storage. No ordinal-to-instance assumption.
@@ -1134,6 +1146,12 @@ class DiscoveryTests(unittest.TestCase):
         capture = discovery.ConfigurationCapture(
             parsed, SimpleNamespace(address=0x7112)
         )
+        self.assertEqual(len(capture.packed_days), 357)
+        for name in capture.packed_days:
+            self.assertEqual(
+                capture.weekly_day_shape(definitions[name]),
+                (12, "exact_layout_mx_reference"),
+            )
         slots, members = capture.function_slots
         dedicated = {
             name

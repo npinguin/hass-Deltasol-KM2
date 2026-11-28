@@ -209,8 +209,10 @@ def _metadata(type_node, types):
     result["type_chain"] = [node.get("id") for node in chain]
     # RPT TypeInfo inherits the maximum declared size. An invalid
     # declaration or unresolved ancestry cannot establish a Blob layout.
-    if declared_sizes and not unresolved and all(
-        type(size) is int and 0 <= size <= 512 for size in declared_sizes
+    if (
+        declared_sizes
+        and not unresolved
+        and all(type(size) is int and 0 <= size <= 512 for size in declared_sizes)
     ):
         result["size_bytes"] = max(declared_sizes)
     elif declared_sizes:

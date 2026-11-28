@@ -446,6 +446,35 @@ class ConfigurationCapture:
             capture.extension_pending = True
         return capture
 
+    def weekly_day_shape(self, definition):
+        """Separate declared byte size from the exact compatible reference."""
+        metadata = definition.metadata
+        if metadata.get("size_unverified") or metadata.get("unresolved_base"):
+            return None, None
+        if "size_bytes" in metadata:
+            size = metadata["size_bytes"]
+            return (size, "rpt_declared") if type(size) is int else (None, None)
+        # BX Plus 2.08 omits size elements. Independent MX 2xx MIT optimizer
+        # definitions and native SET exports establish the exact 12-byte
+        # layout, but not the word-to-storage byte order or write permission.
+        match = re.fullmatch(
+            r"Wsu([0-9]+)_Schaltuhr_Woche_Tag(Mo|Di|Mi|Do|Fr|Sa|So)_Daten",
+            definition.name,
+        )
+        if (
+            match
+            and self.catalog.matches(self.controller.address, self.changeset)
+            and self.controller.address == 0x7112
+            and self.changeset == BX_PLUS_CHANGESET
+            and 0 <= int(match[1]) < 51
+            and definition.index
+            == 18406 + 13 * int(match[1])
+            + ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").index(match[2])
+            and "Blob" in metadata.get("type_chain", ())
+        ):
+            return 12, "exact_layout_mx_reference"
+        return None, None
+
     @cached_property
     def packed_days(self):
         definitions = {d.name: d for d in self.base_candidates}
@@ -458,7 +487,7 @@ class ConfigurationCapture:
             if (
                 not match
                 or "Blob" not in definition.metadata.get("type_chain", ())
-                or definition.metadata.get("size_bytes") != 12
+                or self.weekly_day_shape(definition)[0] != 12
             ):
                 continue
             flags = (
@@ -609,10 +638,12 @@ class ConfigurationCapture:
             if match and "Blob" in chain:
                 week = weeks.setdefault(match[1], {"days": {}})
                 observed = self.results.get(definition.name)
+                size, size_evidence = self.weekly_day_shape(definition)
                 week["days"][match[2]] = {
                     "parameter": definition.name,
                     "reference_index": definition.index,
-                    "size_bytes": definition.metadata.get("size_bytes"),
+                    "size_bytes": size,
+                    "size_evidence": size_evidence,
                     "observation": observed.status if observed else "not_scanned",
                     "scalar_observed": self._observed_raw(definition) is not None,
                     "observed_words": (
