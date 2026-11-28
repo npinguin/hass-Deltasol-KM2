@@ -1521,7 +1521,9 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(definitions[name].index, index)
             for rule in setting.requested_conditions:
                 for dependency in rule.alternatives:
-                    self.assertEqual(definitions[dependency.name].index, dependency.index)
+                    self.assertEqual(
+                        definitions[dependency.name].index, dependency.index
+                    )
         self.assertEqual(len(bound), len(profile.settings) + 350)
         self.assertEqual(len([s for s in bound if s.weekly_slot is not None]), 350)
         # Report the remaining catalogue/menu review surface as part of the
