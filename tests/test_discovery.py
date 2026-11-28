@@ -1113,6 +1113,42 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIsNone(setting.value_definition)
 
     @unittest.skipUnless(os.environ.get("RPT_ARCHIVE"), "real archive not provided")
+    def test_researched_firmware_members_match_registered_archive(self):
+        """Reconcile the two ZIP containers without changing runtime trust."""
+        archive_path = Path(os.environ["RPT_ARCHIVE"])
+        self.assertEqual(
+            hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+            catalog.BX_PLUS_SHA256,
+        )
+        # Member fingerprints from the owner-supplied 2.08 research archive.
+        # No vendor material is embedded; the registered ZIP remains pinned.
+        expected = {
+            "BXPLUS_2.08/DeltaSol_BXPlus_208.dll": (
+                "2e850d5a6764488efc4405f88c1249b1bbaae1cfead416c5edc95e91873f7e43"
+            ),
+            "BXPLUS_2.08/bxplus_208.xml": (
+                "dcd82d53056e78b8a26209b9b4012f3b3787d12e2f835bf270cc7b616968ccd3"
+            ),
+            "BXPLUS_2.08/BXPlus_208-Menu.xml": (
+                "5311e1a5c2da8fe606c8dc49093202e6607d93e1b51430e84a93d4a56ec6e60e"
+            ),
+            "BXPLUS_2.08/Resol_BXPlus.png": (
+                "e70397a53ff8f09d79af19cb431e9f1b65e83af6f5cd4aafe35441e6bf3ee9c2"
+            ),
+        }
+        with zipfile.ZipFile(archive_path) as archive:
+            actual = {
+                name: hashlib.sha256(archive.read(name)).hexdigest()
+                for name in expected
+            }
+            self.assertEqual(
+                sorted(name for name in archive.namelist() if not name.endswith("/")),
+                sorted(expected),
+            )
+        print("RPT registered archive member fingerprints:", actual)
+        self.assertEqual(actual, expected)
+
+    @unittest.skipUnless(os.environ.get("RPT_ARCHIVE"), "real archive not provided")
     def test_exact_vendor_archive(self):
         parsed = catalog.load_catalog(os.environ["RPT_ARCHIVE"])
         self.assertEqual(parsed.digest, catalog.BX_PLUS_SHA256)
