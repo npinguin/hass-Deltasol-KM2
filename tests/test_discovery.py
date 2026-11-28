@@ -1514,15 +1514,17 @@ class DiscoveryTests(unittest.TestCase):
             and not row.metadata.get("compound_ref")
         }
         unbound = menu_preferences - bound_names
-        families = Counter(
-            re.sub(r"(?<=\\D)\\d+", "X", name) for name in unbound
-        )
+        families = Counter(re.sub(r"(?<=\\D)\\d+", "X", name) for name in unbound)
         print(
             "Exact menu review surface:",
-            len(menu_preferences), "menu preferences/proxies;",
-            len(menu_preferences & bound_names), "bound;",
-            len(unbound), "without typed contracts;",
-            len(families), "normalized families",
+            len(menu_preferences),
+            "menu preferences/proxies;",
+            len(menu_preferences & bound_names),
+            "bound;",
+            len(unbound),
+            "without typed contracts;",
+            len(families),
+            "normalized families",
         )
         print("Unbound native menu families:", sorted(families.items()))
         for slot in range(1, 17):
