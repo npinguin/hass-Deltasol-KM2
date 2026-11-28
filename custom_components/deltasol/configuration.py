@@ -300,7 +300,9 @@ class ActorReferences:
                 f"Modul{module + 1}_Aktiviert": 191 + 6 * module,
                 f"Modul{module + 1}_Vorhanden": 193 + 6 * module,
             }
-        return {f"Relais_Virtuell_R{number - 39}_AktorFunktion": 2517 + 14 * (number - 40)}
+        return {
+            f"Relais_Virtuell_R{number - 39}_AktorFunktion": 2517 + 14 * (number - 40)
+        }
 
     def owner_outputs(self, values):
         names = tuple(self.actor_layout(values.get(self.name)))
@@ -334,7 +336,7 @@ class ActorReferences:
     @staticmethod
     def assigned_role(raw):
         # Native AktorFunktion is a 16-bit role plus instance, not a plain enum.
-        return type(raw) is int and 0 <= raw <= 0xFFFF and 2 <= raw & 0xFF <= 68
+        return type(raw) is int and 0 <= raw <= 0xFFFF and 2 <= raw & 0xFF <= 70
 
     @classmethod
     def output_role(cls, output, values):
@@ -372,7 +374,11 @@ class ActorReferences:
             if raw == 0:
                 continue
             output = self.decode_reference(raw)
-            if output is None or output in owners or self.output_role(output, values) is None:
+            if (
+                output is None
+                or output in owners
+                or self.output_role(output, values) is None
+            ):
                 return False
             refs.append(output)
         return bool(refs) and len(refs) == len(set(refs))
@@ -392,7 +398,9 @@ class ActorReferences:
 def _dependency_layout(dependencies):
     result = {}
     for dep in dependencies:
-        if isinstance(dep, (PeerComparison, AnyDependencies, SolarSelection, ActorReferences)):
+        if isinstance(
+            dep, (PeerComparison, AnyDependencies, SolarSelection, ActorReferences)
+        ):
             result.update(dep.expected)
         else:
             result[dep.name] = dep.index
@@ -405,7 +413,11 @@ class AnyDependencies:
 
     groups: tuple[
         tuple[
-            Dependency | RangeDependency | PeerComparison | WeeklyProgram | ActorReferences,
+            Dependency
+            | RangeDependency
+            | PeerComparison
+            | WeeklyProgram
+            | ActorReferences,
             ...,
         ],
         ...,
@@ -723,7 +735,9 @@ class Setting:
         result = {self.name: self.index}
         installed = (self.installed_by,) if self.installed_by else ()
         for dependency in (*installed, *self.dependencies, *self.relative_constraints):
-            if isinstance(dependency, (SolarSelection, AnyDependencies, ActorReferences)):
+            if isinstance(
+                dependency, (SolarSelection, AnyDependencies, ActorReferences)
+            ):
                 result.update(dependency.expected)
             else:
                 result[dependency.name] = dependency.index
@@ -2013,7 +2027,9 @@ def _reference_settings():
                 (Dependency(root + "_Aktiviert_Modus", 6566 + ao, (1,)),),
                 (
                     Dependency(root + "_Aktiviert_Modus", 6566 + ao, (2,)),
-                    RangeDependency(root + "_Aktiviert_SensorSchalter_Nr", 6568 + ao, 1, 65),
+                    RangeDependency(
+                        root + "_Aktiviert_SensorSchalter_Nr", 6568 + ao, 1, 65
+                    ),
                 ),
             )
         )
@@ -2036,7 +2052,14 @@ def _reference_settings():
                 installed_by=Dependency(root + "_Type", 6559 + ao, (1,)),
                 dependencies=(active, parallel),
                 requested_conditions=(
-                    RequestedCondition(1, (RangeDependency(prefix + "_" + duration, index + ao + 1, 1, 30),)),
+                    RequestedCondition(
+                        1,
+                        (
+                            RangeDependency(
+                                prefix + "_" + duration, index + ao + 1, 1, 30
+                            ),
+                        ),
+                    ),
                 ),
             )
         prefix = root + "_Funktionsblock"

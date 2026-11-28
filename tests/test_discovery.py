@@ -1293,7 +1293,9 @@ class DiscoveryTests(unittest.TestCase):
             role = descriptor(root + "_Funktion")[0]
             self.assertEqual(descriptor(root + "_RelaisNr")[0], role + 2)
             self.assertEqual(descriptor(root + "_AusgangNr")[0], role + 3)
-            for name, index in configuration.ActorReferences.actor_layout(actor).items():
+            for name, index in configuration.ActorReferences.actor_layout(
+                actor
+            ).items():
                 self.assertEqual(values[name], index)
         relay_base = descriptor("Relais_Regler_R1_AktorFunktion")[0]
         for number in range(1, 46):
@@ -1311,7 +1313,9 @@ class DiscoveryTests(unittest.TestCase):
         decoder_prefix = bytes.fromhex("5589e583ec108b4508c1f808")
         decoder_matches = []
         position = text_offset
-        while (position := binary.find(decoder_prefix, position, text_offset + text_size)) >= 0:
+        while (
+            position := binary.find(decoder_prefix, position, text_offset + text_size)
+        ) >= 0:
             if hashlib.sha256(binary[position : position + 115]).hexdigest() == (
                 "8eff49107718eba0bd1cbef241e3220dd4e081f46e8ba52262acac0e6f5657ad"
             ):

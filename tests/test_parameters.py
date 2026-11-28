@@ -363,8 +363,15 @@ class ParameterTests(unittest.TestCase):
                 "Ausgang_Regler_A2_AktorFunktion": 3,
             }
             prefix = root + "_Parallelrelais"
-            for flag, duration in (("ONachlauf", "dtNachlauf"), ("OVerzoegerung", "dtVerzoegerung")):
-                setting = next(s for s in config.BX_PLUS_REFERENCE_SETTINGS if s.name == prefix + "_" + flag)
+            for flag, duration in (
+                ("ONachlauf", "dtNachlauf"),
+                ("OVerzoegerung", "dtVerzoegerung"),
+            ):
+                setting = next(
+                    s
+                    for s in config.BX_PLUS_REFERENCE_SETTINGS
+                    if s.name == prefix + "_" + flag
+                )
                 values = {
                     **common,
                     root + "_Type": 1,
@@ -374,13 +381,29 @@ class ParameterTests(unittest.TestCase):
                 }
                 self.assertTrue(setting.accepts(values, 1))
                 for reference in (2, 258, 513, 768, 0, 71):
-                    self.assertFalse(setting.accepts({**values, root + "_Bezugsrelais1_Nr": reference}, 1))
-                self.assertTrue(setting.accepts({**values, root + "_Bezugsrelais1_Nr": 514}, 1))
-                self.assertFalse(setting.accepts({**values, prefix + "_" + duration: 31}, 1))
-                self.assertTrue(setting.accepts({**values, prefix + "_" + duration: 31}, 0))
-                self.assertFalse(setting.accepts({**values, f"Aktor{actor}_Funktion": 0}, 1))
-                self.assertFalse(setting.accepts({**values, "Relais_Regler_R2_AktorFunktion": 3}, 1))
-                self.assertTrue(setting.accepts({**values, root + "_Bezugsrelais1_Nr": 1}, 1))
+                    self.assertFalse(
+                        setting.accepts(
+                            {**values, root + "_Bezugsrelais1_Nr": reference}, 1
+                        )
+                    )
+                self.assertTrue(
+                    setting.accepts({**values, root + "_Bezugsrelais1_Nr": 514}, 1)
+                )
+                self.assertFalse(
+                    setting.accepts({**values, prefix + "_" + duration: 31}, 1)
+                )
+                self.assertTrue(
+                    setting.accepts({**values, prefix + "_" + duration: 31}, 0)
+                )
+                self.assertFalse(
+                    setting.accepts({**values, f"Aktor{actor}_Funktion": 0}, 1)
+                )
+                self.assertFalse(
+                    setting.accepts({**values, "Relais_Regler_R2_AktorFunktion": 3}, 1)
+                )
+                self.assertTrue(
+                    setting.accepts({**values, root + "_Bezugsrelais1_Nr": 1}, 1)
+                )
                 module_values = {
                     **values,
                     root + "_Bezugsrelais1_Nr": 271,
@@ -389,10 +412,16 @@ class ParameterTests(unittest.TestCase):
                     "Modul1_Vorhanden": 1,
                 }
                 self.assertTrue(setting.accepts(module_values, 1))
-                self.assertFalse(setting.accepts({**module_values, "Modul1_Vorhanden": 0}, 1))
+                self.assertFalse(
+                    setting.accepts({**module_values, "Modul1_Vorhanden": 0}, 1)
+                )
             prefix = root + "_Funktionsblock"
             flag, mode = (
-                next(s for s in config.BX_PLUS_REFERENCE_SETTINGS if s.name == prefix + "_" + name)
+                next(
+                    s
+                    for s in config.BX_PLUS_REFERENCE_SETTINGS
+                    if s.name == prefix + "_" + name
+                )
                 for name in ("OBezugsrelais", "Bezugsrelais_Modus")
             )
             values = {
@@ -410,8 +439,12 @@ class ParameterTests(unittest.TestCase):
             for raw in range(4):
                 self.assertTrue(mode.accepts(values, raw))
             self.assertFalse(mode.accepts(values, 4))
-            self.assertFalse(mode.accepts({**values, prefix + "_Bezugsrelais2_Nr": 257}, 1))
-            self.assertFalse(mode.accepts({**values, prefix + "_Bezugsrelais2_Nr": 258}, 1))
+            self.assertFalse(
+                mode.accepts({**values, prefix + "_Bezugsrelais2_Nr": 257}, 1)
+            )
+            self.assertFalse(
+                mode.accepts({**values, prefix + "_Bezugsrelais2_Nr": 258}, 1)
+            )
             missing = dict(values)
             del missing[prefix + "_Bezugsrelais5_Nr"]
             self.assertFalse(mode.accepts(missing, 1))
@@ -452,7 +485,10 @@ class ParameterTests(unittest.TestCase):
         self.values[root + "_Bezugsrelais1_Nr"] = (6616, 257)
 
         def write(address, index, value, changeset, save=False):
-            self.assertEqual((address, index, value, changeset, save), (0x7112, 6621, 1, 0x2734DABC, True))
+            self.assertEqual(
+                (address, index, value, changeset, save),
+                (0x7112, 6621, 1, 0x2734DABC, True),
+            )
             self.values[flag] = (index, value)
 
         self.session.write_verified.side_effect = write

@@ -316,7 +316,14 @@ def _checked_parameters(session, profile, changeset, expected):
 
 
 def _read_actor_dependencies(
-    session, profile, changeset, settings, values, controller, inventory, relay_capabilities
+    session,
+    profile,
+    changeset,
+    settings,
+    values,
+    controller,
+    inventory,
+    relay_capabilities,
 ):
     """Resolve only referenced registry records and physical output evidence."""
     dependencies = {
@@ -340,6 +347,9 @@ def _read_actor_dependencies(
         )
 
     def merge(observed, expected):
+        for name in expected:
+            values.pop(name, None)
+            values.pop(name + "#verified", None)
         values.update(
             {
                 name: row.value
@@ -484,7 +494,14 @@ def _read_settings(
         if result.status == "read" and result.index == expected[name]
     }
     _read_actor_dependencies(
-        session, profile, changeset, settings, values, controller, inventory, relay_capabilities
+        session,
+        profile,
+        changeset,
+        settings,
+        values,
+        controller,
+        inventory,
+        relay_capabilities,
     )
     # Resolve the native pool only after observing the owner's exact reference.
     # A read-only refresh needs allocation/initialization; actual enable or
