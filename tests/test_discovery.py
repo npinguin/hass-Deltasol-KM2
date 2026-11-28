@@ -1114,15 +1114,16 @@ class DiscoveryTests(unittest.TestCase):
         self.assertIsNone(setting.value_definition)
 
     @unittest.skipUnless(os.environ.get("RPT_ARCHIVE"), "real archive not provided")
-    def test_researched_firmware_members_match_registered_archive(self):
-        """Compare registered and researched PE content, not ZIP packaging."""
+    def test_registered_native_firmware_contracts(self):
+        """Verify native tables directly in the registered build."""
         archive_path = Path(os.environ["RPT_ARCHIVE"])
         self.assertEqual(
             hashlib.sha256(archive_path.read_bytes()).hexdigest(),
             catalog.BX_PLUS_SHA256,
         )
-        # Exact registered fingerprints observed in source run 46133111124.
-        # XML and image match the supplied archive; the DLL file hash differs.
+        # Registered and owner-supplied builds have identical XML/image but
+        # different DLL hashes, image bases and section sizes. Do not assume
+        # that a supplied-build callback address applies to the registered one.
         expected = {
             "BXPLUS_2.08/DeltaSol_BXPlus_208.dll": (
                 "a5b6ecc469c65fdd45b49a1c3f1543973677720a8fcf40f1ea363c483982a71c"
@@ -1147,114 +1148,88 @@ class DiscoveryTests(unittest.TestCase):
                 sorted(expected),
             )
             binary = archive.read("BXPLUS_2.08/DeltaSol_BXPlus_208.dll")
-        print("RPT registered archive member fingerprints:", actual)
+            root = ET.fromstring(archive.read(catalog.BX_PLUS_MENU))
         self.assertEqual(actual, expected)
-        # Compare mapped sections against the supplied DLL rather than assuming
-        # that an identical descriptor establishes identical executable logic.
+
         pe = struct.unpack_from("<I", binary, 60)[0]
         self.assertEqual(binary[pe : pe + 4], b"PE\x00\x00")
         self.assertEqual(struct.unpack_from("<H", binary, pe + 4)[0], 0x14C)
         count = struct.unpack_from("<H", binary, pe + 6)[0]
         optional_size = struct.unpack_from("<H", binary, pe + 20)[0]
         optional = pe + 24
-        self.assertEqual(struct.unpack_from("<H", binary, optional)[0], 0x10B)
-        image_base = struct.unpack_from("<I", binary, optional + 28)[0]
-        self.assertEqual(image_base, 0x6A880000)
-        self.assertEqual(struct.unpack_from("<I", binary, optional + 16)[0], 0x13B0)
+        base = struct.unpack_from("<I", binary, optional + 28)[0]
+        self.assertEqual(base, 0x6A880000)
         sections = {}
-        ranges = {}
-        end_of_sections = 0
         for i in range(count):
             offset = optional + optional_size + i * 40
             name, size, address, raw_size, raw_offset = struct.unpack_from(
                 "<8sIIII", binary, offset
             )
-            flags = struct.unpack_from("<I", binary, offset + 36)[0]
-            end_of_sections = max(end_of_sections, raw_offset + raw_size)
-            name = name.rstrip(b"\x00").decode("ascii")
-            ranges[name] = (address, raw_size, raw_offset)
-            sections[name] = (
+            sections[name.rstrip(b"\x00").decode("ascii")] = (
                 size,
                 address,
-                flags,
-                hashlib.sha256(binary[raw_offset : raw_offset + raw_size]).hexdigest(),
+                raw_size,
+                raw_offset,
             )
-        print("RPT registered PE sections:", sections)
-        print(
-            "RPT registered PE file size, overlay size and header SHA256:",
-            len(binary),
-            len(binary) - end_of_sections,
-            hashlib.sha256(binary[:0x400]).hexdigest(),
-        )
-        researched_layout = {
-            ".text": (0x1137D4, 0x1000, 0x60500060),
-            ".data": (0x50, 0x115000, 0xC0300040),
-            ".rdata": (0x204598, 0x116000, 0x40600040),
-            ".bss": (0x15904, 0x31B000, 0xC0600080),
-            ".edata": (0xA24, 0x331000, 0x40300040),
-            ".idata": (0x49C, 0x332000, 0xC0300040),
-            ".CRT": (0x2C, 0x333000, 0xC0300040),
-            ".tls": (0x8, 0x334000, 0xC0300040),
-            ".reloc": (0x52B28, 0x335000, 0x42300040),
-        }
-        self.assertEqual(
-            {name: section[:3] for name, section in sections.items()},
-            researched_layout,
-        )
-        # The known registered image is based at 0x6A880000; the research
-        # image at 0x71400000. Compare after applying only PE-declared
-        # HIGHLOW relocations, never ignore arbitrary differing bytes.
-        def locate(rva, length):
-            return next(
-                raw_offset + rva - address
-                for address, raw_size, raw_offset in ranges.values()
-                if address <= rva and rva + length <= address + raw_size
-            )
+        self.assertEqual(sections[".text"][0], 1125220)
 
-        reloc_rva, reloc_size = struct.unpack_from("<II", binary, optional + 136)
-        reloc_start = locate(reloc_rva, reloc_size)
-        reloc_end = reloc_start + reloc_size
-        normalized = bytearray(binary)
-        delta = 0x71400000 - image_base
-        counts = Counter()
-        position = reloc_start
-        while position < reloc_end:
-            page, block_size = struct.unpack_from("<II", binary, position)
-            self.assertGreaterEqual(block_size, 8)
-            self.assertEqual(block_size % 2, 0)
-            self.assertLessEqual(position + block_size, reloc_end)
-            for offset in range(position + 8, position + block_size, 2):
-                item = struct.unpack_from("<H", binary, offset)[0]
-                kind = item >> 12
-                counts[kind] += 1
-                if kind == 0:
-                    continue
-                self.assertEqual(kind, 3)
-                target = locate(page + (item & 0xFFF), 4)
-                value = struct.unpack_from("<I", normalized, target)[0]
-                struct.pack_into("<I", normalized, target, (value + delta) & 0xFFFFFFFF)
-            position += block_size
-        self.assertEqual(position, reloc_end)
-        self.assertEqual(counts, {0: 225, 3: 167207})
-        normalized_hashes = {
-            name: hashlib.sha256(
-                normalized[raw_offset : raw_offset + raw_size]
-            ).hexdigest()
-            for name, (_, raw_size, raw_offset) in ranges.items()
+        def locate(absolute, length, section):
+            _, address, raw_size, raw_offset = sections[section]
+            rva = absolute - base
+            self.assertGreaterEqual(rva, address)
+            self.assertLessEqual(rva + length, address + raw_size)
+            return raw_offset + rva - address
+
+        values = {node.get("id"): int(node.get("index")) for node in root.iter("value")}
+        self.assertEqual(len(values), 15680)
+        ids = sorted(set(values.values()) | {54, 57, 58})
+        self.assertEqual(len(ids), 15683)
+        table = struct.pack(f"<{len(ids)}H", *ids)
+        self.assertEqual(binary.count(table), 1)
+        index_offset = binary.index(table)
+        pointer_offset = (index_offset + len(table) + 31) & ~31
+        pointers = struct.unpack_from(f"<{len(ids)}I", binary, pointer_offset)
+        descriptors = {
+            index: struct.unpack_from("<4I", binary, locate(ptr, 16, ".rdata"))
+            for index, ptr in zip(ids, pointers, strict=True)
         }
-        print("RPT normalized PE section fingerprints:", normalized_hashes)
-        researched_hashes = {
-            ".text": "42f91b3df3a921178ae20655d8da37ee63ec7bef2ec08f10cac18048c7105aff",
-            ".data": "cce4f99d8f757fc6df3e2286eb957ecc0ec7792520da59ab92722130a6178494",
-            ".rdata": "d2ebcd0ef63e39d16c6a7dc677765fae17c8286ab90fee4a5e499c95150323ff",
-            ".bss": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            ".edata": "0af854fd5412e58bd15e1261f560da1934d0ad2bd421eb563a2ac9229d81d780",
-            ".idata": "c793572bd2ffbae88803614b5638764623f02024ee34f5fbd63845a716db2c81",
-            ".CRT": "7eb8ef57b7fee3e41f7c25cd1e909e1c441d0af6dce66093e03f9c566228a939",
-            ".tls": "076a27c79e5ace2a3d47f9dd2e83e4ff6ea8872b3c2218f66c92b89b55f36560",
-            ".reloc": "5ecd10776920685754aea5987bb98527d011866dd5bbc5bd8c6899605e093c6e",
-        }
-        self.assertEqual(normalized_hashes, researched_hashes)
+        for index in values.values():
+            for callback in descriptors[index][2:]:
+                locate(callback, 1, ".text")
+
+        def descriptor(name):
+            return descriptors[values[name]]
+
+        allocation_table = bytes(8)
+        for slot in range(51):
+            prefix = f"Wsu{slot}"
+            week = f"{prefix}_Schaltuhr_Woche"
+            monday = descriptor(f"{week}_TagMo_Daten")[0]
+            for day, label in enumerate(("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")):
+                pointer, flags, _, _ = descriptor(f"{week}_Tag{label}_Daten")
+                self.assertEqual(flags, 0x400C)
+                self.assertEqual(pointer, monday + 12 * day)
+            self.assertEqual(descriptor(f"{week}_Initialisiert")[0], monday + 85)
+            self.assertEqual(descriptor(f"{prefix}_Belegt")[0], monday + 87)
+            if slot:
+                root_pointer = descriptor(prefix)[0]
+                allocation_table += struct.pack(
+                    "<IHH", root_pointer, values[prefix], values[week]
+                )
+                native_monday, native_ttl = struct.unpack_from(
+                    "<II", binary, locate(root_pointer, 8, ".rdata")
+                )
+                self.assertEqual(native_monday, monday)
+                self.assertEqual(native_ttl, descriptor(f"{prefix}_Ttl")[0])
+        self.assertEqual(binary.count(allocation_table), 1)
+        print(
+            "Registered native evidence: 15683 IDs, 357 day descriptors, "
+            "50 nonzero allocation records; index/allocator file offsets:",
+            hex(index_offset),
+            hex(binary.index(allocation_table)),
+        )
+        # Instruction-level VBus and storage recovery equivalence remains a
+        # separate research question. Do not grant write access from layout.
 
     @unittest.skipUnless(os.environ.get("RPT_ARCHIVE"), "real archive not provided")
     def test_exact_vendor_archive(self):
