@@ -462,7 +462,9 @@ def _read_settings(
             changeset,
             values[setting.name],
             program_reference=(
-                setting.timer_reference.slot(values) if setting.timer_reference else None
+                setting.timer_reference.slot(values)
+                if setting.timer_reference
+                else None
             ),
         )
         uid = capability.unique_id
