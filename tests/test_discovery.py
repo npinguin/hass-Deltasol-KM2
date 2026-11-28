@@ -1489,7 +1489,10 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertIn(compiled, bound)
                 self.assertEqual(compiled.name, setting.name)
                 self.assertEqual(compiled.expected, setting.expected)
-        self.assertEqual(len(bound), len(profile.settings))
+        self.assertEqual(len(bound), len(profile.settings) + 350)
+        self.assertEqual(
+            len([s for s in bound if s.weekly_slot is not None]), 350
+        )
         for slot in range(1, 17):
             prefix = f"Anlage_Wf{slot}"
             self.assertEqual(
