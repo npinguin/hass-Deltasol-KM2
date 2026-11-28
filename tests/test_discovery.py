@@ -1158,9 +1158,11 @@ class DiscoveryTests(unittest.TestCase):
         optional_size = struct.unpack_from("<H", binary, pe + 20)[0]
         optional = pe + 24
         self.assertEqual(struct.unpack_from("<H", binary, optional)[0], 0x10B)
-        self.assertEqual(struct.unpack_from("<I", binary, optional + 28)[0], 0x71400000)
+        image_base = struct.unpack_from("<I", binary, optional + 28)[0]
+        self.assertEqual(image_base, 0x6A880000)
         self.assertEqual(struct.unpack_from("<I", binary, optional + 16)[0], 0x13B0)
         sections = {}
+        ranges = {}
         end_of_sections = 0
         for i in range(count):
             offset = optional + optional_size + i * 40
@@ -1169,7 +1171,9 @@ class DiscoveryTests(unittest.TestCase):
             )
             flags = struct.unpack_from("<I", binary, offset + 36)[0]
             end_of_sections = max(end_of_sections, raw_offset + raw_size)
-            sections[name.rstrip(b"\x00").decode("ascii")] = (
+            name = name.rstrip(b"\x00").decode("ascii")
+            ranges[name] = (address, raw_size, raw_offset)
+            sections[name] = (
                 size,
                 address,
                 flags,
@@ -1197,6 +1201,48 @@ class DiscoveryTests(unittest.TestCase):
             {name: section[:3] for name, section in sections.items()},
             researched_layout,
         )
+        # The known registered image is based at 0x6A880000; the research
+        # image at 0x71400000. Compare after applying only PE-declared
+        # HIGHLOW relocations, never ignore arbitrary differing bytes.
+        def locate(rva, length):
+            return next(
+                raw_offset + rva - address
+                for address, raw_size, raw_offset in ranges.values()
+                if address <= rva and rva + length <= address + raw_size
+            )
+
+        reloc_rva, reloc_size = struct.unpack_from("<II", binary, optional + 136)
+        reloc_start = locate(reloc_rva, reloc_size)
+        reloc_end = reloc_start + reloc_size
+        normalized = bytearray(binary)
+        delta = 0x71400000 - image_base
+        counts = Counter()
+        position = reloc_start
+        while position < reloc_end:
+            page, block_size = struct.unpack_from("<II", binary, position)
+            self.assertGreaterEqual(block_size, 8)
+            self.assertEqual(block_size % 2, 0)
+            self.assertLessEqual(position + block_size, reloc_end)
+            for offset in range(position + 8, position + block_size, 2):
+                item = struct.unpack_from("<H", binary, offset)[0]
+                kind = item >> 12
+                counts[kind] += 1
+                if kind == 0:
+                    continue
+                self.assertEqual(kind, 3)
+                target = locate(page + (item & 0xFFF), 4)
+                value = struct.unpack_from("<I", normalized, target)[0]
+                struct.pack_into("<I", normalized, target, (value + delta) & 0xFFFFFFFF)
+            position += block_size
+        self.assertEqual(position, reloc_end)
+        self.assertEqual(counts, {0: 225, 3: 167207})
+        normalized_hashes = {
+            name: hashlib.sha256(
+                normalized[raw_offset : raw_offset + raw_size]
+            ).hexdigest()
+            for name, (_, raw_size, raw_offset) in ranges.items()
+        }
+        print("RPT normalized PE section fingerprints:", normalized_hashes)
         researched_hashes = {
             ".text": "42f91b3df3a921178ae20655d8da37ee63ec7bef2ec08f10cac18048c7105aff",
             ".data": "cce4f99d8f757fc6df3e2286eb957ecc0ec7792520da59ab92722130a6178494",
@@ -1208,10 +1254,7 @@ class DiscoveryTests(unittest.TestCase):
             ".tls": "076a27c79e5ace2a3d47f9dd2e83e4ff6ea8872b3c2218f66c92b89b55f36560",
             ".reloc": "5ecd10776920685754aea5987bb98527d011866dd5bbc5bd8c6899605e093c6e",
         }
-        self.assertEqual(
-            {name: section[3] for name, section in sections.items()},
-            researched_hashes,
-        )
+        self.assertEqual(normalized_hashes, researched_hashes)
 
     @unittest.skipUnless(os.environ.get("RPT_ARCHIVE"), "real archive not provided")
     def test_exact_vendor_archive(self):
