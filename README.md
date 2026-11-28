@@ -267,6 +267,9 @@ Weekly program Discovery retains the existing scalar observation and checkpoint 
 
 ## Development
 
+For the technical background and upstream contribution direction, see [RESOL BX Plus interoperability research and integration architecture](docs/RESOL_BX_PLUS_RESEARCH.md). This explains the RPT and firmware investigation, parameter and storage model, protocol findings, implementation design and outstanding evidence boundaries.
+
+
 If you want to support the development, you can find AI generated development [documentation](https://deepwiki.com/dm82m/hass-Deltasol-KM2) that will help you start contributing to this project.
 
 ## Credits
