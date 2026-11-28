@@ -1542,6 +1542,33 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(setting.kind, "switch")
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
+        timers = configuration.BX_PLUS_WEEKLY_TIMER_OPTIONS
+        self.assertEqual(len({setting.name for setting in timers}), 74)
+        self.assertEqual(len(timers), 106)
+        for setting in timers:
+            target = definitions[setting.name]
+            reference = setting.timer_reference
+            self.assertEqual(target.index, setting.index)
+            self.assertIn("Boolean", target.metadata["type_chain"])
+            self.assertEqual(target.metadata["rpt_storage"], "preferences")
+            self.assertIn(
+                "WochenschaltuhrNr", definitions[reference.name].metadata["type_chain"]
+            )
+            self.assertTrue(
+                any(
+                    ref.get("extraRef") == reference.name
+                    for ref in target.metadata["menu_refs"]
+                )
+            )
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+        for slot in range(1, 51):
+            allocation, days = configuration.WeeklyProgram.layout(slot)
+            for name, index in {**allocation, **days}.items():
+                self.assertEqual(definitions[name].index, index)
+            for name in days:
+                self.assertEqual(definitions[name].metadata["size_bytes"], 12)
+                self.assertIn("Blob", definitions[name].metadata["type_chain"])
         self.assertEqual(len(bound), len(profile.settings) + 350)
         self.assertEqual(len([s for s in bound if s.weekly_slot is not None]), 350)
         # Report the remaining catalogue/menu review surface as part of the
