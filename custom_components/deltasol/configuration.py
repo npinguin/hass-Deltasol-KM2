@@ -3120,11 +3120,19 @@ def _operating_mode_options():
                     RequestedCondition(1, (replace(reference, require_days=True),)),
                     RequestedCondition(
                         0,
-                        (_raw_steps(correction, ci, -200 * factor, 300 * factor, 10 * factor),),
+                        (
+                            _raw_steps(
+                                correction, ci, -200 * factor, 300 * factor, 10 * factor
+                            ),
+                        ),
                     ),
                     RequestedCondition(
                         0,
-                        (PeerComparison(correction, ci, correction + alias, ci + unit + 1, "eq"),),
+                        (
+                            PeerComparison(
+                                correction, ci, correction + alias, ci + unit + 1, "eq"
+                            ),
+                        ),
                     ),
                 ),
             )
@@ -3137,7 +3145,9 @@ def _operating_mode_options():
                     outdoor,
                     Dependency("TemperatureHysteresisSelector", 60, (unit,)),
                     _raw_steps(threshold, ti, lo, hi, step),
-                    PeerComparison(threshold, ti, threshold + alias, ti + unit + 1, "eq"),
+                    PeerComparison(
+                        threshold, ti, threshold + alias, ti + unit + 1, "eq"
+                    ),
                 )
                 for unit, alias, lo, hi, step in (
                     (0, "_C", 200, 400, 10),
@@ -3145,7 +3155,9 @@ def _operating_mode_options():
                 )
             )
         )
-        external = RangeDependency(cooling + "_ExtSchalter_Sensor1_Nr", 14068 + offset, 1, 65)
+        external = RangeDependency(
+            cooling + "_ExtSchalter_Sensor1_Nr", 14068 + offset, 1, 65
+        )
         yield Setting(
             cooling + "_Modus",
             14066 + offset,
@@ -3183,7 +3195,9 @@ def _operating_mode_options():
                 f"Solar collector {slot} minimum temperature enabled",
                 "switch",
                 True,
-                installed_by=RangeDependency(root + "_Sensor1_Nr", 3536 + offset, 1, 65),
+                installed_by=RangeDependency(
+                    root + "_Sensor1_Nr", 3536 + offset, 1, 65
+                ),
                 dependencies=(
                     Dependency("Solar_SystemId", 3416, systems),
                     RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
