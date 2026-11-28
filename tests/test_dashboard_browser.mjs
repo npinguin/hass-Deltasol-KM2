@@ -31,8 +31,9 @@ function journey(){
   async function run(){
     panel.hass=hass;await tick();
     check(root.textContent.includes("Solid-fuel heating"),"No native function object");
-    check(root.textContent.includes("Historical discovery needs attention"),"Missing checkpoint warning");
-    check(root.textContent.includes("12 / 16"),"Missing live discovery coverage");
+    check(root.textContent.includes("Gateway connected"),"Missing understandable connection status");
+    check(!root.textContent.includes("Historical discovery needs attention"),"Technical checkpoint leaked into overview");
+    check(!root.textContent.includes("12 / 16"),"Technical discovery counts leaked into overview");
     check(root.textContent.includes("Daily controls"),"Missing resident daily controls");
     check(root.querySelectorAll('[data-input="select.mode"]').length===1,"Duplicate mode editor on overview");
     check(root.textContent.includes("No current attention items"),"Missing operational attention summary");
@@ -55,6 +56,8 @@ function journey(){
     check(calls.some(x=>x.entity_id==="text.week"&&!x.preview&&x.expected==="08:00-10:00"&&x.reference_token==="known-links"),"Missing reviewed schedule save");
     click('[data-tab="engineering"]');await tick();
     check(root.textContent.includes("Schema"),"Missing native parameter inventory");
+    check(root.textContent.includes("Historical discovery needs attention"),"Missing engineering checkpoint warning");
+    check(root.textContent.includes("12 / 16"),"Missing engineering discovery coverage");
     choose("#installation","two");
     check(!root.querySelector('[data-tab="engineering"]'),"Engineering not scoped");
     admin=false;engineering=false;

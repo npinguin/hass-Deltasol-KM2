@@ -1316,7 +1316,7 @@ class HttpHandler(BaseHTTPRequestHandler):
 async def qualify(directory, phase):
     from homeassistant import bootstrap, loader
     from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-    from homeassistant.core import HomeAssistant
+    from homeassistant.core import Context, HomeAssistant
     from homeassistant.exceptions import HomeAssistantError
     from homeassistant.helpers import entity_registry as er
 
