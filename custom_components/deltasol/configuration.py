@@ -1789,7 +1789,9 @@ def _heating_operating_settings():
                         ),
                         Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                     ),
-                    compound_mirrors=((name, index, name + alias, index + selector + 1),),
+                    compound_mirrors=(
+                        (name, index, name + alias, index + selector + 1),
+                    ),
                 )
     for circuit in range(1, 8):
         offset = (circuit - 1) * 495
