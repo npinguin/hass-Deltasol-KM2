@@ -81,7 +81,9 @@ def object_kind(setting):
         return None
     _, family, number = setting.native_slot
     return {
-        "Anlage_Wf": "solid_fuel" if "_Feststoffkessel_" in setting.name else "function",
+        "Anlage_Wf": "solid_fuel"
+        if "_Feststoffkessel_" in setting.name
+        else "function",
         "Solar_Sp": "store",
         "Solar_Kol": "collector",
         "Heizung_Heizkreis": "circuit",
@@ -186,9 +188,7 @@ def dashboard_objects(hass, user):
                 },
             )
             kind = object_kind(setting)
-            if kind and (
-                not asset["object_kind"] or kind[0] == "solid_fuel"
-            ):
+            if kind and (not asset["object_kind"] or kind[0] == "solid_fuel"):
                 asset["object_kind"], asset["object_number"] = kind
             asset["capabilities"].append(
                 {

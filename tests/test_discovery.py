@@ -1,9 +1,11 @@
 """Tests for catalogue parsing, read coverage and snapshot comparison."""
 
+import ast
 import asyncio
 import hashlib
 import importlib
 import io
+import logging
 import os
 import re
 import struct
@@ -19,7 +21,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from time import perf_counter
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 PACKAGE = "_deltasol_discovery_tests"
 package = types.ModuleType(PACKAGE)
@@ -3022,6 +3024,78 @@ class DiscoveryTests(unittest.TestCase):
 
 
 class RecoveryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_rejected_checkpoint_keeps_verified_runtime_catalogue(self):
+        # Execute the actual integration restore and catalogue accessor, using
+        # real catalog/capture classes and a private Store test double.
+        path = Path(package.__path__[0]) / "__init__.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        functions = [
+            node
+            for node in tree.body
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and node.name in ("_remember_catalogue", "_async_restore_capture")
+        ]
+        relay = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "DeltasolRelayCoordinator"
+        )
+        functions.extend(
+            node
+            for node in relay.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "_configuration_catalog"
+        )
+        source = catalog.source_for(0x7112, catalog.BX_PLUS_CHANGESET)
+        vendor = catalog.Catalog(source.digest, (), source)
+        controller = SimpleNamespace(
+            address=source.address, channel=0, serial="test", source="test"
+        )
+        runtime = SimpleNamespace(
+            coordinator=SimpleNamespace(
+                api=SimpleNamespace(supports_parameter_access=True)
+            ),
+            capture_store=SimpleNamespace(
+                async_load=AsyncMock(return_value={"capture": {"identity": "old"}}),
+                async_save=AsyncMock(),
+            ),
+            capture=None,
+            catalogue_identity=None,
+            rejected_capture=None,
+            checkpoint_error=None,
+        )
+        ns = {
+            "_catalog_identity": lambda _: (controller, source),
+            "_async_catalog": AsyncMock(return_value=vendor),
+            "ConfigurationCapture": discovery.ConfigurationCapture,
+            "CatalogMissing": catalog.CatalogMissing,
+            "CatalogError": catalog.CatalogError,
+            "VBusError": vbus.VBusError,
+            "HomeAssistantError": RuntimeError,
+            "_LOGGER": logging.getLogger(__name__),
+            "find_profile": lambda _: (None, controller),
+        }
+        exec(  # noqa: S102
+            compile(ast.Module(body=functions, type_ignores=[]), str(path), "exec"),
+            ns,
+        )
+        self.assertFalse(await ns["_async_restore_capture"](None, runtime))
+        self.assertEqual(runtime.checkpoint_error, "checkpoint_incompatible")
+        self.assertIsNone(runtime.capture)
+        self.assertEqual(runtime.rejected_capture, {"identity": "old"})
+        runtime.capture_store.async_save.assert_not_called()
+        coordinator = SimpleNamespace(
+            runtime=runtime,
+            telemetry=SimpleNamespace(observed_inventory={}),
+            data=SimpleNamespace(
+                controller=controller, changeset=source.changeset
+            ),
+        )
+        self.assertIs(ns["_configuration_catalog"](coordinator), vendor)
+        coordinator.data.changeset += 1
+        self.assertIsNone(ns["_configuration_catalog"](coordinator))
+
     def runtime(self, operation):
         definitions = tuple(
             catalog.Definition(f"Test{n}", n + 1, "unspecified", None, {})

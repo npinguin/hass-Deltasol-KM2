@@ -1634,7 +1634,7 @@ async def qualify(directory, phase):
         if phase == "restart":
             assert (
                 diagnostic["configuration_discovery"]["checkpoint_error"]
-                == "checkpoint_incompatible"
+                == "checkpoint_catalogue_unavailable"
             )
         with (
             nullcontext()
@@ -2298,6 +2298,31 @@ async def qualify(directory, phase):
         archive = directory / "deltasol" / "BXPLUS_2.08.zip"
         archive.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile("/reference/BXPLUS_2.08.zip", archive)
+        # Reproduce the field regression with the existing private checkpoint
+        # from the earlier fixture, whose catalogue identity is incompatible
+        # with the actual verified archive. Reload through native HA.
+        before = (Peer.writes, Peer.saves)
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        runtime = entry.runtime_data
+        assert runtime.capture is None
+        assert runtime.checkpoint_error == "checkpoint_incompatible"
+        assert runtime.rejected_capture is not None
+        assert runtime.relay_coordinator._configuration_catalog().matches(
+            ADDRESS, CHANGESET
+        )
+        for _ in range(32):
+            await runtime.relay_coordinator.async_refresh()
+            await hass.async_block_till_done()
+            if any(
+                cap.setting.name.startswith("Anlage_Wf1_")
+                for cap in runtime.relay_coordinator.data.configuration.values()
+            ):
+                break
+        else:
+            raise AssertionError("Native function not recovered without historical capture")
+        assert runtime.capture is None
+        assert (Peer.writes, Peer.saves) == before
+        print("ISOLATED_HA independent live capability recovery PASS", flush=True)
         await hass.services.async_call(
             "button", "press", {"entity_id": button}, blocking=True
         )

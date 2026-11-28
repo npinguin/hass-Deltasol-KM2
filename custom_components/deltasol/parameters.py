@@ -1187,7 +1187,8 @@ class RelayParameters:
                             {
                                 (owner.name, owner.index)
                                 for owner in profile.weekly_owners
-                            } - known,
+                            }
+                            - known,
                             key=lambda item: item[1],
                         )
                     )
