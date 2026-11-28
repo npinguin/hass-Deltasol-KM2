@@ -1750,6 +1750,18 @@ class DiscoveryTests(unittest.TestCase):
         }
         self.assertIn("Heizung_Heizkreis1_Heizsystem_Gerade_TAussen1", menu_preferences)
         self.assertIn("Heizung_Heizkreis1_Mischer_dTEin", menu_preferences)
+        flow = {
+            f"Anlage_Wf{slot}_Funktionsblock_Volumenstrom{suffix}"
+            for slot in range(1, 17) for suffix in ("Ein", "Aus")
+        }
+        self.assertTrue(flow <= menu_preferences)
+        self.assertTrue(flow <= bound_names)
+        self.assertEqual(
+            len({s.name for s in bound if s.name.endswith("_OFeststoffkesselAus")}), 23
+        )
+        self.assertEqual(
+            len({s.name for s in bound if s.name.endswith("_RLBeimischung_OHeizkreisIntern")}), 16
+        )
         unbound = menu_preferences - bound_names
         families = Counter(re.sub(r"(?<=\D)\d+", "X", name) for name in unbound)
         print(

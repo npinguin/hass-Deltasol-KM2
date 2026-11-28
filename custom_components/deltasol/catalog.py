@@ -296,9 +296,13 @@ def parse_menu(xml, digest):
                 and _integer(node.get("idHash")) == parameter_hash(name)
                 and index is not None
                 and 0 < index <= 65535
-                and metadata.get("selector_ref") == "TemperatureHysteresisSelector"
-                and set(metadata.get("type_chain", ()))
-                & {"TemperatureProxy", "HysteresisProxy"}
+                and (
+                    (metadata.get("selector_ref") == "TemperatureHysteresisSelector"
+                     and set(metadata.get("type_chain", ())) & {"TemperatureProxy", "HysteresisProxy"})
+                    or (metadata.get("selector_ref") == "FlowSelector"
+                        and "FlowProxy" in metadata.get("type_chain", ())
+                        and re.fullmatch(r"Anlage_Wf[1-9][0-9]*_Funktionsblock_Volumenstrom(?:Ein|Aus)", name))
+                )
             ):
                 metadata["compound_parent_read_candidate"] = True
         elif not name.isascii() or _integer(node.get("idHash")) != parameter_hash(name):

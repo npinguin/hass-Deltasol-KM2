@@ -399,7 +399,7 @@ def _dependency_layout(dependencies):
     result = {}
     for dep in dependencies:
         if isinstance(
-            dep, (PeerComparison, AnyDependencies, SolarSelection, ActorReferences)
+            dep, (PeerComparison, AnyDependencies, SolarSelection, ActorReferences, FunctionSelection)
         ):
             result.update(dep.expected)
         else:
@@ -417,7 +417,8 @@ class AnyDependencies:
             | RangeDependency
             | PeerComparison
             | WeeklyProgram
-            | ActorReferences,
+            | ActorReferences
+        | FunctionSelection,
             ...,
         ],
         ...,
@@ -507,6 +508,70 @@ class SolarSelection:
 
 
 @dataclass(frozen=True)
+class FunctionSelection:
+    """Validate the native mask against observed function numbers, not UI slots."""
+
+    name: str
+    index: int
+    heating: bool = False
+
+    @property
+    def slots(self):
+        prefix, base, stride, count = (
+            ("Heizung_Heizkreis", 13684, 495, 7)
+            if self.heating
+            else ("Anlage_Wf", 6559, 251, 16)
+        )
+        return tuple((f"{prefix}{n + 1}", base + stride * n) for n in range(count))
+
+    @property
+    def expected(self):
+        result = {self.name: self.index}
+        for root, base in self.slots:
+            result.update({root + "_Type": base, root + "_Nr": base + 1})
+            if self.heating:
+                result.update(
+                    {
+                        root + "_System": base + 13,
+                        root + "_Sensor1_Nr": base + 112,
+                        root + "_Relais1_Nr": base + 80,
+                    }
+                )
+        return result
+
+    def matches(self, values):
+        mask = values.get(self.name)
+        if type(mask) is not int or not 0 < mask < (1 << len(self.slots)):
+            return False
+        available = 0
+        for slot, (root, _) in enumerate(self.slots, 1):
+            kind = values.get(root + "_Type")
+            if type(kind) is not int:
+                return False
+            if kind != (1 if self.heating else 6):
+                continue
+            nr = values.get(root + "_Nr")
+            if type(nr) is not int or not 1 <= nr <= len(self.slots):
+                return False
+            bit = 1 << (nr - 1)
+            if available & bit:
+                return False
+            if self.heating and mask & bit:
+                # Runtime indexes the internal circuit registry directly.
+                if nr != slot or values.get(root + "_System") not in (0, 2):
+                    return False
+                for field, maximum in (("Sensor1_Nr", 65), ("Relais1_Nr", 100)):
+                    assigned = values.get(root + "_" + field)
+                    if type(assigned) is not int or not 1 <= assigned <= maximum:
+                        return False
+            available |= bit
+        return mask & available == mask
+
+    def context(self, values):
+        return tuple((name, values.get(name)) for name in sorted(self.expected))
+
+
+@dataclass(frozen=True)
 class RequestedCondition:
     """Require at least one live condition for a particular requested value."""
 
@@ -518,7 +583,8 @@ class RequestedCondition:
         | WeeklyProgram
         | AnyDependencies
         | SolarSelection
-        | ActorReferences,
+        | ActorReferences
+        | FunctionSelection,
         ...,
     ]
 
@@ -586,7 +652,8 @@ class Setting:
         | SolarSelection
         | AnyDependencies
         | WeeklyProgram
-        | ActorReferences,
+        | ActorReferences
+        | FunctionSelection,
         ...,
     ] = ()
     owner_address: int | None = None
@@ -633,6 +700,19 @@ class Setting:
         for condition in self.requested_conditions:
             if requested == condition.raw:
                 yield from walk(condition.alternatives)
+
+    def function_selections(self):
+        def walk(dependencies):
+            for dep in dependencies:
+                if isinstance(dep, FunctionSelection):
+                    yield dep
+                elif isinstance(dep, AnyDependencies):
+                    for group in dep.groups:
+                        yield from walk(group)
+
+        yield from walk(self.dependencies)
+        for condition in self.requested_conditions:
+            yield from walk(condition.alternatives)
 
     def actor_references(self):
         """Only established, fixed native references; never scan all actors."""
@@ -736,7 +816,7 @@ class Setting:
         installed = (self.installed_by,) if self.installed_by else ()
         for dependency in (*installed, *self.dependencies, *self.relative_constraints):
             if isinstance(
-                dependency, (SolarSelection, AnyDependencies, ActorReferences)
+                dependency, (SolarSelection, AnyDependencies, ActorReferences, FunctionSelection)
             ):
                 result.update(dependency.expected)
             else:
@@ -862,6 +942,15 @@ def _normalized_numeric(definition, limits):
     ):
         # Native correction editor advances one raw tenth of a volt.
         metadata["step"] = "0.1"
+    elif (
+        re.fullmatch(r"Anlage_Wf[1-9][0-9]*_Funktionsblock_Volumenstrom(?:Ein|Aus)_(?:LpMin|GpMin)", definition.name)
+        and "FlowSettingBase" in chain
+        and metadata.get("quant") == "1.0"
+        and metadata.get("storeFactor") == "0.1"
+        and limits[2:] == ("0.1", "0.1")
+    ):
+        # The native editor has a second, fine increment of one raw tenth.
+        metadata["quant"] = "0.1"
     elif "step" not in metadata and "quant" not in metadata:
         # Exact integer step established by the existing approved contract.
         if Decimal(limits[2]) != 1 or Decimal(limits[3]) != 1:
@@ -2201,7 +2290,8 @@ BX_PLUS_LOADING_SETTINGS = tuple(_loading_temperature_settings())
 
 
 def _operating_pair(
-    on, on_index, off, off_index, label, installed, dependencies, variants, *, rising
+    on, on_index, off, off_index, label, installed, dependencies, variants, *, rising,
+    unit_selector=("TemperatureHysteresisSelector", 60),
 ):
     """Reuse a single selected-unit, ordered operating-pair contract."""
     for selector, alias, unit, on_limits, off_limits in variants:
@@ -2224,7 +2314,7 @@ def _operating_pair(
                 installed_by=installed,
                 dependencies=(
                     *dependencies,
-                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    Dependency(*unit_selector, (selector,)),
                 ),
                 relative_constraints=(
                     RelativeConstraint(other, other_index, "gt" if direction else "lt"),
@@ -4301,6 +4391,117 @@ BX_PLUS_ACTIVITY_SETTINGS = (
     *_installed_function_activity(),
     *_dedicated_solar_activity(),
 )
+
+
+def _native_coordination_settings():
+    """Existing function interlocks and flow thresholds, without registration changes."""
+    for slot in range(1, 17):
+        ho = (slot - 1) * 151
+        root = f"Heizung_Wf{slot}"
+        mode = root + "_ThBwErwaermung_Modus"
+        yield Setting(
+            root + "_OFeststoffkesselAus",
+            11285 + ho,
+            f"Heating function {slot} solid fuel suppression",
+            "switch",
+            True,
+            installed_by=Dependency(root + "_Type", 11266 + ho, (2,)),
+            dependencies=(
+                _installed_activity(root, 11273 + ho, 11275 + ho),
+                RangeDependency(root + "_NhRelais1_Nr", 11337 + ho, 1, 100),
+                RangeDependency(root + "_Sensor1_Nr", 11290 + ho, 1, 65),
+                AnyDependencies((
+                    (Dependency(mode, 11378 + ho, (0,)),),
+                    (Dependency(mode, 11378 + ho, (1,)), RangeDependency(root + "_Sensor2_Nr", 11294 + ho, 1, 65)),
+                )),
+            ),
+            requested_conditions=(RequestedCondition(1, (FunctionSelection(root + "_FeststoffkesselMaske", 11286 + ho),)),),
+        )
+        ao = (slot - 1) * 251
+        root = f"Anlage_Wf{slot}"
+        prefix = root + "_RLBeimischung"
+        selection = FunctionSelection(prefix + "_HeizkreisInternMaske", 6783 + ao, heating=True)
+        mixer = (
+            _installed_activity(root, 6566 + ao, 6568 + ao),
+            *(RangeDependency(root + f"_Sensor{n}_Nr", 6576 + ao + 4 * (n - 1), 1, 65) for n in range(1, 4)),
+            RangeDependency(root + "_Relais1_Nr", 6592 + ao, 1, 100),
+            RangeDependency(root + "_Relais2_Nr", 6600 + ao, 1, 100),
+            AnyDependencies(((PeerComparison(root + "_Relais1_Nr", 6592 + ao, root + "_Relais2_Nr", 6600 + ao, "ne"),),)),
+            RangeDependency(prefix + "_Mischerstellzeit", 6772 + ao, 1, 20),
+            _activity_thermal(
+                prefix,
+                (
+                    ("dTEin", 6759 + ao, (10, 250, 5), (20, 500, 10), True),
+                    ("dTAus", 6762 + ao, (5, 240, 5), (10, 480, 10), True),
+                    ("dTSoll", 6765 + ao, (-200, 250, 10), (-400, 500, 20), True),
+                    ("TMax_Kesselruecklauf", 6768 + ao, (100, 800, 10), (500, 1760, 20), False),
+                ),
+                (("dTEin", 6759 + ao, "dTAus", 6762 + ao),),
+            ),
+        )
+        yield Setting(
+            prefix + "_OHeizkreisIntern",
+            6782 + ao,
+            f"Arrangement function {slot} internal heating circuit return mixing",
+            "switch",
+            True,
+            installed_by=Dependency(root + "_Type", 6559 + ao, (11,)),
+            dependencies=mixer,
+            requested_conditions=(
+                RequestedCondition(1, (selection,)),
+                RequestedCondition(0, (AnyDependencies(((
+                    RangeDependency(prefix + "_Mischerlaufzeit", 6771 + ao, 10, 600),
+                    _raw_steps(prefix + "_Justierzeit", 6773 + ao, 0, 1380, 60),
+                ),)),)),
+            ),
+        )
+        prefix = root + "_Funktionsblock"
+        yield from _operating_pair(
+            prefix + "_VolumenstromEin", 6748 + ao,
+            prefix + "_VolumenstromAus", 6751 + ao,
+            f"Arrangement function {slot} flow predicate",
+            Dependency(root + "_Type", 6559 + ao, (9,)),
+            (
+                _installed_activity(root, 6566 + ao, 6568 + ao),
+                Dependency(prefix + "_OVolumenstrom", 6747 + ao, (1,)),
+                RangeDependency(root + "_SensorVolumenstrom1_Nr", 6804 + ao, 1, 65),
+                RangeDependency(root + "_Relais1_Nr", 6592 + ao, 1, 100),
+            ),
+            (
+                (0, "_LpMin", "L/min", ("1.0", "999.0", "0.1", "0.1"), ("0.5", "998.5", "0.1", "0.1")),
+                (1, "_GpMin", "gal/min", ("0.3", "263.9", "0.1", "0.1"), ("0.1", "263.8", "0.1", "0.1")),
+            ),
+            rising=True,
+            unit_selector=("FlowSelector", 61),
+        )
+    for circuit in range(1, 8):
+        off = (circuit - 1) * 495
+        root = f"Heizung_Heizkreis{circuit}"
+        prefix = root + "_Nachheizung"
+        yield Setting(
+            prefix + "_OFeststoffkesselAus",
+            14037 + off,
+            f"Heating circuit {circuit} solid fuel suppression",
+            "switch",
+            True,
+            installed_by=Dependency(root + "_Type", 13684 + off, (1,)),
+            dependencies=(
+                _installed_activity(root, 13689 + off, 13691 + off),
+                Dependency(root + "_System", 13697 + off, (0, 2)),
+                Dependency(root + "_ONachheizung", 13705 + off, (1,)),
+                _installed_activity(prefix, 13708 + off, 13710 + off),
+                RangeDependency(root + "_Relais6_Nr", 14003 + off, 1, 100),
+                AnyDependencies((
+                    (Dependency(prefix + "_Modus", 13706 + off, (0,)), RangeDependency(root + "_Sensor4_Nr", 13804 + off, 1, 65)),
+                    (Dependency(prefix + "_Modus", 13706 + off, (1,)), RangeDependency(root + "_Sensor4_Nr", 13804 + off, 1, 65), RangeDependency(root + "_Sensor5_Nr", 13808 + off, 1, 65)),
+                    (Dependency(prefix + "_Modus", 13706 + off, (2,)),),
+                )),
+            ),
+            requested_conditions=(RequestedCondition(1, (FunctionSelection(prefix + "_FeststoffkesselMaske", 14038 + off),)),),
+        )
+
+
+BX_PLUS_COORDINATION_OPTIONS += tuple(_native_coordination_settings())
 
 
 def _heating_operating_settings():
