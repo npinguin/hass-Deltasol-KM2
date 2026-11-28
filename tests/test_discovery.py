@@ -1450,6 +1450,22 @@ class DiscoveryTests(unittest.TestCase):
                     if not item.is_dir()
                 ],
             )
+            # RPT 2.02 DeviceProperties selects the actual parameter filter
+            # from the device descriptor. The app contains several filters,
+            # so class presence alone does not establish device behavior.
+            descriptor = ET.fromstring(archive.read("BXPLUS_2.08/bxplus_208.xml"))
+            filters = [
+                node.get("classname", "").rsplit(".", 1)[-1]
+                for node in descriptor.iter()
+                if node.tag.rsplit("}", 1)[-1] == "parameterfilter"
+            ]
+            self.assertLessEqual(len(filters), 1)
+            print(
+                "RPT selected parameter filter:",
+                filters[0]
+                if filters and filters[0] in ("BXPlusFilter", "MX2Filter", "MXFilter")
+                else "not identified",
+            )
             # Static research only: identify whether the shipped RPT assembly
             # contains relevant named symbols. No execution, decompilation
             # or vendor binary contents in the release or CI artifacts.
