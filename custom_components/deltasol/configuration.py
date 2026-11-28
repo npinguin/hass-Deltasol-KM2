@@ -3544,7 +3544,12 @@ def _activity_setting(root, index, installed, requirements):
             RequestedCondition(1, (ready,)),
             RequestedCondition(2, (ready,)),
             RequestedCondition(
-                2, (RangeDependency(root + "_Aktiviert_SensorSchalter_Nr", index + 2, 1, 65),)
+                2,
+                (
+                    RangeDependency(
+                        root + "_Aktiviert_SensorSchalter_Nr", index + 2, 1, 65
+                    ),
+                ),
             ),
         ),
     )
@@ -3604,8 +3609,11 @@ def _installed_function_activity():
                 (
                     RangeDependency(root + "_Relais2_Nr", 6600 + ao, 1, 100),
                     PeerComparison(
-                        root + "_Relais1_Nr", 6592 + ao,
-                        root + "_Relais2_Nr", 6600 + ao, "ne"
+                        root + "_Relais1_Nr",
+                        6592 + ao,
+                        root + "_Relais2_Nr",
+                        6600 + ao,
+                        "ne",
                     ),
                     RangeDependency(root + "_Mischer_dtIntervall", 6625 + ao, 1, 20),
                     _activity_thermal(
@@ -3622,8 +3630,20 @@ def _installed_function_activity():
                     _activity_thermal(
                         root + "_Boilerladung",
                         (
-                            ("TBoilerEin", 6632 + ao, (0, 940, 10), (320, 2020, 20), False),
-                            ("TBoilerAus", 6635 + ao, (10, 950, 10), (340, 2040, 20), False),
+                            (
+                                "TBoilerEin",
+                                6632 + ao,
+                                (0, 940, 10),
+                                (320, 2020, 20),
+                                False,
+                            ),
+                            (
+                                "TBoilerAus",
+                                6635 + ao,
+                                (10, 950, 10),
+                                (340, 2040, 20),
+                                False,
+                            ),
                         ),
                         (("TBoilerAus", 6635 + ao, "TBoilerEin", 6632 + ao),),
                     ),
@@ -3653,7 +3673,8 @@ def _installed_function_activity():
             ),
         ):
             yield _activity_setting(
-                root, 6566 + ao,
+                root,
+                6566 + ao,
                 Dependency(root + "_Type", 6559 + ao, (kind,)),
                 (sensor, output, *extra),
             )
@@ -3666,7 +3687,8 @@ def _installed_function_activity():
         optional_output = RangeDependency(root + "_Relais2_Nr", 11329 + ho, 1, 100)
         prefix = root + "_ThBwErwaermung"
         yield _activity_setting(
-            root, 11273 + ho,
+            root,
+            11273 + ho,
             Dependency(root + "_Type", 11266 + ho, (2,)),
             (
                 sensor,
@@ -3680,7 +3702,10 @@ def _installed_function_activity():
                 AnyDependencies(
                     (
                         (Dependency(prefix + "_OLadepumpe", 11375 + ho, (0,)),),
-                        (Dependency(prefix + "_OLadepumpe", 11375 + ho, (1,)), optional_output),
+                        (
+                            Dependency(prefix + "_OLadepumpe", 11375 + ho, (1,)),
+                            optional_output,
+                        ),
                     )
                 ),
                 _configured_timer(root, 11288 + ho, 11346 + ho),
@@ -3696,7 +3721,8 @@ def _installed_function_activity():
         )
         prefix = root + "_BwVorerwaermung"
         yield _activity_setting(
-            root, 11273 + ho,
+            root,
+            11273 + ho,
             Dependency(root + "_Type", 11266 + ho, (3,)),
             (
                 sensor,
@@ -3705,7 +3731,10 @@ def _installed_function_activity():
                 AnyDependencies(
                     (
                         (Dependency(prefix + "_OVentil", 11388 + ho, (0,)),),
-                        (Dependency(prefix + "_OVentil", 11388 + ho, (1,)), optional_output),
+                        (
+                            Dependency(prefix + "_OVentil", 11388 + ho, (1,)),
+                            optional_output,
+                        ),
                     )
                 ),
                 AnyDependencies(
@@ -3718,8 +3747,20 @@ def _installed_function_activity():
                             _activity_thermal(
                                 prefix,
                                 (
-                                    ("dTEin", 11399 + ho, (10, 500, 5), (20, 1000, 10), True),
-                                    ("dTAus", 11402 + ho, (5, 495, 5), (10, 990, 10), True),
+                                    (
+                                        "dTEin",
+                                        11399 + ho,
+                                        (10, 500, 5),
+                                        (20, 1000, 10),
+                                        True,
+                                    ),
+                                    (
+                                        "dTAus",
+                                        11402 + ho,
+                                        (5, 495, 5),
+                                        (10, 990, 10),
+                                        True,
+                                    ),
                                 ),
                                 (("dTEin", 11399 + ho, "dTAus", 11402 + ho),),
                             ),
@@ -3737,7 +3778,8 @@ def _installed_function_activity():
         )
         prefix = root + "_Zirkulation"
         thermal_circulation = _activity_setting(
-            root, 11273 + ho,
+            root,
+            11273 + ho,
             Dependency(root + "_Type", 11266 + ho, (4,)),
             (
                 sensor,
@@ -3764,13 +3806,16 @@ def _installed_function_activity():
             (7, "Parallelrelais", 4464),
         ):
             yield _activity_setting(
-                root, 4415 + so,
+                root,
+                4415 + so,
                 Dependency(root + "_Type", 4409 + so, (kind,)),
                 (
                     RangeDependency(root + "_Relais1_Nr", 4436 + so, 1, 100),
                     RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
                     RangeDependency("Solar_Kol1_Sensor1_Nr", 3536, 1, 65),
-                    SolarSelection(root + "_" + name + "_SpeicherMaske", index + so, stores=True),
+                    SolarSelection(
+                        root + "_" + name + "_SpeicherMaske", index + so, stores=True
+                    ),
                 ),
             )
 
@@ -3779,7 +3824,8 @@ def _installed_function_activity():
         root = f"Wmz{slot}"
         # The controller owns activity even when the telemetry meter vanishes.
         measured = _activity_setting(
-            root, 17263 + offset,
+            root,
+            17263 + offset,
             Dependency(root + "_Type", 17260 + offset, (1,)),
             (
                 RangeDependency(root + "_Sensor1_Nr", 17359 + offset, 1, 65),
@@ -3795,9 +3841,14 @@ def _installed_function_activity():
             ),
         )
         yield _activity_setting(
-            root, 17263 + offset,
+            root,
+            17263 + offset,
             Dependency(root + "_Type", 17260 + offset, (2,)),
-            (RangeDependency(root + "_Impulszaehler_Sensor1_Nr", 17379 + offset, 1, 65),),
+            (
+                RangeDependency(
+                    root + "_Impulszaehler_Sensor1_Nr", 17379 + offset, 1, 65
+                ),
+            ),
         )
 
 
