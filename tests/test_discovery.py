@@ -1621,8 +1621,10 @@ class DiscoveryTests(unittest.TestCase):
                         tuple(Decimal(v) for v in setting.limits),
                     )
         comfort = configuration.BX_PLUS_HEATING_COMFORT_SETTINGS
-        self.assertEqual(len(comfort), 176)
+        self.assertEqual(len(comfort), 288)
         self.assertEqual(len([s for s in comfort if s.kind == "select"]), 7)
+        self.assertEqual(len({s.name for s in comfort if "SommerTag" in s.name or "SommerNacht" in s.name}), 28)
+        self.assertEqual(len({s.name for s in comfort if s.name.endswith("_dTAbsenkung")}), 35)
         vacation = next(s for s in bound if s.name == "Urlaubsfunktion_Tage")
         self.assertEqual(vacation.limits, ("0", "200", "1", "1"))
         self.assertEqual(
