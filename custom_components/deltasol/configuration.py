@@ -2735,7 +2735,9 @@ def _weekly_timer_options():
                     AnyDependencies(
                         (
                             (
-                                Dependency(root + "_ThBwErwaermung_Modus", 11378 + ho, (0,)),
+                                Dependency(
+                                    root + "_ThBwErwaermung_Modus", 11378 + ho, (0,)
+                                ),
                             ),
                             (
                                 Dependency(
