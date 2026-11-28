@@ -91,6 +91,60 @@ class ParameterTests(unittest.TestCase):
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
 
+    def test_coordination_options_require_live_assignments_and_setpoint_context(self):
+        config = parameters_configuration
+        settings = {setting.name: setting for setting in config.BX_PLUS_COORDINATION_OPTIONS}
+        root = "Heizung_Wf1"
+        solar = root + "_OSolarAus"
+        tset = root + "_SolarAus_OTSoll"
+        values = {
+            root + "_Type": 2,
+            root + "_Aktiviert_Modus": 1,
+            root + "_NhRelais1_Nr": 1,
+            root + "_Sensor1_Nr": 1,
+            root + "_ThBwErwaermung_Modus": 0,
+            solar: 0,
+            tset: 0,
+            root + "_SolarAus_SpeicherMaske": 1,
+            "Solar_SystemId": 10101,
+            "Solar_Kol1_Sensor1_Nr": 1,
+            "Solar_Relais1_Nr": 1,
+            "Solar_Sp1_Sensor1_Nr": 2,
+            "Solar_Sp1_Aktiviert_Modus": 1,
+            "TemperatureHysteresisSelector": 0,
+            "Solar_Sp1_Tsoll": 500,
+            "Solar_Sp1_Tsoll_C": 500,
+            "Solar_Sp1_Tmax": 800,
+            "Solar_Sp1_Tmax_C": 800,
+        }
+        self.assertTrue(settings[solar].accepts(values, 1))
+        self.assertFalse(settings[tset].accepts(values, 1))
+        values[solar] = 1
+        self.assertTrue(settings[tset].accepts(values, 1))
+        values[tset] = 1
+        values["Solar_Sp1_Tsoll_C"] = 510
+        self.assertFalse(settings[tset].accepts(values, 1))
+        self.assertFalse(settings[solar].accepts(values, 1))
+        self.assertTrue(settings[solar].accepts(values, 0))
+        values["Solar_Sp1_Tsoll_C"] = 500
+        values["Solar_Sp1_Tmax"] = values["Solar_Sp1_Tmax_C"] = 490
+        self.assertFalse(settings[tset].accepts(values, 1))
+        values["Solar_Sp1_Tmax"] = values["Solar_Sp1_Tmax_C"] = 800
+        values[root + "_SolarAus_SpeicherMaske"] = 2
+        self.assertFalse(settings[solar].accepts(values, 1))
+        values[root + "_SolarAus_SpeicherMaske"] = 1
+        values[root + "_ThBwErwaermung_Modus"] = 1
+        self.assertFalse(settings[solar].accepts(values, 1))
+        values[root + "_Sensor2_Nr"] = 3
+        self.assertTrue(settings[solar].accepts(values, 1))
+        holiday = root + "_OUrlaubAus"
+        values[holiday] = 0
+        values["InbetriebnahmeAbgeschlossen"] = 1
+        values["Urlaubsfunktion_Tage"] = 0
+        self.assertTrue(settings[holiday].accepts(values, 1))
+        values["InbetriebnahmeAbgeschlossen"] = 0
+        self.assertFalse(settings[holiday].accepts(values, 1))
+
     def test_existing_weekly_timer_flag_validates_all_days_and_reference(self):
         config = parameters_configuration
         self.session.read.return_value = 0x2734DABC
@@ -129,9 +183,7 @@ class ParameterTests(unittest.TestCase):
             return result
 
         self.session.read_parameter_observations.side_effect = observe
-        hints = {
-            root + "_Type": parameters.ParameterObservation(6559, 3, "read")
-        }
+        hints = {root + "_Type": parameters.ParameterObservation(6559, 3, "read")}
 
         def controls():
             return {
