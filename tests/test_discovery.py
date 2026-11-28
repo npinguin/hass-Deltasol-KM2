@@ -1153,13 +1153,13 @@ class DiscoveryTests(unittest.TestCase):
         # that an identical descriptor establishes identical executable logic.
         pe = struct.unpack_from("<I", binary, 60)[0]
         self.assertEqual(binary[pe : pe + 4], b"PE\x00\x00")
+        self.assertEqual(struct.unpack_from("<H", binary, pe + 4)[0], 0x14C)
         count = struct.unpack_from("<H", binary, pe + 6)[0]
         optional_size = struct.unpack_from("<H", binary, pe + 20)[0]
         optional = pe + 24
         self.assertEqual(struct.unpack_from("<H", binary, optional)[0], 0x10B)
-        self.assertEqual(
-            struct.unpack_from("<I", binary, optional + 28)[0], 0x71400000
-        )
+        self.assertEqual(struct.unpack_from("<I", binary, optional + 28)[0], 0x71400000)
+        self.assertEqual(struct.unpack_from("<I", binary, optional + 16)[0], 0x13B0)
         sections = {}
         end_of_sections = 0
         for i in range(count):
@@ -1181,6 +1181,21 @@ class DiscoveryTests(unittest.TestCase):
             len(binary),
             len(binary) - end_of_sections,
             hashlib.sha256(binary[:0x400]).hexdigest(),
+        )
+        researched_layout = {
+            ".text": (0x1137D4, 0x1000, 0x60500060),
+            ".data": (0x50, 0x115000, 0xC0300040),
+            ".rdata": (0x204598, 0x116000, 0x40600040),
+            ".bss": (0x15904, 0x31B000, 0xC0600080),
+            ".edata": (0xA24, 0x331000, 0x40300040),
+            ".idata": (0x49C, 0x332000, 0xC0300040),
+            ".CRT": (0x2C, 0x333000, 0xC0300040),
+            ".tls": (0x8, 0x334000, 0xC0300040),
+            ".reloc": (0x52B28, 0x335000, 0x42300040),
+        }
+        self.assertEqual(
+            {name: section[:3] for name, section in sections.items()},
+            researched_layout,
         )
         researched_hashes = {
             ".text": "42f91b3df3a921178ae20655d8da37ee63ec7bef2ec08f10cac18048c7105aff",
