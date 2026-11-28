@@ -91,6 +91,87 @@ class ParameterTests(unittest.TestCase):
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
 
+    def test_existing_weekly_timer_flag_validates_all_days_and_reference(self):
+        config = parameters_configuration
+        self.session.read.return_value = 0x2734DABC
+        root = "Anlage_Wf1"
+        flag = root + "_OSchaltuhr"
+        ref = root + "_SchaltuhrNr"
+        self.values.update(
+            {
+                root + "_Type": (6559, 3),
+                root + "_Aktiviert_Modus": (6566, 1),
+                root + "_Relais1_Nr": (6592, 1),
+                root + "_Sensor1_Nr": (6576, 2),
+                root + "_Sensor2_Nr": (6580, 3),
+                flag: (6574, 0),
+                ref: (6620, 1),
+            }
+        )
+        day_words = {}
+        for slot in (1, 2):
+            allocation, days = config.WeeklyProgram.layout(slot)
+            for name, index in allocation.items():
+                self.values[name] = (index, 1)
+            for name, index in days.items():
+                words = config.parse_weekly_day("08:00-10:00")
+                self.values[name] = (index, words[0])
+                day_words[name] = words
+
+        def observe(address, names, changeset, **kwargs):
+            result = self.observe_parameters(address, names, changeset, **kwargs)
+            for name in kwargs.get("packed") or {}:
+                if name in day_words:
+                    row = result[name]
+                    result[name] = parameters.ParameterObservation(
+                        row.index, row.value, "read", day_words[name]
+                    )
+            return result
+
+        self.session.read_parameter_observations.side_effect = observe
+        hints = {
+            root + "_Type": parameters.ParameterObservation(6559, 3, "read")
+        }
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, save), (0x7112, 6574, True))
+            self.values[flag] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        cap = controls()[flag]
+        self.assertEqual(cap.program_reference, 1)
+        self.assertFalse(cap.value)
+        self.values[ref] = (6620, 2)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, True)
+        self.values[ref] = (6620, 1)
+        self.values["Wsu1_Belegt"] = (18414, 0)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, True)
+        self.assertNotIn(flag, controls())
+        self.values["Wsu1_Belegt"] = (18414, 1)
+        day = "Wsu1_Schaltuhr_Woche_TagSo_Daten"
+        original = day_words.pop(day)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, True)
+        self.session.write_verified.assert_not_called()
+        day_words[day] = original
+        self.assertTrue(self.api.set_configuration(telemetry(), cap, True).value)
+        cap = controls()[flag]
+        self.assertTrue(self.api.set_configuration(telemetry(), cap, True).value)
+        self.assertFalse(self.api.set_configuration(telemetry(), cap, False).value)
+        self.assertEqual(self.session.write_verified.call_count, 2)
+        self.session.write_packed_verified.assert_not_called()
+        self.assertEqual(self.values[ref], (6620, 1))
+        self.assertEqual(day_words[day], original)
+
     def test_weekly_schedule_uses_existing_owner_and_reconciles_partial_write(self):
         config = parameters_configuration
         self.session.read.return_value = 0x2734DABC
@@ -1668,6 +1749,21 @@ class ParameterTests(unittest.TestCase):
         values[flag] = 1
         self.assertTrue(setting.accepts(values, setting.encode(False)))
         self.assertFalse(setting.accepts({**values, other: 0}, 0))
+        reference = parameters_configuration.WeeklyProgram(
+            root + "_SchaltuhrNr", 6620, True
+        )
+        allocation, days = reference.layout(1)
+        timer_values = {
+            **values,
+            other: 0,
+            root + "_OSchaltuhr": 1,
+            reference.name: 1,
+            **dict.fromkeys(allocation, 1),
+            **dict.fromkeys(days, bytes([255]) * 12),
+        }
+        self.assertTrue(setting.accepts(timer_values, 0))
+        timer_values[next(iter(days))] = b"invalid"
+        self.assertFalse(setting.accepts(timer_values, 0))
         self.assertFalse(setting.accepts({**values, root + "_Sensor2_Nr": 0}, 0))
         self.assertFalse(setting.accepts({**values, prefix + "_TTh2Ein_C": 510}, 0))
         on = prefix + "_TTh1Ein"
