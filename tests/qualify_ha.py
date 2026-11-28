@@ -57,7 +57,7 @@ CONFIG_SELECTORS = {
     "Heizung_Heizkreis2_Aktiviert_Modus": (14184, 1),
     "Heizung_Heizkreis2_Kopplung": (14534, 1),
     "Heizung_Heizkreis2_OUrlaub": (14671, 0),
-    "Urlaubsfunktion_Tage": (19063, 0),
+    "InbetriebnahmeAbgeschlossen": (68, 1),
     "Wmz1_Type": (17260, 1),
     "Wmz1_Aktiviert_Modus": (17263, 1),
     "Relais_Modul1_R1_AktorFunktion": (2167, 2),
@@ -96,6 +96,7 @@ CONFIG_SELECTORS = {
 CONFIG_SETTINGS = {
     "Anlage_Wf1_Mischer_dtIntervall": (6625, 4, 1, 20),
     "Heizung_Heizkreis1_Heizkurve": (13698, 12, 3, 30),
+    "Urlaubsfunktion_Tage": (19063, 0, 0, 200),
     "Heizung_Heizkreis1_Betriebsart": (14014, 0, 0, 5),
     "Heizung_Heizkreis2_Betriebsart": (14509, 0, 0, 5),
     "Wmz1_OAlternativAnzeige": (17273, 0, 0, 1),
@@ -580,6 +581,8 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index == 19063:
+                    assert Peer.extra_values[68] == 1
                 if index in (14014, 14509):
                     if index == 14509:
                         assert Peer.extra_values[14534] == 0
@@ -587,11 +590,11 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert Peer.extra_values[13684 + offset] == 1
                     assert Peer.extra_values[13689 + offset] == 1
                     if value == 4:
-                        assert 1 <= Peer.extra_values[19063] <= 200
+                        assert 1 <= Peer.settings[19063] <= 200
                     if value == 0:
                         assert (
                             not Peer.extra_values[14176 + offset]
-                            or not Peer.extra_values[19063]
+                            or not Peer.settings[19063]
                         )
                 if index in (3840, 3841, 3842, 3843):
                     assert Peer.extra_values[3416] == 20201
@@ -1151,6 +1154,7 @@ async def qualify(directory, phase):
                     ("Anlage_Wf1_Mischer_dtIntervall", "number", 5),
                     ("Heizung_Heizkreis1_Heizkurve", "number", 1.5),
                     ("Heizung_Heizkreis1_Betriebsart", "select", "Day"),
+                    ("Urlaubsfunktion_Tage", "number", 0),
                     ("Wmz1_OAlternativAnzeige", "switch", "on"),
                     ("Wmz1_AlternativAnzeigeEinheit", "select", "Gas"),
                     ("Wmz1_AlternativAnzeigeFaktor", "number", 0.5000001),
@@ -1910,15 +1914,15 @@ async def qualify(directory, phase):
         await set_mode(heating_mode, "Day")
         await set_mode(heating_mode, "Day")
         assert Peer.saves == before + 1 and Peer.settings[14014] == 1
-        Peer.extra_values[19063] = 7
+        await number("Urlaubsfunktion_Tage", 7)
         await set_mode(heating_mode, "Holiday")
         assert Peer.settings[14014] == 4
         Peer.extra_values[14176] = 1
         await reject_mode(heating_mode, "Auto")
-        assert Peer.saves == before + 2
-        Peer.extra_values[19063] = 0
+        assert Peer.saves == before + 3
+        await number("Urlaubsfunktion_Tage", 0)
         await set_mode(heating_mode, "Day")
-        assert Peer.saves == before + 3 and Peer.settings[14014] == 1
+        assert Peer.saves == before + 5 and Peer.settings[14014] == 1
         Peer.extra_values[14534] = 0
         await entry.runtime_data.relay_coordinator.async_refresh()
         await hass.async_block_till_done()
@@ -1927,7 +1931,7 @@ async def qualify(directory, phase):
         await set_mode(independent, "Night")
         Peer.extra_values[14534] = 1
         await reject_mode(independent, "Off")
-        assert Peer.saves == before + 4 and Peer.settings[14509] == 2
+        assert Peer.saves == before + 6 and Peer.settings[14509] == 2
         assert hass.states.get(independent).state == "unavailable"
         assert entity("Heizung_Heizkreis1_Betriebsart", "select") == heating_mode
 
