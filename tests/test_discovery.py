@@ -1613,19 +1613,14 @@ class DiscoveryTests(unittest.TestCase):
                     print("Native region memory:", label, memory)
                     print("Native region constants:", label, immediates)
 
-                pulse = descriptor("Solar_Losreissimpuls")[2] - base
-                remote = descriptor("Heizung_Heizkreis1_Fernzugriff_Modus")[2] - base
-                inspect_region("solar startup editor", pulse, pulse + 80)
-                inspect_region("solar integer editor", 0x4FEF6, 0x4FEF6 + 200)
-                inspect_region("remote mode editor", remote, remote + 100)
-                # Reference addresses point into the periodic translation.
-                inspect_region("remote storage translation", 0x34905, 0x34985)
-                for family in ("Anforderung", "Pumpe", "Ventil"):
-                    name = f"Heizung_Relais{family}1_Aktiviert_Modus"
-                    editor = descriptor(name)[2]
-                    offset = locate(editor, 52, ".text")
-                    callback = struct.unpack_from("<I", binary, offset + 45)[0] - base
-                    inspect_region(name, callback, callback + 120)
+                # Continue from the proven callback edges in research 4.40.
+                # Each helper is shared by both native instances.
+                for label, start, end in (
+                    ("demand transition", 0x7194, 0x7259),
+                    ("pump transition", 0x7618, 0x76E3),
+                    ("valve transition", 0x773F, 0x780A),
+                ):
+                    inspect_region(label, start, end)
 
         # Only compact exact metadata; large inherited role tables add no
         # transition evidence.
