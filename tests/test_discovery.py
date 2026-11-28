@@ -6,7 +6,9 @@ import importlib
 import io
 import os
 import re
+import shutil
 import struct
+import subprocess
 import sys
 import types
 import unittest
@@ -1681,6 +1683,132 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(binary[start : start + len(expected)], expected)
         for call in (0x1006D, 0x109D6, 0x109F7):
             self.assertEqual(direct_call_target(call), 0xD3C61)
+
+        # Final batch: analyze all 70 remaining native options together.
+        remaining = {
+            family: names
+            for family, names in review.items()
+            if configuration.native_menu_review_reason(names[0])
+            in (
+                "program_option_review_required",
+                "native_registration_transition_unverified",
+                "native_deallocation_preservation_unverified",
+                "native_operating_contract_unverified",
+                "hydraulic_applicability_review_required",
+            )
+        }
+        self.assertEqual(sum(map(len, remaining.values())), 70)
+        for family, names in remaining.items():
+            first = min(names, key=values.get)
+            pointer, flag, editor, _ = descriptor(first)
+            parts = first.split("_")
+            if parts[0] == "Solar":
+                root = "_".join(parts[:2]) if parts[1].startswith("Wf") else "Solar"
+            else:
+                root = "_".join(parts[:2])
+            parent = root + "_Type"
+            origin = descriptor(parent)[0] if parent in values else pointer
+            refs = []
+            for name in values:
+                if (
+                    name.startswith(root + "_")
+                    and (
+                        name.endswith(("_Nr", "_Type", "_Modus"))
+                        or name == first
+                    )
+                    and parsed[name].metadata.get("rpt_storage") == "preferences"
+                ):
+                    if root == "Solar" and re.search(r"_Wf\d|_Sp\d|_Koll\d", name):
+                        continue
+                    if "Raumthermostat" in name and "Raumthermostat1_" not in name:
+                        continue
+                    refs.append(
+                        (name.removeprefix(root + "_"), values[name],
+                         descriptor(name)[0] - origin, hex(descriptor(name)[1]))
+                    )
+            print(
+                "Batch70 layout:", first, len(names), values[first],
+                hex(pointer - base), pointer - origin, hex(flag),
+                sorted(refs, key=lambda row: row[1]),
+            )
+            print("Batch70 menu:", first, parsed[first].metadata.get("menu_refs"))
+            print(
+                "Batch70 pointer peers:", first,
+                [(name, hex(descriptor(name)[1])) for name in values
+                 if descriptor(name)[0] == pointer][:20],
+            )
+
+        if shutil.which("objdump"):
+            with TemporaryDirectory() as directory:
+                library = Path(directory) / "reference.dll"
+                library.write_bytes(binary)
+                output = subprocess.run(
+                    ["objdump", "-d", "-Mintel", "--no-show-raw-insn", str(library)],
+                    check=True, capture_output=True, text=True, timeout=30,
+                ).stdout
+            instructions = []
+            for line in output.splitlines():
+                match = re.match(r"\s*([0-9a-f]+):\s+(\w+)\s*(.*)", line)
+                if match:
+                    address, opcode, operands = match.groups()
+                    instructions.append((int(address, 16) - base, opcode, operands))
+
+            def target(row):
+                if row[1] != "call":
+                    return None
+                match = re.match(r"([0-9a-f]+)(?:\s|$)", row[2])
+                return int(match[1], 16) - base if match else None
+
+            def window(label, start, end):
+                rows = [
+                    (hex(rva), op, args.split(" <")[0])
+                    for rva, op, args in instructions if start <= rva < end
+                ]
+                print("Batch70 window:", label, rows)
+
+            # Cover all absolute storage references of the remaining families,
+            # excluding editor/menu construction references and duplicate bytes.
+            seen = set()
+            for family, names in remaining.items():
+                first = min(names, key=values.get)
+                pointer = descriptor(first)[0]
+                if pointer in seen:
+                    continue
+                seen.add(pointer)
+                for ref in references.get(pointer, []):
+                    if ref < 0x49000:
+                        window(first + " xref " + hex(ref), ref - 18, ref + 75)
+            # Shared helper invocations in room/heating/solar setup regions.
+            for i, row in enumerate(instructions):
+                if not 0x16000 <= row[0] < 0x35263:
+                    continue
+                if target(row) not in (0xFF84, 0x10082, 0x10117, 0x108B3):
+                    continue
+                prev = instructions[max(0, i - 18):i]
+                bit = [
+                    (hex(addr), op, args)
+                    for addr, op, args in prev
+                    if op in ("shr", "sar", "and") and (
+                        "al," in args or "eax," in args
+                    )
+                ]
+                if bit:
+                    print(
+                        "Batch70 setup site:", hex(row[0]), hex(target(row)),
+                        [(hex(a), op, args.split(" <")[0])
+                         for a, op, args in prev if op in ("lea", "movzx", "shr", "and")],
+                    )
+            # Locate descriptor initializer code through the established
+            # registry owner address, and inspect the group-4 type records.
+            owner = base + 0x31A020
+            for ref in references.get(owner, []):
+                if ref < 0x40000:
+                    window("registry owner reference " + hex(ref), ref - 24, ref + 70)
+            # Registry descriptor structures in static data: look for
+            # relocated code pointers referenced by the group-4 initializer.
+            window("registration initialization", 0x1453, 0x1500)
+            window("hidden circulation runtime", 0x11B90, 0x11C50)
+            window("remote mode editor", 0x6619F, 0x66275)
 
         # Keep the prior startup-duration editor evidence as an assertion.
         self.assertEqual(descriptor("Solar_Losreissimpuls")[2] - base, 0x6B972)
