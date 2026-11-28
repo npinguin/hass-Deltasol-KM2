@@ -1663,7 +1663,13 @@ class DiscoveryTests(unittest.TestCase):
             variant = definitions[root + "_Zirkulation_Variante"]
             self.assertEqual(
                 [item.get("id") for item in variant.metadata["value_text"]],
-                ["Thermisch", "Schaltuhr", "ThermischUndUhr", "Anforderung", "AnforderungUndUhr"],
+                [
+                    "Thermisch",
+                    "Schaltuhr",
+                    "ThermischUndUhr",
+                    "Anforderung",
+                    "AnforderungUndUhr",
+                ],
             )
             self.assertTrue(
                 all(item.get("value") is None for item in variant.metadata["value_text"])
