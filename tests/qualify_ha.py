@@ -692,8 +692,8 @@ async def qualify(directory, phase):
         assert week["allocated"] and week["initialized"]
         monday = week["days"]["Mo"]
         assert monday["observed_words"] == [0x50482820, -1, -1]
-        assert monday["candidate_status"] == "wire_word_mapping_unverified"
-        assert not monday["payload_verified"]
+        assert monday["candidate_status"] == "wire_word_mapping_verified"
+        assert monday["payload_verified"]
         assert monday["candidate_windows"] == [
             {"start_minute": 480, "end_minute": 600},
             {"start_minute": 1080, "end_minute": 1200},
