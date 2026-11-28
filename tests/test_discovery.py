@@ -1510,6 +1510,45 @@ class DiscoveryTests(unittest.TestCase):
                     relocations.add(page + (item & 0xFFF))
             reloc_offset += length
 
+        # Direct relocated storage references are useful positive evidence;
+        # absence is not proof because native code also accesses record offsets.
+        references = {}
+        for rva in sorted(relocations):
+            if text_rva <= rva < text_rva + text_size - 3:
+                offset = text_offset + rva - text_rva
+                address = struct.unpack_from("<I", binary, offset)[0]
+                references.setdefault(address, []).append(rva)
+        parsed = catalog.load_catalog(archive_path).by_name
+        for family, names in review.items():
+            representative = min(names, key=lambda name: values[name])
+            pointer, flags, editor, reader = descriptor(representative)
+            row = parsed[representative]
+            direct = references.get(pointer, [])
+            print(
+                "Native lifecycle evidence:",
+                representative,
+                row.index,
+                row.metadata.get("type_chain"),
+                "options",
+                catalog.ordinal_options(row),
+                "menu",
+                row.metadata.get("menu_refs"),
+                "storage references",
+                [hex(rva) for rva in direct],
+            )
+            self.assertEqual(flags, review_families[family][1])
+            self.assertEqual(values[representative], row.index)
+            for rva in direct:
+                self.assertIn(rva, relocations)
+            if flags & 0x10000:
+                offset = locate(editor, 52, ".text")
+                callback = struct.unpack_from("<I", binary, offset + 45)[0]
+                self.assertIn(
+                    editor + 45 - base,
+                    relocations,
+                )
+                print("Native change callback RVA:", representative, hex(callback - base))
+
         def fingerprint(start, length, calls, relocation_count, expected):
             offset = locate(base + start, length, ".text")
             body = bytearray(binary[offset : offset + length])
