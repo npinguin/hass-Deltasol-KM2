@@ -180,7 +180,27 @@ class ParameterTests(unittest.TestCase):
         self.values[other.name] = (other.index, 1)
         with self.assertRaises(parameters.VBusError):
             self.api.set_configuration(telemetry(), updated, "", catalogue)
+        # The shared reference was observed, but none of its conditions
+        # were resolved. Even with an unchanged displayed owner set, an
+        # unknown shared function must not be treated as definitely inactive.
+        hints[other.name] = parameters.ParameterObservation(other.index, 1, "read")
+        shared = capability()
+        self.assertIn(other.name, shared.owners)
+        self.assertNotIn(other.name, shared.active_owners)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), shared, "", catalogue)
+        self.session.write_packed_verified.assert_called_once()
+        # A positive reference with a definite disabled timer is different
+        # from an unknown function: the unchanged day is a valid no-op.
+        timer = other.conditions[-1]
+        self.values[timer.name] = (timer.index, 0)
+        verified = self.api.set_configuration(
+            telemetry(), shared, shared.value, catalogue
+        )
+        self.assertEqual(verified.owners, shared.owners)
+        self.assertEqual(verified.active_owners, shared.active_owners)
         self.values[other.name] = (other.index, 0)
+        hints.pop(other.name)
         self.session.write_packed_verified.assert_called_once()
 
         def partial(address, index, before, wanted, changeset):
