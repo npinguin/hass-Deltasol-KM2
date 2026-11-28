@@ -769,11 +769,43 @@ class ParameterTests(unittest.TestCase):
                 "Heizung_Heizkreis1_Raumthermostat1_Option": 1,
                 "Heizung_Heizkreis1_Raumthermostat1_Aktiviert": 1,
                 "Heizung_Heizkreis1_Raumthermostat1_Typ": 0,
+                "Heizung_Heizkreis1_Raumthermostat1_Sensor1_Nr": 2,
                 room.name: 200,
                 room.name + "_C": 200,
             }
         )
         self.assertTrue(room.accepts(values, room.encode(21)))
+        setback = next(
+            s
+            for s in settings
+            if s.name == "Heizung_Heizkreis1_Raumthermostat1_dTAbsenkung" and s.unit == "K"
+        )
+        values.update({setback.name: 50, setback.name + "_K": 50})
+        self.assertFalse(setback.accepts(values))
+        values["Heizung_Heizkreis1_Raumthermostat1_OSchaltuhr"] = 1
+        self.assertTrue(setback.accepts(values, setback.encode(6)))
+        values["Heizung_Heizkreis1_Raumthermostat1_Sensor1_Nr"] = 0
+        self.assertFalse(setback.accepts(values))
+        self.assertFalse(room.accepts(values))
+        values["Heizung_Heizkreis1_Raumthermostat1_Sensor1_Nr"] = 2
+        cutoff = next(
+            s for s in settings
+            if s.name == "Heizung_Heizkreis1_TSommerNacht" and s.unit == "°C"
+        )
+        clock = next(s for s in settings if s.name == "Heizung_Heizkreis1_tSommerTagEin")
+        values.update({
+            "Heizung_Heizkreis1_OHeizgrenze": 1,
+            "Heizung_Heizkreis1_Sensor2_Nr": 3,
+            "Heizung_Heizkreis1_Heizgrenze": 1,
+            cutoff.name: 140, cutoff.name + "_C": 140,
+            clock.name: 540,
+        })
+        self.assertTrue(cutoff.accepts(values, cutoff.encode(15)))
+        self.assertTrue(clock.accepts(values, clock.encode(555)))
+        self.assertFalse(clock.accepts(values, 556))
+        values["Heizung_Heizkreis1_Heizgrenze"] = 0
+        self.assertFalse(cutoff.accepts(values))
+        self.assertFalse(clock.accepts(values))
         values["Heizung_Heizkreis1_Raumthermostat1_Typ"] = 1
         self.assertFalse(room.accepts(values))
         values["Heizung_Heizkreis1_Raumthermostat1_Typ"] = 0
