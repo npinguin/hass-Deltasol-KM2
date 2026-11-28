@@ -182,3 +182,12 @@ test("engineering details navigate only to the existing scoped entity and show t
   const item=new Map(p.inventoryEntries()).get("Mode");const html=p.inventoryDetails(item);assert.ok(html.includes('data-parameter-entity="select.heating"'));assert.ok(html.includes("5 – 90"));assert.ok(html.includes("Type · 10"));assert.ok(html.includes("live validatie vereist"));
   row.control=false;assert.ok(p.inventoryDetails(item).includes("Alleen lezen of geen toestemming"));
 });
+
+test("one locale dictionary covers all shell keys and preserves native numeric input",()=>{
+  const p=model(true,true);p._hass.states["sensor.temperature"].state="42.5";assert.equal(p.value(p.row("sensor.temperature")),"42,5 °C");
+  for(const lang of ["en","nl","fr"]){p._hass.language=lang;for(const key of ["overview","settings","engineering","save","live_verified","requirements_not_confirmed","native_index","navigation"])assert.notEqual(p.t(key),key);}
+  p._hass.language="nl";assert.equal(p.capabilityLabel({native_label:"Arrangement function 1 mixer target temperature"}),"Controllerfunctie 1 · Mengklepdoeltemperatuur");
+});
+test("navigation does not keep a selected object outside the target domain",()=>{
+  const p=model(true,true);p.render=()=>{};p.object="device";p.current().objects.push({id:"solar",capabilities:[{section:"solar",depth:"status"}]});p.editor={id:"text.week"};p.selectTab("solar");assert.equal(p.object,"");assert.equal(p.editor,null);assert.equal(p.objectsForTab().length,1);p.selectObject("device");assert.equal(p.object,"");p.selectObject("solar");assert.equal(p.object,"solar");p.current().settings=false;p.selectTab("settings");assert.equal(p.tab,"solar");
+});

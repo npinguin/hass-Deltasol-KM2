@@ -42,6 +42,8 @@ function journey(){
     hass.states["sensor.temp"]=state("42",{unit_of_measurement:"°C"});
     panel.hass=hass;panel.render();
     click('[data-tab="heating"]');
+    const nav=root.querySelector('[data-tab="heating"]');nav.focus();panel.render();
+    check(root.activeElement?.dataset.tab==="heating","Lost keyboard focus on rerender");
     check(root.textContent.includes("Heating mode"),"Missing routine control");
     choose('[data-input="select.mode"]',"Off");
     click('[data-apply="select.mode"]');await tick();

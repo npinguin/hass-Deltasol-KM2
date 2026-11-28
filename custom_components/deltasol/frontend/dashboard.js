@@ -17,6 +17,14 @@ const RELATION_COPY={en:{relations:"Native assignments",sensor_reference:"Sensor
 const TASK_COPY={en:{attention_title:"Needs attention",connection_action:"Check gateway connection and integration settings.",parameter_action:"Check parameter access and allow discovery to recover.",requirements_action:"Check installed function and its prerequisites in Settings or Engineering.",unknown_action:"Check the native source device.",alarm_action:"Inspect the reported condition before changing settings.",view_object:"View object",all_clear:"No current attention items among the visible operational capabilities.",routine_controls:"Daily controls",no_routine_controls:"No confirmed daily control available for this selection.",range_limits:"Allowed range",increment:"Step",not_writable:"Read only or not permitted",back_overview:"All objects",more_preferences:"View all operating preferences"},nl:{attention_title:"Aandacht nodig",connection_action:"Controleer de gatewayverbinding en integratie-instellingen.",parameter_action:"Controleer parametertoegang en laat functiedetectie herstellen.",requirements_action:"Controleer de geïnstalleerde functie en voorwaarden in Instellingen of Engineering.",unknown_action:"Controleer het native bronapparaat.",alarm_action:"Controleer de gemelde toestand voordat je instellingen wijzigt.",view_object:"Bekijk object",all_clear:"Geen actuele aandachtspunten bij de zichtbare operationele functies.",routine_controls:"Dagelijkse bediening",no_routine_controls:"Geen bevestigde dagelijkse bediening voor deze selectie.",range_limits:"Toegestaan bereik",increment:"Stap",not_writable:"Alleen lezen of geen toestemming",back_overview:"Alle objecten",more_preferences:"Bekijk alle bedrijfsinstellingen"},fr:{attention_title:"Attention requise",connection_action:"Vérifiez la connexion à la passerelle et les paramètres de l’intégration.",parameter_action:"Vérifiez l’accès aux paramètres et laissez la détection se rétablir.",requirements_action:"Vérifiez la fonction installée et ses prérequis dans les paramètres ou l’ingénierie.",unknown_action:"Vérifiez l’appareil source natif.",alarm_action:"Examinez la condition signalée avant de modifier les paramètres.",view_object:"Voir l’objet",all_clear:"Aucun point d’attention actuel parmi les fonctions opérationnelles visibles.",routine_controls:"Commandes quotidiennes",no_routine_controls:"Aucune commande quotidienne confirmée pour cette sélection.",range_limits:"Plage autorisée",increment:"Pas",not_writable:"Lecture seule ou accès non autorisé",back_overview:"Tous les objets",more_preferences:"Voir toutes les préférences"}};
 const EVIDENCE_COPY={en:{native_index:"Reference index",live_verified:"Native control currently verified; action rechecks prerequisites",live_capability_not_confirmed:"Live prerequisites not confirmed",catalogue_contract_not_confirmed:"Exact catalogue contract not confirmed",hardware_or_topology_assignment:"Hardware or topology assignment; commissioning scope",existing_relay_owner:"Existing relay control owner",runtime_or_history_preserved:"Runtime or history value; not an operating setting",engineering_or_commissioning_only:"Engineering or commissioning scope",commissioning_or_control_scheme:"Commissioning or control scheme",protection_or_safety_configuration:"Protection or safety configuration",native_operating_contract_unverified:"Operating contract not verified",stale:"Stale; not current"},nl:{native_index:"Referentie-index",live_verified:"Native bediening bevestigd; opdracht controleert voorwaarden opnieuw",live_capability_not_confirmed:"Live voorwaarden niet bevestigd",catalogue_contract_not_confirmed:"Exact cataloguscontract niet bevestigd",hardware_or_topology_assignment:"Hardware- of topologietoewijzing; commissioning",existing_relay_owner:"Bestaande relaisbediening",runtime_or_history_preserved:"Runtime- of historiekwaarde; geen bedrijfsinstelling",engineering_or_commissioning_only:"Engineering of commissioning",commissioning_or_control_scheme:"Commissioning of regelschema",protection_or_safety_configuration:"Beveiligings- of veiligheidsconfiguratie",native_operating_contract_unverified:"Bedrijfscontract niet bevestigd",stale:"Verouderd; niet actueel"},fr:{native_index:"Index de référence",live_verified:"Commande native vérifiée ; prérequis revérifiés lors de l’action",live_capability_not_confirmed:"Prérequis actuels non confirmés",catalogue_contract_not_confirmed:"Contrat exact du catalogue non confirmé",hardware_or_topology_assignment:"Affectation matérielle ou topologique ; mise en service",existing_relay_owner:"Commande de relais existante",runtime_or_history_preserved:"Valeur de fonctionnement ou historique ; pas un réglage",engineering_or_commissioning_only:"Ingénierie ou mise en service",commissioning_or_control_scheme:"Mise en service ou schéma de régulation",protection_or_safety_configuration:"Configuration de protection ou sécurité",native_operating_contract_unverified:"Contrat de fonctionnement non confirmé",stale:"Obsolète ; non actuel"}};
 const CONTRACT_COPY={en:{open_native_control:"Open native control",entity_not_exposed:"No readable enabled entity in this dashboard context.",relative_conditions:"Relative conditions (native encoding)",prerequisites:"Native prerequisite references",live_recheck:"Static contract only; live validation is required before changing a value."},nl:{open_native_control:"Open native bediening",entity_not_exposed:"Geen leesbare ingeschakelde entity in deze dashboardcontext.",relative_conditions:"Relatieve voorwaarden (native codering)",prerequisites:"Native vereiste referenties",live_recheck:"Statisch contract; live validatie vereist vóór wijziging."},fr:{open_native_control:"Ouvrir la commande native",entity_not_exposed:"Aucune entité active et lisible dans ce contexte.",relative_conditions:"Conditions relatives (codage natif)",prerequisites:"Références natives requises",live_recheck:"Contrat statique ; validation en direct requise avant modification."}};
+const UX_COPY={en:{save:"Save",all_objects:"All objects",selected_object:"Selected object",choose_context:"Choose installation",navigation:"RESOL navigation",unmapped_label:"Setting",technical_status:"Technical status",native_evidence:"Native evidence",focus_object:"Object details",outcome_value:"Confirmed value",capture:"Historical capture",readonly:"Not verified writable"},nl:{save:"Opslaan",all_objects:"Alle objecten",selected_object:"Geselecteerd object",choose_context:"Kies installatie",navigation:"RESOL-navigatie",unmapped_label:"Instelling",technical_status:"Technische status",native_evidence:"Native bronbewijs",focus_object:"Objectdetails",outcome_value:"Bevestigde waarde",capture:"Historische snapshot",readonly:"Niet bevestigd schrijfbaar"},fr:{save:"Enregistrer",all_objects:"Tous les objets",selected_object:"Objet sélectionné",choose_context:"Choisir l’installation",navigation:"Navigation RESOL",unmapped_label:"Réglage",technical_status:"État technique",native_evidence:"Preuves natives",focus_object:"Détails de l’objet",outcome_value:"Valeur confirmée",capture:"Capture historique",readonly:"Écriture non confirmée"}};
+const TEXT_SOURCES=[CONTRACT_COPY,EVIDENCE_COPY,TASK_COPY,RELATION_COPY,LIVE_COPY,OBJECT_COPY,WEEK_COPY,ENGINEERING_COPY,STATUS_COPY,COPY,UX_COPY];
+const TEXT=Object.fromEntries(["en","nl","fr"].map(lang=>[lang,Object.assign({},...TEXT_SOURCES.map(source=>source[lang]))]));
+const LABELS={
+  nl:{"configured mode":"Bedrijfsmodus","configured mode (including coupled circuits)":"Bedrijfsmodus (inclusief gekoppelde circuits)","day correction":"Dagcorrectie","night correction":"Nachtcorrectie","heating curve":"Stooklijn","thermostat 1 on":"Thermostaat 1 inschakeltemperatuur","thermostat 1 off":"Thermostaat 1 uitschakeltemperatuur","thermostat 2 on":"Thermostaat 2 inschakeltemperatuur","thermostat 2 off":"Thermostaat 2 uitschakeltemperatuur","automatic daylight saving time":"Automatische zomertijd","power":"Vermogen","temperature":"Temperatuur","energy":"Energie","mixer target temperature":"Mengklepdoeltemperatuur","return mixing target differential":"Retourmengverschil","summer switch-off temperature":"Zomeruitschakeltemperatuur","dhw loading pump overrun enabled":"Naloop laadpomp warm water ingeschakeld","dhw loading pump overrun":"Nalooptijd laadpomp warm water","circulation temperature":"Circulatietemperatuur","dhw preheat differential":"Voorverwarmingsverschil warm water","dhw preheat differential enabled":"Voorverwarmingsverschil warm water ingeschakeld","summer cut-off enabled":"Zomeruitschakeling ingeschakeld","summer cut-off mode":"Zomeruitschakelmodus","energy saving enabled":"Energiebesparing ingeschakeld","automatic holiday participation":"Automatisch vakantieprogramma","target temperature enabled":"Doeltemperatuur ingeschakeld","solid fuel target temperature enabled":"Doeltemperatuur vaste brandstof ingeschakeld","dhw off during holiday":"Warm water uit tijdens vakantie","supplementary heating":"Bijverwarming","supplementary heating mode":"Bijverwarmingsmodus","dhw heating mode":"Verwarmingsmodus warm water","weekly timer mode":"Weekprogramm modus","cooling trigger":"Koeltrigger","minimum temperature enabled":"Minimumtemperatuur ingeschakeld","dhw priority":"Voorrang warm water","manual mode":"Handbediening","minimum runtime":"Minimale bedrijfstijd","minimum runtime enabled":"Minimale bedrijfstijd ingeschakeld","solid fuel suppression":"Blokkering door vastebrandstofverwarming","twin pump runtime":"Bedrijfstijd dubbele pomp","loading on temperature":"Laadinschakeltemperatuur","loading off temperature":"Laaduitschakeltemperatuur"},
+  fr:{"configured mode":"Mode configuré","configured mode (including coupled circuits)":"Mode configuré (circuits couplés inclus)","day correction":"Correction de jour","night correction":"Correction de nuit","heating curve":"Courbe de chauffe","thermostat 1 on":"Thermostat 1 température d’enclenchement","thermostat 1 off":"Thermostat 1 température d’arrêt","thermostat 2 on":"Thermostat 2 température d’enclenchement","thermostat 2 off":"Thermostat 2 température d’arrêt","automatic daylight saving time":"Heure d’été automatique","power":"Puissance","temperature":"Température","energy":"Énergie","mixer target temperature":"Consigne du mélangeur","return mixing target differential":"Différentiel du mélange de retour","summer switch-off temperature":"Température d’arrêt été","dhw loading pump overrun enabled":"Post-circulation de charge ECS activée","dhw loading pump overrun":"Durée de post-circulation de charge ECS","circulation temperature":"Température de circulation","dhw preheat differential":"Différentiel de préchauffage ECS","dhw preheat differential enabled":"Différentiel de préchauffage ECS activé","summer cut-off enabled":"Arrêt été activé","summer cut-off mode":"Mode arrêt été","energy saving enabled":"Économie d’énergie activée","automatic holiday participation":"Programme vacances automatique","target temperature enabled":"Consigne activée","solid fuel target temperature enabled":"Consigne combustible solide activée","dhw off during holiday":"ECS arrêtée pendant les vacances","supplementary heating":"Chauffage d’appoint","supplementary heating mode":"Mode chauffage d’appoint","dhw heating mode":"Mode chauffage ECS","weekly timer mode":"Mode programme hebdomadaire","cooling trigger":"Déclenchement du refroidissement","minimum temperature enabled":"Température minimale activée","dhw priority":"Priorité ECS","manual mode":"Commande manuelle","minimum runtime":"Durée minimale de fonctionnement","minimum runtime enabled":"Durée minimale de fonctionnement activée","solid fuel suppression":"Blocage par chauffage à combustible solide","twin pump runtime":"Durée de fonctionnement pompe double","loading on temperature":"Température d’enclenchement de charge","loading off temperature":"Température d’arrêt de charge"}
+};
+const MODE_LABELS={nl:{Auto:"Auto",Day:"Dag",Night:"Nacht",Summer:"Zomer",Holiday:"Vakantie",Off:"Uit",On:"Aan",Min:"Minimum",Max:"Maximum"},fr:{Auto:"Auto",Day:"Jour",Night:"Nuit",Summer:"Été",Holiday:"Vacances",Off:"Arrêt",On:"Marche",Min:"Minimum",Max:"Maximum"}};
 const DAYS=["Mo","Di","Mi","Do","Fr","Sa","So"];
 const SECTIONS = ["overview","solar","heating","hot_water","energy","settings","engineering"];
 const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -72,7 +80,10 @@ class ResolDashboard extends HTMLElement {
       this.render();
     }
   }
-  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||(ENGINEERING_COPY[lang]||ENGINEERING_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||ENGINEERING_COPY.en[key]||(WEEK_COPY[lang]||WEEK_COPY.en)[key]||WEEK_COPY.en[key]||(OBJECT_COPY[lang]||OBJECT_COPY.en)[key]||OBJECT_COPY.en[key]||(LIVE_COPY[lang]||LIVE_COPY.en)[key]||LIVE_COPY.en[key]||(RELATION_COPY[lang]||RELATION_COPY.en)[key]||RELATION_COPY.en[key]||(TASK_COPY[lang]||TASK_COPY.en)[key]||TASK_COPY.en[key]||(EVIDENCE_COPY[lang]||EVIDENCE_COPY.en)[key]||EVIDENCE_COPY.en[key]||(CONTRACT_COPY[lang]||CONTRACT_COPY.en)[key]||CONTRACT_COPY.en[key]||key;}
+  language(){const code=(this._hass?.language||"en").slice(0,2);return TEXT[code]?code:"en";}
+  t(key){return TEXT[this.language()][key]??TEXT.en[key]??key;}
+  formatNumber(value){return new Intl.NumberFormat(this.language(),{maximumFractionDigits:6,useGrouping:false}).format(value);}
+
   current(){return this.installations.find(item=>item.id===this.context);}
   rows(){return this.current()?.objects.flatMap(asset=>asset.capabilities)||[];}
   row(id){return this.rows().find(row=>row.entity_id===id);}
@@ -85,6 +96,7 @@ class ResolDashboard extends HTMLElement {
       if(!this.current()?.objects.some(asset=>asset.id===this.object))this.object="";
       if(!this.current()?.engineering){this.report=null;this.query="";this.filter="all";this.page=0;}
       if(!this.tabs().includes(this.tab))this.tab="overview";
+      if(this.object&&!this.objectsForTab().some(asset=>asset.id===this.object))this.object="";
       if(this.editor&&!this.row(this.editor.id)?.control)this.editor=null;
       if(this.history&&!this.row(this.history.id))this.history=null;
       this.loaded=true;
@@ -94,18 +106,31 @@ class ResolDashboard extends HTMLElement {
   tabs(){
     const installation=this.current();
     const groups=new Set(this.rows().map(row=>row.section));
-    return SECTIONS.filter(tab=>tab==="overview"||tab==="energy"||groups.has(tab)||tab==="settings"&&installation?.settings||tab==="engineering"&&installation?.engineering);
+    return SECTIONS.filter(tab=>tab==="settings"?Boolean(installation?.settings):tab==="engineering"?Boolean(installation?.engineering):tab==="overview"||tab==="energy"||groups.has(tab));
+  }
+  objectsForTab(tab=this.tab){
+    const objects=this.current()?.objects||[];
+    if(tab==="overview"||tab==="engineering")return objects;
+    return objects.filter(asset=>asset.capabilities.some(row=>tab==="settings"?row.depth==="settings"||row.depth==="controls":row.section===tab&&row.depth!=="engineering"));
+  }
+  selectTab(tab){
+    if(!this.tabs().includes(tab))return;
+    this.tab=tab;
+    if(this.object&&!this.objectsForTab(tab).some(asset=>asset.id===this.object))this.object="";
+    this.editor=null;this.history=null;this.notice="";this.page=0;
+    this.render();if(tab==="engineering")this.engineering();
+  }
+  selectObject(id){
+    if(id&&!this.objectsForTab().some(asset=>asset.id===id))return;
+    this.object=id;this.editor=null;this.history=null;this.page=0;this.render();
   }
   state(row){return this._hass?.states?.[row.entity_id];}
   capabilityLabel(row){
     if(row.renamed)return row.name;
     const lang=(this._hass?.language||"en").slice(0,2);
-    const names={
-      nl:{"configured mode":"Bedrijfsmodus","configured mode (including coupled circuits)":"Bedrijfsmodus (inclusief gekoppelde circuits)","day correction":"Dagcorrectie","night correction":"Nachtcorrectie","heating curve":"Stooklijn","thermostat 1 on":"Thermostaat 1 inschakeltemperatuur","thermostat 1 off":"Thermostaat 1 uitschakeltemperatuur","thermostat 2 on":"Thermostaat 2 inschakeltemperatuur","thermostat 2 off":"Thermostaat 2 uitschakeltemperatuur","automatic daylight saving time":"Automatische zomertijd","power":"Vermogen","temperature":"Temperatuur","energy":"Energie"},
-      fr:{"configured mode":"Mode configuré","configured mode (including coupled circuits)":"Mode configuré (circuits couplés inclus)","day correction":"Correction de jour","night correction":"Correction de nuit","heating curve":"Courbe de chauffe","thermostat 1 on":"Thermostat 1 température d’enclenchement","thermostat 1 off":"Thermostat 1 température d’arrêt","thermostat 2 on":"Thermostat 2 température d’enclenchement","thermostat 2 off":"Thermostat 2 température d’arrêt","automatic daylight saving time":"Heure d’été automatique","power":"Puissance","temperature":"Température","energy":"Énergie"}
-    };
+    const names=LABELS;
     if(row.schedule&&row.program&&DAYS.includes(row.day))return this.t("program")+" "+row.program+" · "+this.t(row.day);
-    const label=row.native_label||row.name||"RESOL";
+    const label=row.native_label||this.state(row)?.attributes?.friendly_name||row.name||"RESOL";
     const match=label.match(/^(Heating circuit|Function block|Arrangement function|Solar store|Solar collector|Heating function) (\d+) (.+)$/i);
     if(match){
       const type={"heating circuit":"circuit","function block":"function","arrangement function":"function","solar store":"store","solar collector":"collector","heating function":"heating_function"}[match[1].toLowerCase()];
@@ -115,14 +140,14 @@ class ResolDashboard extends HTMLElement {
   }
   optionLabel(value){
     const lang=(this._hass?.language||"en").slice(0,2);
-    const modes={nl:{Auto:"Auto",Day:"Dag",Night:"Nacht",Summer:"Zomer",Holiday:"Vakantie",Off:"Uit",On:"Aan",Min:"Minimum",Max:"Maximum"},fr:{Auto:"Auto",Day:"Jour",Night:"Nuit",Summer:"Été",Holiday:"Vacances",Off:"Arrêt",On:"Marche",Min:"Minimum",Max:"Maximum"}};
-    return modes[lang]?.[value]||value;
+    return MODE_LABELS[lang]?.[value]||value;
   }
   value(row){
     const state=this.state(row);
     if(!state||state.state==="unknown"||state.state==="unavailable"||row.availability&&row.availability!=="available")return this.t(state?.state==="unavailable"||row.availability&&row.availability!=="available"?"unavailable":"unknown");
     const unit=state.attributes.unit_of_measurement;
-    return (row.kind==="select"||row.kind==="switch"?this.optionLabel(row.kind==="switch"?(state.state==="on"?"On":"Off"):state.state):state.state)+(unit?" "+unit:"");
+    const numeric=unit&&String(state.state).trim()!==""&&Number.isFinite(Number(state.state));
+    return (row.kind==="select"||row.kind==="switch"?this.optionLabel(row.kind==="switch"?(state.state==="on"?"On":"Off"):state.state):numeric?this.formatNumber(Number(state.state)):state.state)+(unit?" "+unit:"");
   }
   valid(row){const state=this.state(row);return Boolean(state&&state.state!=="unknown"&&state.state!=="unavailable"&&(!row.availability||row.availability==="available"));}
   allowed(row){return row.control&&(this.valid(row)||row.kind==="button"&&this.state(row)?.state==="unknown")&&!this.pending;}
@@ -286,12 +311,20 @@ class ResolDashboard extends HTMLElement {
   }
   render(){
     if(!this.shadowRoot)return;
-    const installation=this.current(), tabs=this.tabs(), assets=installation?.objects||[];
+    // Keep keyboard focus through live refreshes without preserving stale input values.
+    const focused=this.shadowRoot.activeElement;
+    const focusKey=focused?.id?["id",focused.id]:focused?Object.entries(focused.dataset||{}).find(([key])=>["tab","object","sourceObject","parameterEntity","apply","history","edit","refresh","reportRefresh","export","closeHistory"].includes(key)):null;
+    const installation=this.current(), tabs=this.tabs(), assets=this.objectsForTab();
     const count=this.attentionItems().length;
     const options=this.installations.map(item=>'<option value="'+escape(item.id)+'" '+(item.id===this.context?"selected":"")+'>'+escape(item.name)+'</option>').join("");
     const objects=assets.map(asset=>'<option value="'+escape(asset.id)+'" '+(asset.id===this.object?"selected":"")+'>'+escape(this.objectTitle(asset))+'</option>').join("");
-    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="RESOL">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("status"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><p class="muted">'+escape(this.t("unsupported"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.engineeringView():"")+(this.tab==="overview"?this.summary()+this.attentionView()+(!this.object?this.routineView():""):"")+this.cards()+(this.tab==="settings"?this.weekView():this.object&&this.tab!=="engineering"?this.weekView(false):""))+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
+    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="'+escape(this.t("navigation"))+'">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" aria-live="polite" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("status"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><p class="muted">'+escape(this.t("unsupported"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.engineeringView():"")+(this.tab==="overview"?this.summary()+this.attentionView()+(!this.object?this.routineView():""):"")+this.cards()+(this.tab==="settings"?this.weekView():this.object&&this.tab!=="engineering"?this.weekView(false):""))+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
     if(this.tab==="engineering")this.renderInventory();
+    if(focusKey){
+      const [key,value]=focusKey;
+      const replacement=Array.from(this.shadowRoot.querySelectorAll("button,input,select,textarea")).find(node=>key==="id"?node.id===value:node.dataset[key]===value);
+      replacement?.focus({preventScroll:true});
+    }
   }
   async engineering(){
     this.report=null;
@@ -369,7 +402,7 @@ class ResolDashboard extends HTMLElement {
   editorView(){
     const editor=this.editor,row=this.row(editor.id);
     if(!row)return "";
-    return '<section class="card"><h2>'+escape(this.capabilityLabel(row))+'</h2><p>'+escape(this.t("confirm_schedule"))+'</p>'+editor.windows.map((pair,i)=>'<div class="interval"><label>'+escape(this.t("start"))+' <input type="time" step="900" data-window="'+i+'" data-edge="0" value="'+escape(pair[0])+'"></label><label>'+escape(this.t("end"))+' <input type="time" step="900" data-window="'+i+'" data-edge="1" value="'+escape(pair[1])+'"></label><button data-remove="'+i+'">'+escape(this.t("remove"))+'</button></div>').join("")+'<p>'+escape(this.t("shared"))+': '+escape((editor.review?.references||row.shared_references||[]).join(", ")||this.t("no_refs"))+'</p>'+(editor.review?'<p class="value">'+escape(editor.review.value)+'</p>':"")+'<div class="actions"><button data-add '+(editor.windows.length>=6?"disabled":"")+'>'+escape(this.t("add"))+'</button><button data-preview '+(this.pending?"disabled":"")+'>'+escape(this.t("preview"))+'</button><button data-save class="primary" '+(!editor.review||this.pending?"disabled":"")+'>'+escape(this.t("apply"))+'</button><button data-cancel>'+escape(this.t("cancel"))+'</button></div></section>';
+    return '<section class="card"><h2>'+escape(this.capabilityLabel(row))+'</h2><p>'+escape(this.t("confirm_schedule"))+'</p>'+editor.windows.map((pair,i)=>'<div class="interval"><label>'+escape(this.t("start"))+' <input type="time" step="900" data-window="'+i+'" data-edge="0" value="'+escape(pair[0])+'"></label><label>'+escape(this.t("end"))+' <input type="time" step="900" data-window="'+i+'" data-edge="1" value="'+escape(pair[1])+'"></label><button data-remove="'+i+'">'+escape(this.t("remove"))+'</button></div>').join("")+'<p>'+escape(this.t("shared"))+': '+escape((editor.review?.references||row.shared_references||[]).join(", ")||this.t("no_refs"))+'</p>'+(editor.review?'<p class="value">'+escape(editor.review.value)+'</p>':"")+'<div class="actions"><button data-add '+(editor.windows.length>=6?"disabled":"")+'>'+escape(this.t("add"))+'</button><button data-preview '+(this.pending?"disabled":"")+'>'+escape(this.t("preview"))+'</button><button data-save class="primary" '+(!editor.review||this.pending?"disabled":"")+'>'+escape(this.t("save"))+'</button><button data-cancel>'+escape(this.t("cancel"))+'</button></div></section>';
   }
   async action(row,value,preview=false){
     if(!row||!this.allowed(row))return;
@@ -380,7 +413,7 @@ class ResolDashboard extends HTMLElement {
       const review=row.schedule&&!preview?this.editor?.review:null;
       const result=await this._hass.callWS({type:"deltasol/dashboard/action",entry_id:this.context,entity_id:row.entity_id,value,preview,...(review?{expected:review.expected,references:review.references,reference_token:review.reference_token}:{})});
       if(preview&&this.editor){this.editor.review=result;this.notice="";}
-      else{this.notice=this.t(result.outcome)+(result.value==null?"":": "+result.value);this.editor=null;}
+      else{this.notice=this.t(result.outcome)+(result.value==null?"":": "+(typeof result.value==="number"?this.formatNumber(result.value):this.optionLabel(result.value)));this.editor=null;}
     }catch{this.notice=this.t("error");if(this.editor)this.editor.review=null;}
     finally{this.pending=false;this.render();}
   }
@@ -430,7 +463,7 @@ class ResolDashboard extends HTMLElement {
     const target=event.target;
     if(this.pending){this.render();return;}
     if(target.id==="installation"){this.context=target.value;this.object="";this.editor=null;this.history=null;this.report=null;if(!this.tabs().includes(this.tab))this.tab="overview";this.render();if(this.tab==="engineering")this.engineering();}
-    if(target.id==="object"){this.object=target.value;this.page=0;this.render();}
+    if(target.id==="object")this.selectObject(target.value);
     if(target.id==="technical-filter"){this.filter=target.value;this.page=0;this.renderInventory();}
     if(target.id==="history-range"&&this.history)this.openHistory(this.row(this.history.id),Number(target.value));
     if(target.dataset.window!==undefined&&this.editor){this.editor.windows[Number(target.dataset.window)][Number(target.dataset.edge)]=target.value;this.editor.review=null;this.render();}
@@ -439,10 +472,10 @@ class ResolDashboard extends HTMLElement {
     const button=event.target.closest("button");if(!button||button.disabled||this.pending)return;
     const d=button.dataset;
     if(d.refresh!==undefined){this.load();if(this.tab==="engineering")this.engineering();}
-    else if(d.tab){this.tab=d.tab;this.editor=null;this.history=null;this.notice="";this.render();if(this.tab==="engineering")this.engineering();}
+    else if(d.tab)this.selectTab(d.tab);
     else if(d.parameterEntity){const asset=this.current()?.objects.find(item=>item.capabilities.some(row=>row.entity_id===d.parameterEntity));const row=this.row(d.parameterEntity);if(asset&&row){this.object=asset.id;this.tab=row.depth==="engineering"?"engineering":row.depth==="settings"?"settings":"overview";this.editor=null;this.history=null;this.render();}}
     else if(d.sourceObject){this.object=d.sourceObject;this.tab="overview";this.editor=null;this.history=null;this.render();}
-    else if(d.object){this.object=d.object;this.render();}
+    else if(d.object)this.selectObject(d.object);
     else if(d.history){this.openHistory(this.row(d.history));}
     else if(d.closeHistory!==undefined){this.history=null;this.render();}
     else if(d.edit){this.edit(this.row(d.edit));}
