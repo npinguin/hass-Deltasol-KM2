@@ -76,3 +76,11 @@ test("engineering inventory merges live and historical evidence without claiming
   p.filter="changes";assert.equal(p.inventoryEntries()[0][0],"Old");
   p.filter="all";p.query="heating";assert.equal(p.inventoryEntries()[0][0],"Live");
 });
+
+test("reference inventory remains searchable without a historical capture",()=>{
+  const p=model(true,true);
+  p.filter="all";p.query="14014";p.report={reference_inventory:{HeatingMode:{reference_index:14014,status:"reference_only",write_access:"not_confirmed"}}};
+  assert.equal(p.inventoryEntries()[0][0],"HeatingMode");
+  assert.equal(p.inventoryEntries()[0][1].reference.write_access,"not_confirmed");
+  p.filter="live";assert.equal(p.inventoryEntries().length,0);
+});

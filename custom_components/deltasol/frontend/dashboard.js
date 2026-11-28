@@ -181,16 +181,16 @@ class ResolDashboard extends HTMLElement {
     return '<section class="card"><div class="toolbar"><h2 class="grow">'+escape(this.t("diagnostics"))+'</h2><button data-report-refresh>'+escape(this.t("refresh"))+'</button><button data-export>'+escape(this.t("export"))+'</button></div><div class="grid"><div><h3>'+escape(this.t("live"))+'</h3><p>'+escape(access.status||this.t("unknown"))+'</p><p>'+escape(access.reference_profile||"")+' · '+escape(access.discovery_changeset||"")+'</p></div><div><h3>'+escape(this.t("capture"))+'</h3><p>'+escape(discovery.status||this.t("unknown"))+'</p><p>'+escape(discovery.finished_at||discovery.started_at||"")+'</p></div><div><h3>'+escape(this.t("comparison"))+'</h3><p>'+escape(comparison.status||this.t("not_confirmed"))+' · '+changes+' '+escape(this.t("changes"))+'</p></div></div><details><summary>'+escape(this.t("transport"))+'</summary><pre>'+escape(JSON.stringify(summary,null,2))+'</pre></details><h2>'+escape(this.t("inventory"))+'</h2>'+(object?'<p>'+escape(this.objectTitle(object))+'</p>':"")+'<div class="toolbar"><input id="technical-search" aria-label="'+escape(this.t("search"))+'" placeholder="'+escape(this.t("search"))+'" value="'+escape(this.query)+'"><select id="technical-filter" aria-label="'+escape(this.t("filter"))+'">'+["all","live","readonly","changes","object"].map(key=>'<option value="'+key+'" '+(this.filter===key?"selected":"")+'>'+escape(this.t(key))+'</option>').join("")+'</select></div><div class="technical" id="inventory"></div></section>';
   }
   inventoryEntries(){
-    const discovery=this.report?.configuration_discovery||{}, live=this.report?.configuration_controls||{}, contracts=this.report?.operational_contracts||{}, history=discovery.parameters||{}, changes=discovery.comparison?.changes||{};
+    const discovery=this.report?.configuration_discovery||{}, live=this.report?.configuration_controls||{}, contracts=this.report?.operational_contracts||{}, reference=this.report?.reference_inventory||{}, history=discovery.parameters||{}, changes=discovery.comparison?.changes||{};
     const selected=new Set((this.current()?.objects.find(asset=>asset.id===this.object)?.capabilities||[]).map(row=>row.parameter).filter(Boolean));
     const rows=[];
-    for(const key of new Set([...Object.keys(history),...Object.keys(contracts),...Object.keys(live)])){
-      const row={label:contracts[key]?.label||key,live:live[key],capture:history[key],contract:contracts[key],change:changes[key]};
+    for(const key of new Set([...Object.keys(history),...Object.keys(contracts),...Object.keys(live),...Object.keys(reference)])){
+      const row={label:contracts[key]?.label||key,live:live[key],capture:history[key],contract:contracts[key],reference:reference[key],change:changes[key]};
       if(this.filter==="live"&&row.live?.status!=="supported")continue;
       if(this.filter==="readonly"&&row.live?.write_access==="profile_verified")continue;
       if(this.filter==="changes"&&!row.change)continue;
       if(this.filter==="object"&&!selected.has(key))continue;
-      if(!(key+" "+row.label+" "+(row.capture?.reference_index??"")).toLowerCase().includes((this.query||"").toLowerCase()))continue;
+      if(!(key+" "+row.label+" "+(row.capture?.reference_index??row.reference?.reference_index??"")).toLowerCase().includes((this.query||"").toLowerCase()))continue;
       rows.push([key,row]);
     }
     return rows;
@@ -202,7 +202,7 @@ class ResolDashboard extends HTMLElement {
     const pages=Math.max(1,Math.ceil(entries.length/size));
     this.page=Math.min(this.page||0,pages-1);
     const visible=entries.slice(this.page*size,(this.page+1)*size);
-    host.innerHTML=entries.length?'<div class="toolbar"><span>'+entries.length+' · '+(this.page+1)+' / '+pages+'</span><button data-page="-1" '+(!this.page?"disabled":"")+'>'+escape(this.t("back"))+'</button><button data-page="1" '+(this.page+1>=pages?"disabled":"")+'>'+escape(this.t("next"))+'</button></div><table><thead><tr><th>'+escape(this.t("inventory"))+'</th><th>'+escape(this.t("status"))+'</th><th>'+escape(this.t("details"))+'</th></tr></thead><tbody>'+visible.map(([key,row])=>'<tr><td>'+escape(row.label)+'<br><small>'+escape(key)+'</small></td><td>'+escape(row.live?.status||row.capture?.status||this.t("not_confirmed"))+'<br><small>'+escape(row.live?.write_access||row.capture?.write_access_reason||row.contract?.catalogue_binding||"")+'</small></td><td><details><summary>'+escape(this.t("details"))+'</summary><pre>'+escape(JSON.stringify(row,null,2))+'</pre></details></td></tr>').join("")+'</tbody></table>':'<p>'+escape(this.t("none"))+'</p>';
+    host.innerHTML=entries.length?'<div class="toolbar"><span>'+entries.length+' · '+(this.page+1)+' / '+pages+'</span><button data-page="-1" '+(!this.page?"disabled":"")+'>'+escape(this.t("back"))+'</button><button data-page="1" '+(this.page+1>=pages?"disabled":"")+'>'+escape(this.t("next"))+'</button></div><table><thead><tr><th>'+escape(this.t("inventory"))+'</th><th>'+escape(this.t("status"))+'</th><th>'+escape(this.t("details"))+'</th></tr></thead><tbody>'+visible.map(([key,row])=>'<tr><td>'+escape(row.label)+'<br><small>'+escape(key)+'</small></td><td>'+escape(row.live?.status||row.capture?.status||row.reference?.status||this.t("not_confirmed"))+'<br><small>'+escape(row.live?.write_access||row.capture?.write_access_reason||row.contract?.catalogue_binding||"")+'</small></td><td><details><summary>'+escape(this.t("details"))+'</summary><pre>'+escape(JSON.stringify(row,null,2))+'</pre></details></td></tr>').join("")+'</tbody></table>':'<p>'+escape(this.t("none"))+'</p>';
   }
   edit(row){
     const observed=this.state(row)?.state;

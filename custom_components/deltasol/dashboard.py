@@ -23,7 +23,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .catalog import CatalogError
+from .catalog import CatalogError, is_sensitive
 from .configuration import format_weekly_day, parse_weekly_day
 from .const import CONF_DASHBOARD, CONF_ENGINEERING, DOMAIN
 from .diagnostics import async_get_config_entry_diagnostics
@@ -327,6 +327,20 @@ async def ws_engineering(hass, connection, msg):
                 "reasons": list(rejected.get(name, ())),
             }
             for name, label in labels.items()
+        }
+        # The exact catalogue also supplies reference-only metadata when the
+        # historical capture is unavailable. Never promote this to live access.
+        report["reference_inventory"] = {
+            definition.name: {
+                "reference_index": definition.index,
+                "type_id": definition.type_id,
+                "storage": definition.storage,
+                "metadata": definition.metadata,
+                "status": "reference_only",
+                "write_access": "not_confirmed",
+            }
+            for definition in catalog.definitions
+            if not is_sensitive(definition)
         }
         report["operational_contracts_source"] = {
             "changeset": f"{discovery.changeset:08X}",

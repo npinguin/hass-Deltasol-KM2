@@ -2346,13 +2346,9 @@ async def qualify(directory, phase):
             GROUP_ID_USER,
         )
         from homeassistant.components.frontend import DATA_PANELS
-        from homeassistant.exceptions import Unauthorized
-
         from custom_components.deltasol.dashboard import (
             dashboard_objects,
             scoped_control,
-            ws_engineering,
-            ws_action,
         )
 
         admin = await hass.auth.async_create_user(
@@ -2435,51 +2431,62 @@ async def qualify(directory, phase):
                 pass
             else:
                 raise AssertionError("Engineering or foreign entry control leaked")
-        from types import SimpleNamespace
+        from aiohttp import ClientSession
 
-        replies = []
-        connection = SimpleNamespace(
-            user=admin,
-            send_result=lambda _id, result: replies.append(result),
-            send_error=lambda *_: replies.append({"error": True}),
-        )
-        await ws_action.__wrapped__(
-            hass,
-            connection,
-            {
-                "id": 2,
-                "entry_id": entry.entry_id,
-                "entity_id": select,
-                "value": hass.states.get(select).state,
-                "preview": False,
-            },
-        )
-        assert replies == [
-            {"outcome": "observed", "value": hass.states.get(select).state}
-        ]
-        connection.user = resident
-        await ws_action.__wrapped__(
-            hass,
-            connection,
-            {
-                "id": 3,
-                "entry_id": entry.entry_id,
-                "entity_id": select,
-                "value": "Off",
-                "preview": False,
-            },
-        )
-        assert replies[-1] == {"error": True}
-        try:
-            ws_engineering(
-                hass,
-                SimpleNamespace(user=resident),
-                {"id": 1, "entry_id": entry.entry_id},
+        async def dashboard_request(user, command, **payload):
+            token = await hass.auth.async_create_refresh_token(
+                user, client_id="http://127.0.0.1:18123/"
             )
-        except Unauthorized:
-            pass
-        else:
-            raise AssertionError("Engineering endpoint accepted a non-admin")
+            access_token = hass.auth.async_create_access_token(token)
+            async with (
+                ClientSession() as session,
+                session.ws_connect("http://127.0.0.1:18123/api/websocket") as ws,
+            ):
+                assert (await ws.receive_json())["type"] == "auth_required"
+                await ws.send_json({"type": "auth", "access_token": access_token})
+                assert (await ws.receive_json())["type"] == "auth_ok"
+                await ws.send_json({"id": 1, "type": command, **payload})
+                response = await ws.receive_json()
+                assert response["id"] == 1
+                return response
+
+        # Authenticate against the real HA websocket and exercise registration,
+        # schemas, permissions and the native action context, not just wrappers.
+        listed = await dashboard_request(admin, "deltasol/dashboard/list")
+        assert listed["success"]
+        assert listed["result"][0]["id"] == entry.entry_id
+        report = await dashboard_request(
+            admin, "deltasol/dashboard/engineering", entry_id=entry.entry_id
+        )
+        assert report["success"]
+        assert report["result"]["operational_contracts_source"]["changeset"] == (
+            f"{CHANGESET:08X}"
+        )
+        assert "Schema" in report["result"]["reference_inventory"]
+        denied = await dashboard_request(
+            resident, "deltasol/dashboard/engineering", entry_id=entry.entry_id
+        )
+        assert not denied["success"]
+        response = await dashboard_request(
+            admin,
+            "deltasol/dashboard/action",
+            entry_id=entry.entry_id,
+            entity_id=select,
+            value=hass.states.get(select).state,
+        )
+        assert response["success"]
+        assert response["result"] == {
+            "outcome": "observed",
+            "value": hass.states.get(select).state,
+        }
+        response = await dashboard_request(
+            resident,
+            "deltasol/dashboard/action",
+            entry_id=entry.entry_id,
+            entity_id=select,
+            value="Off",
+        )
+        assert not response["success"]
         assert (Peer.writes, Peer.saves) == before
         # Disable using the native options flow, verify single panel removal.
         result = await options.async_init(entry.entry_id)
@@ -2498,6 +2505,17 @@ async def qualify(directory, phase):
         assert not dashboard_objects(hass, admin)
         assert (Peer.writes, Peer.saves) == before
         print("ISOLATED_HA native dashboard lifecycle and role scope PASS", flush=True)
+        result = await options.async_init(entry.entry_id)
+        result = await options.async_configure(
+            result["flow_id"],
+            {
+                "vbus_password": "local-test",
+                "enable_dashboard": True,
+                "show_engineering": True,
+            },
+        )
+        assert result["type"] == "create_entry"
+        await hass.async_block_till_done()
         await hass.services.async_call(
             "button", "press", {"entity_id": button}, blocking=True
         )
@@ -3585,12 +3603,40 @@ async def qualify(directory, phase):
         assert hass.states.get(schedule).attributes["active_references"] == [
             "Anlage_Wf4_SchaltuhrNr"
         ]
-        await hass.services.async_call(
-            "text",
-            "set_value",
-            {"entity_id": schedule, "value": "08:30-10:00, 18:00-20:00"},
-            blocking=True,
+        request = {
+            "entry_id": entry.entry_id,
+            "entity_id": schedule,
+            "value": "08:30-10:00, 18:00-20:00",
+        }
+        preview = await dashboard_request(
+            admin, "deltasol/dashboard/action", preview=True, **request
         )
+        assert preview["success"] and Peer.bulk_saves == 0
+        review = preview["result"]
+        assert review["expected"] == "08:00-10:00, 18:00-20:00"
+        assert len(review["references"]) == 2
+        denial = await dashboard_request(
+            resident, "deltasol/dashboard/action", preview=True, **request
+        )
+        assert not denial["success"] and Peer.bulk_saves == 0
+        stale = await dashboard_request(
+            admin,
+            "deltasol/dashboard/action",
+            **request,
+            expected="",
+            references=review["references"],
+            reference_token=review["reference_token"],
+        )
+        assert not stale["success"] and Peer.bulk_saves == 0
+        saved = await dashboard_request(
+            admin,
+            "deltasol/dashboard/action",
+            **request,
+            expected=review["expected"],
+            references=review["references"],
+            reference_token=review["reference_token"],
+        )
+        assert saved["success"] and saved["result"]["outcome"] == "observed"
         assert hass.states.get(schedule).state == "08:30-10:00, 18:00-20:00"
         assert Peer.weekly_words[18419] == [0x50482822, -1, -1]
         assert Peer.bulk_saves == 1
