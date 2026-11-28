@@ -1602,7 +1602,7 @@ class ParameterTests(unittest.TestCase):
         names = {
             s.name
             for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
-            if s.name != "Solar_Spreizladung_dTDifferenz"
+            if s.kind == "number" and s.name != "Solar_Spreizladung_dTDifferenz"
         }
         self.assertTrue(names <= controls().keys())
         cap = controls()["Solar_Pendelpause"]
@@ -1624,6 +1624,65 @@ class ParameterTests(unittest.TestCase):
         self.values["Solar_OPumpenverzoegerung"] = (3422, 0)
         self.assertFalse(names & controls().keys())
         self.session.write_verified.assert_called_once()
+
+    def test_solar_loading_options_save_and_recheck_companions(self):
+        self.session.read.return_value = 0x2734DABC
+        self.values.update(
+            {
+                "Solar_SystemId": (3416, 10201),
+                "Solar_Kol1_Sensor1_Nr": (3536, 1),
+                "Solar_Relais1_Nr": (3452, 1),
+                "Solar_Sp1_Sensor1_Nr": (3576, 2),
+                "Solar_Sp1_Aktiviert_Modus": (3604, 1),
+                "Solar_Sp2_Sensor1_Nr": (3612, 3),
+                "Solar_Sp2_Aktiviert_Modus": (3640, 1),
+                "Solar_Beladungstyp": (3417, 0),
+                "Solar_OPausendrehzahl": (3420, 0),
+                "Solar_Pausendrehzahl": (3421, 30),
+                "Solar_OPumpenverzoegerung": (3422, 0),
+                "Solar_Pumpenverzoegerung": (3423, 15),
+            }
+        )
+        hints = {
+            "Solar_Kol1_Sensor1_Nr": parameters.ParameterObservation(3536, 1, "read")
+        }
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        name = "Solar_OPumpenverzoegerung"
+        cap = controls()[name]
+        self.assertFalse(cap.value)
+        self.assertNotIn("Solar_Pumpenverzoegerung", controls())
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, save), (0x7112, 3422, True))
+            self.values[name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.values["Solar_Pumpenverzoegerung"] = (3423, 16)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, True)
+        self.session.write_verified.assert_not_called()
+        self.values["Solar_Pumpenverzoegerung"] = (3423, 15)
+        self.assertTrue(self.api.set_configuration(telemetry(), cap, True).value)
+        self.assertIn("Solar_Pumpenverzoegerung", controls())
+        cap = controls()[name]
+        self.assertTrue(self.api.set_configuration(telemetry(), cap, True).value)
+        self.session.write_verified.assert_called_once()
+        self.assertFalse(self.api.set_configuration(telemetry(), cap, False).value)
+        self.assertNotIn("Solar_Pumpenverzoegerung", controls())
+        self.assertEqual(self.values["Solar_Pumpenverzoegerung"], (3423, 15))
+        self.assertEqual(self.session.write_verified.call_count, 2)
+        pause = controls()["Solar_OPausendrehzahl"]
+        self.values["Solar_Sp2_Sensor1_Nr"] = (3612, 0)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), pause, True)
+        self.assertEqual(self.session.write_verified.call_count, 2)
 
     def test_native_spread_loading_uses_live_eligibility_and_actual_store_pair(self):
         name = "Solar_Spreizladung_dTDifferenz"
@@ -1659,6 +1718,24 @@ class ParameterTests(unittest.TestCase):
         values["Solar_OSpreizladung"] = 1
         del values["Solar_ParallelbeladungMoeglich"]
         self.assertFalse(setting.accepts(values))
+        option = next(
+            s
+            for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
+            if s.name == "Solar_OSpreizladung"
+            and any(
+                d.name == "TemperatureHysteresisSelector" and d.allowed == (0,)
+                for d in s.dependencies
+                if isinstance(d, parameters_configuration.Dependency)
+            )
+        )
+        values["Solar_ParallelbeladungMoeglich"] = 1
+        values["Solar_OSpreizladung"] = 0
+        self.assertTrue(option.accepts(values, option.encode(True)))
+        values[name + "_K"] = 310
+        self.assertFalse(option.accepts(values, 1))
+        values[name] = values[name + "_K"] = 305
+        self.assertFalse(option.accepts(values, 1))
+        self.assertTrue(option.accepts(values, 0))
 
     def test_dedicated_solar_bypass_requires_selected_collectors_and_assignment(self):
         self.session.read.return_value = 0x2734DABC
