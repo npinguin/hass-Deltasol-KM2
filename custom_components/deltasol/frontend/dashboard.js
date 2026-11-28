@@ -56,9 +56,10 @@ class ResolDashboard extends HTMLElement {
     if(!this.isConnected)return;
     this.subscribeRegistry();
     if(!this.loaded&&!this.loading){this.load();return;}
-    if(this.editor||this.pending||this.shadowRoot.activeElement)return;
+    if(this.editor||this.pending||this.shadowRoot.activeElement?.matches("input,select,textarea"))return;
     const rows=this.rows();
     if(rows.some(row=>previous?.states?.[row.entity_id]?.state!==hass.states?.[row.entity_id]?.state&&["unknown","unavailable",undefined].includes(previous?.states?.[row.entity_id]?.state)!==["unknown","unavailable",undefined].includes(hass.states?.[row.entity_id]?.state))){this.load();return;}
+    if(rows.some(row=>row.kind==="sensor"&&row.depth==="engineering"&&previous?.states?.[row.entity_id]!==hass.states?.[row.entity_id])){this.load();return;}
     if(previous?.language!==hass.language||rows.some(row=>previous?.states?.[row.entity_id]!==hass.states?.[row.entity_id])){
       this.render();
     }
@@ -76,7 +77,7 @@ class ResolDashboard extends HTMLElement {
       if(!this.tabs().includes(this.tab))this.tab="overview";
       this.loaded=true;
     }catch{this.notice=this.t("error");this.loaded=true;}
-    finally{this.loading=false;if(!this.editor&&!this.pending&&!this.shadowRoot.activeElement)this.render();}
+    finally{this.loading=false;if(!this.editor&&!this.pending&&!this.shadowRoot.activeElement?.matches("input,select,textarea"))this.render();}
   }
   tabs(){
     const installation=this.current();
@@ -84,11 +85,16 @@ class ResolDashboard extends HTMLElement {
     return SECTIONS.filter(tab=>tab==="overview"||tab==="energy"||groups.has(tab)||tab==="settings"&&installation?.settings||tab==="engineering"&&installation?.engineering);
   }
   state(row){return this._hass?.states?.[row.entity_id];}
+  optionLabel(value){
+    const lang=(this._hass?.language||"en").slice(0,2);
+    const modes={nl:{Auto:"Auto",Day:"Dag",Night:"Nacht",Summer:"Zomer",Holiday:"Vakantie",Off:"Uit",On:"Aan",Min:"Minimum",Max:"Maximum"},fr:{Auto:"Auto",Day:"Jour",Night:"Nuit",Summer:"Été",Holiday:"Vacances",Off:"Arrêt",On:"Marche",Min:"Minimum",Max:"Maximum"}};
+    return modes[lang]?.[value]||value;
+  }
   value(row){
     const state=this.state(row);
     if(!state||state.state==="unknown"||state.state==="unavailable")return this.t(state?.state==="unavailable"?"unavailable":"unknown");
     const unit=state.attributes.unit_of_measurement;
-    return state.state+(unit?" "+unit:"");
+    return (row.kind==="select"||row.kind==="switch"?this.optionLabel(row.kind==="switch"?(state.state==="on"?"On":"Off"):state.state):state.state)+(unit?" "+unit:"");
   }
   valid(row){const state=this.state(row);return Boolean(state&&state.state!=="unknown"&&state.state!=="unavailable");}
   allowed(row){return row.control&&(this.valid(row)||row.kind==="button"&&this.state(row)?.state==="unknown")&&!this.pending;}
@@ -98,7 +104,7 @@ class ResolDashboard extends HTMLElement {
     if(row.schedule)return '<button data-edit="'+id+'" '+disabled+'>'+escape(this.t("preview"))+'</button>';
     if(row.kind==="switch")return '<button data-action="'+id+'" data-value="'+(state?.state!=="on")+'" '+disabled+'>'+escape(this.t(state?.state==="on"?"off":"on"))+'</button>';
     if(row.kind==="button")return '<button data-action="'+id+'" data-value="null" '+disabled+'>'+escape(this.t("apply"))+'</button>';
-    if(row.kind==="select")return '<select aria-label="'+escape(row.name)+'" data-input="'+id+'" '+disabled+'>'+ (attrs.options||[]).map(v=>'<option '+(state.state===v?"selected":"")+'>'+escape(v)+'</option>').join("")+'</select><button data-apply="'+id+'" '+disabled+'>'+escape(this.t("apply"))+'</button>';
+    if(row.kind==="select")return '<select aria-label="'+escape(row.name)+'" data-input="'+id+'" '+disabled+'>'+ (attrs.options||[]).map(v=>'<option value="'+escape(v)+'" '+(state?.state===v?"selected":"")+'>'+escape(this.optionLabel(v))+'</option>').join("")+'</select><button data-apply="'+id+'" '+disabled+'>'+escape(this.t("apply"))+'</button>';
     if(row.kind==="number"||row.kind==="text"){
       const type=row.kind==="number"?"number":"text";
       const limits=type==="number"?["min","max","step"].map(k=>attrs[k]===undefined?"":" "+k+'="'+escape(attrs[k])+'"').join(""):"";

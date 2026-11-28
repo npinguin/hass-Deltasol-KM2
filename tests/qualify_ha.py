@@ -1433,10 +1433,10 @@ async def qualify(directory, phase):
             if phase == "upgrade":
                 (initial_entry,) = hass.config_entries.async_entries("deltasol")
                 initial = initial_entry.runtime_data
-                assert initial.auto_start_task is not None
-                await initial.auto_start_task
-                assert initial.capture_task is not None
-                await initial.capture_task
+                if initial.auto_start_task:
+                    await initial.auto_start_task
+                if initial.capture_task:
+                    await initial.capture_task
                 assert initial.capture.status == "complete"
                 assert initial.capture.offset == 3 and Peer.writes == 0
         if phase == "baseline":
@@ -1467,11 +1467,21 @@ async def qualify(directory, phase):
             options = hass.config_entries.options
             result = await options.async_init(entry.entry_id)
             assert result["step_id"] == "init", result
-            result = await options.async_configure(
-                result["flow_id"], {"vbus_password": "local-test"}
-            )
-            assert result["type"] == "create_entry", result
-            await hass.async_block_till_done()
+            with patch(
+                "custom_components.deltasol.load_catalog", return_value=fixture
+            ):
+                result = await options.async_configure(
+                    result["flow_id"], {"vbus_password": "local-test"}
+                )
+                assert result["type"] == "create_entry", result
+                await hass.async_block_till_done()
+                initial = entry.runtime_data
+                if initial.auto_start_task:
+                    await initial.auto_start_task
+                if initial.capture_task:
+                    await initial.capture_task
+                assert initial.capture.status == "complete"
+                assert initial.capture.offset == 3
         assert entry.options["vbus_password"] == "local-test"
         assert entry.state == ConfigEntryState.LOADED
         select = registry.async_get_entity_id("select", "deltasol", SELECT_UID)

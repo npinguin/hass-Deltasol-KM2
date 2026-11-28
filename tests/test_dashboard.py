@@ -81,7 +81,9 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(access(row, setting, state, user, False), ("controls", False))
 
     def test_discovery_button_unknown_is_not_unavailable(self):
-        row = SimpleNamespace(entity_id="button.discovery", entity_category="diagnostic")
+        row = SimpleNamespace(
+            entity_id="button.discovery", entity_category="diagnostic"
+        )
         user = SimpleNamespace(
             is_admin=True,
             permissions=SimpleNamespace(check_entity=lambda *_: True),

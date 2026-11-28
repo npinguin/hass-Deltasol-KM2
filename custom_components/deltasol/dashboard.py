@@ -321,7 +321,9 @@ async def ws_engineering(hass, connection, msg):
         report["operational_contracts"] = {
             name: {
                 "label": label,
-                "catalogue_binding": "verified" if name in verified else "not_confirmed",
+                "catalogue_binding": "verified"
+                if name in verified
+                else "not_confirmed",
                 "reasons": list(rejected.get(name, ())),
             }
             for name, label in labels.items()
