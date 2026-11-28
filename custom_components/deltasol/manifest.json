@@ -1,5 +1,6 @@
 {
   "domain": "deltasol",
+  "after_dependencies": ["frontend", "http", "panel_custom", "websocket_api"],
   "name": "Resol KM1/KM2, DL2/DL2Plus/DL3, VBus/LAN, VBus/USB",
   "codeowners": [
     "@npinguin"

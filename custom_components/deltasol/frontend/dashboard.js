@@ -37,6 +37,7 @@ class ResolDashboard extends HTMLElement {
     if(!this.loaded&&!this.loading){this.load();return;}
     if(this.editor||this.pending||this.shadowRoot.activeElement)return;
     const rows=this.rows();
+    if(rows.some(row=>previous?.states?.[row.entity_id]?.state!==hass.states?.[row.entity_id]?.state&&["unknown","unavailable",undefined].includes(previous?.states?.[row.entity_id]?.state)!==["unknown","unavailable",undefined].includes(hass.states?.[row.entity_id]?.state))){this.load();return;}
     if(previous?.language!==hass.language||rows.some(row=>previous?.states?.[row.entity_id]!==hass.states?.[row.entity_id])){
       this.render();
     }
@@ -69,7 +70,7 @@ class ResolDashboard extends HTMLElement {
     return state.state+(unit?" "+unit:"");
   }
   valid(row){const state=this.state(row);return Boolean(state&&state.state!=="unknown"&&state.state!=="unavailable");}
-  allowed(row){return row.control&&this.valid(row)&&!this.pending;}
+  allowed(row){return row.control&&(this.valid(row)||row.kind==="button"&&this.state(row)?.state==="unknown")&&!this.pending;}
   control(row){
     const id=escape(row.entity_id), state=this.state(row), attrs=state?.attributes||{},disabled=this.allowed(row)?"":"disabled";
     if(!row.control)return "";
@@ -152,10 +153,11 @@ class ResolDashboard extends HTMLElement {
     this.notice=this.t("working");
     this.render();
     try{
-      const result=await this._hass.callWS({type:"deltasol/dashboard/action",entry_id:this.context,entity_id:row.entity_id,value,preview});
+      const review=row.schedule&&!preview?this.editor?.review:null;
+      const result=await this._hass.callWS({type:"deltasol/dashboard/action",entry_id:this.context,entity_id:row.entity_id,value,preview,...(review?{expected:review.expected,references:review.references}:{})});
       if(preview&&this.editor){this.editor.review=result;this.notice="";}
       else{this.notice=this.t(result.outcome)+(result.value==null?"":": "+result.value);this.editor=null;}
-    }catch{this.notice=this.t("error");}
+    }catch{this.notice=this.t("error");if(this.editor)this.editor.review=null;}
     finally{this.pending=false;this.render();}
   }
   async openHistory(row){

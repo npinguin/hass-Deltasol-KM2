@@ -111,6 +111,7 @@ class RuntimeData:
     resume_on_load: bool = False
     auto_start_task: asyncio.Task | None = None
     closing: bool = False
+    dashboard_registered: bool = False
 
     def notify_capture(self):
         for listener in tuple(self.capture_listeners):
@@ -209,7 +210,8 @@ async def async_setup_entry(
     if config_entry.options.get(CONF_DASHBOARD, False):
         from .dashboard import async_setup_dashboard
 
-        await async_setup_dashboard(hass)
+        await async_setup_dashboard(hass, config_entry.entry_id)
+        runtime.dashboard_registered = True
     # Return true to denote a successful setup.
     return True
 
@@ -243,7 +245,7 @@ async def async_unload_entry(
         runtime.closing = False
         if runtime.relay_coordinator:
             runtime.relay_coordinator.closing = False
-    elif config_entry.options.get(CONF_DASHBOARD, False):
+    elif runtime.dashboard_registered:
         from .dashboard import async_remove_dashboard
 
         await async_remove_dashboard(hass, config_entry.entry_id)
