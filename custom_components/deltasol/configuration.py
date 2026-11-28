@@ -232,6 +232,19 @@ class SolarSelection:
 
 
 @dataclass(frozen=True)
+class RequestedCondition:
+    """Require at least one live condition for a particular requested value."""
+
+    raw: int
+    alternatives: tuple[Dependency | RangeDependency, ...]
+
+    def matches(self, raw, values):
+        return raw != self.raw or any(
+            dep.matches(values) for dep in self.alternatives
+        )
+
+
+@dataclass(frozen=True)
 class RelativeConstraint:
     """Verified relation between values with the same raw encoding."""
 
@@ -298,6 +311,7 @@ class Setting:
     # Runtime metadata derived only from an authorized, exact catalogue.
     value_definition: Definition | None = None
     weekly_slot: int | None = None
+    requested_conditions: tuple[RequestedCondition, ...] = ()
 
     @property
     def native_slot(self):
@@ -392,6 +406,8 @@ class Setting:
         for parent, index, child, child_index in self.compound_mirrors:
             result[parent] = index
             result[child] = child_index
+        for condition in self.requested_conditions:
+            result.update({dep.name: dep.index for dep in condition.alternatives})
         if self.optional_role:
             result[self.optional_role.name] = self.optional_role.index
         return result
@@ -413,6 +429,10 @@ class Setting:
             )
             and (self.installed_by is None or self.installed_by.matches(values))
             and all(dep.matches(values) for dep in self.dependencies)
+            and (
+                requested is None
+                or all(rule.matches(raw, values) for rule in self.requested_conditions)
+            )
             and all(
                 rule.matches(raw, values, values.get(self.name))
                 for rule in self.relative_constraints
@@ -2320,6 +2340,46 @@ def _heating_comfort_settings():
         active = Dependency(f"{root}_Aktiviert_Modus", 13689 + offset, (1, 2))
         heating = Dependency(f"{root}_System", 13697 + offset, (0, 2))
         regulation = Dependency(f"{root}_Heizsystem", 13978 + offset, (1, 2, 3))
+        # Native status menus reference circuit 1 for coupled followers.
+        # This is the configured preference, never a forced runtime status.
+        coupling = (
+            (Dependency(f"{root}_Kopplung", 14039 + offset, (0,)),)
+            if circuit != 1
+            else ()
+        )
+        yield Setting(
+            f"{root}_Betriebsart",
+            14014 + offset,
+            (
+                "Heating circuit 1 configured mode (including coupled circuits)"
+                if circuit == 1
+                else f"Heating circuit {circuit} configured mode"
+            ),
+            "select",
+            True,
+            options=(
+                ("Auto", 0),
+                ("Day", 1),
+                ("Night", 2),
+                ("Summer", 3),
+                ("Holiday", 4),
+                ("Off", 5),
+            ),
+            installed_by=installed,
+            dependencies=(active, *coupling),
+            requested_conditions=(
+                RequestedCondition(
+                    4, (RangeDependency("Urlaubsfunktion_Tage", 19063, 1, 200),)
+                ),
+                RequestedCondition(
+                    0,
+                    (
+                        Dependency(f"{root}_OUrlaub", 14176 + offset, (0,)),
+                        Dependency("Urlaubsfunktion_Tage", 19063, (0,)),
+                    ),
+                ),
+            ),
+        )
         for suffix, index, low, high, label, extra in (
             ("dTTageskorrektur", 13727, -5, 45, "day correction", ()),
             (
