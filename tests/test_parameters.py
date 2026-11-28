@@ -102,7 +102,9 @@ class ParameterTests(unittest.TestCase):
                 definitions[name] = config.Definition(
                     name, index, "unspecified", kind, {"type_chain": [kind]}
                 )
-        owner = next(o for o in config.WEEKLY_OWNERS if o.name == "Anlage_Wf1_SchaltuhrNr")
+        owner = next(
+            o for o in config.WEEKLY_OWNERS if o.name == "Anlage_Wf1_SchaltuhrNr"
+        )
         self.values[owner.name] = (owner.index, 1)
         for condition in owner.conditions:
             self.values[condition.name] = (condition.index, condition.allowed[0])
@@ -114,7 +116,10 @@ class ParameterTests(unittest.TestCase):
             )
             self.values[name] = (index, 1)
         definitions[day] = config.Definition(
-            day, 18419, "unspecified", "Blob",
+            day,
+            18419,
+            "unspecified",
+            "Blob",
             {"type_chain": ["Blob"], "size_bytes": 12, "rpt_storage": "preferences"},
         )
         catalogue = SimpleNamespace(matches=lambda *_: True, by_name=definitions)
@@ -138,15 +143,22 @@ class ParameterTests(unittest.TestCase):
 
         def capability():
             return next(
-                cap for cap in self.api.discover(telemetry(), hints, catalogue).configuration.values()
+                cap
+                for cap in self.api.discover(
+                    telemetry(), hints, catalogue
+                ).configuration.values()
                 if cap.setting.name == day
             )
 
         cap = capability()
         self.assertEqual(cap.value, "08:00-10:00, 18:00-20:00")
         self.assertEqual(cap.owners, (owner.name,))
-        for invalid in ("24:00-24:00", "08:01-09:00", "09:00-08:00",
-                        "08:00-10:00, 09:00-11:00"):
+        for invalid in (
+            "24:00-24:00",
+            "08:01-09:00",
+            "09:00-08:00",
+            "08:00-10:00, 09:00-11:00",
+        ):
             with self.assertRaises(parameters.VBusError):
                 self.api.set_configuration(telemetry(), cap, invalid, catalogue)
         self.session.write_packed_verified.assert_not_called()
@@ -178,8 +190,7 @@ class ParameterTests(unittest.TestCase):
         self.session.write_packed_verified.side_effect = partial
         with self.assertRaisesRegex(parameters.VBusError, "outcome uncertain: partial"):
             self.api.set_configuration(
-                telemetry(), updated,
-                "06:00-07:00, 09:00-10:00, 11:00-12:00", catalogue
+                telemetry(), updated, "06:00-07:00, 09:00-10:00, 11:00-12:00", catalogue
             )
         self.assertEqual(self.session.write_packed_verified.call_count, 2)
         self.session.write_verified.assert_not_called()
