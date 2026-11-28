@@ -2331,6 +2331,18 @@ def _heating_comfort_settings():
     room setpoint and hysteresis. Keep flow safety limits and topology intact.
     All indices, selector options and bounds are checked against exact RPT.
     """
+    # The native holiday shortcut is available after commissioning and
+    # edits a controller-wide day counter, not an individual circuit.
+    yield Setting(
+        "Urlaubsfunktion_Tage",
+        19063,
+        "Controller-wide holiday remaining days",
+        "number",
+        True,
+        limits=("0", "200", "1", "1"),
+        unit="d",
+        dependencies=(Dependency("InbetriebnahmeAbgeschlossen", 68, (1,)),),
+    )
     for circuit in range(1, 8):
         offset = (circuit - 1) * 495
         root = f"Heizung_Heizkreis{circuit}"
