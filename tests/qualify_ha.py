@@ -52,6 +52,12 @@ CONFIG_SELECTORS = {
     "Heizung_Heizkreis1_Type": (13684, 1),
     "Heizung_Heizkreis1_Aktiviert_Modus": (13689, 1),
     "Heizung_Heizkreis1_Heizsystem": (13978, 1),
+    "Heizung_Heizkreis1_OUrlaub": (14176, 0),
+    "Heizung_Heizkreis2_Type": (14179, 1),
+    "Heizung_Heizkreis2_Aktiviert_Modus": (14184, 1),
+    "Heizung_Heizkreis2_Kopplung": (14534, 1),
+    "Heizung_Heizkreis2_OUrlaub": (14671, 0),
+    "Urlaubsfunktion_Tage": (19063, 0),
     "Wmz1_Type": (17260, 1),
     "Wmz1_Aktiviert_Modus": (17263, 1),
     "Relais_Modul1_R1_AktorFunktion": (2167, 2),
@@ -90,6 +96,8 @@ CONFIG_SELECTORS = {
 CONFIG_SETTINGS = {
     "Anlage_Wf1_Mischer_dtIntervall": (6625, 4, 1, 20),
     "Heizung_Heizkreis1_Heizkurve": (13698, 12, 3, 30),
+    "Heizung_Heizkreis1_Betriebsart": (14014, 0, 0, 5),
+    "Heizung_Heizkreis2_Betriebsart": (14509, 0, 0, 5),
     "Wmz1_OAlternativAnzeige": (17273, 0, 0, 1),
     "Wmz1_AlternativAnzeigeEinheit": (17274, 0, 0, 3),
     "Wmz1_AlternativAnzeigeFaktor": (17275, 5000000, 1, 1000000000),
@@ -572,6 +580,16 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index in (14014, 14509):
+                    if index == 14509:
+                        assert Peer.extra_values[14534] == 0
+                    offset = index - 14014
+                    assert Peer.extra_values[13684 + offset] == 1
+                    assert Peer.extra_values[13689 + offset] == 1
+                    if value == 4:
+                        assert 1 <= Peer.extra_values[19063] <= 200
+                    if value == 0:
+                        assert not Peer.extra_values[14176 + offset] or not Peer.extra_values[19063]
                 if index in (3840, 3841, 3842, 3843):
                     assert Peer.extra_values[3416] == 20201
                     assert Peer.extra_values[3834] == 1
@@ -1129,6 +1147,7 @@ async def qualify(directory, phase):
                 for name, kind, value in (
                     ("Anlage_Wf1_Mischer_dtIntervall", "number", 5),
                     ("Heizung_Heizkreis1_Heizkurve", "number", 1.5),
+                    ("Heizung_Heizkreis1_Betriebsart", "select", "Day"),
                     ("Wmz1_OAlternativAnzeige", "switch", "on"),
                     ("Wmz1_AlternativAnzeigeEinheit", "select", "Gas"),
                     ("Wmz1_AlternativAnzeigeFaktor", "number", 0.5000001),
@@ -1869,6 +1888,45 @@ async def qualify(directory, phase):
         assert entity(exchanger + "_dTein", "number") == exchanger_entity
         assert float(hass.states.get(tube_entity).state) == 390
         assert float(hass.states.get(exchanger_entity).state) == 14
+
+        heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
+        assert heating_mode and hass.states.get(heating_mode).state == "Auto"
+        assert not entity("Heizung_Heizkreis2_Betriebsart", "select")
+
+        async def reject_mode(target, option):
+            try:
+                await set_mode(target, option)
+            except HomeAssistantError:
+                pass
+            else:
+                raise AssertionError("Invalid heating mode accepted")
+
+        before = Peer.saves
+        await reject_mode(heating_mode, "Holiday")
+        assert Peer.saves == before
+        await set_mode(heating_mode, "Day")
+        await set_mode(heating_mode, "Day")
+        assert Peer.saves == before + 1 and Peer.settings[14014] == 1
+        Peer.extra_values[19063] = 7
+        await set_mode(heating_mode, "Holiday")
+        assert Peer.settings[14014] == 4
+        Peer.extra_values[14176] = 1
+        await reject_mode(heating_mode, "Auto")
+        assert Peer.saves == before + 2
+        Peer.extra_values[19063] = 0
+        await set_mode(heating_mode, "Day")
+        assert Peer.saves == before + 3 and Peer.settings[14014] == 1
+        Peer.extra_values[14534] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        await hass.async_block_till_done()
+        independent = entity("Heizung_Heizkreis2_Betriebsart", "select")
+        assert independent
+        await set_mode(independent, "Night")
+        Peer.extra_values[14534] = 1
+        await reject_mode(independent, "Off")
+        assert Peer.saves == before + 4 and Peer.settings[14509] == 2
+        assert hass.states.get(independent).state == "unavailable"
+        assert entity("Heizung_Heizkreis1_Betriebsart", "select") == heating_mode
 
         schedule = entity("Wsu1_Schaltuhr_Woche_TagMo_Daten", "text")
         assert (
