@@ -93,7 +93,9 @@ class ParameterTests(unittest.TestCase):
 
     def test_coordination_options_require_live_assignments_and_setpoint_context(self):
         config = parameters_configuration
-        settings = {setting.name: setting for setting in config.BX_PLUS_COORDINATION_OPTIONS}
+        settings = {
+            setting.name: setting for setting in config.BX_PLUS_COORDINATION_OPTIONS
+        }
         root = "Heizung_Wf1"
         solar = root + "_OSolarAus"
         tset = root + "_SolarAus_OTSoll"
