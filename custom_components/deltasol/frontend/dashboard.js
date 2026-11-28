@@ -11,6 +11,7 @@ const STATUS_COPY = {
 };
 const ENGINEERING_COPY={en:{live:"Live",capture:"Historical capture",comparison:"Comparison",changes:"changes",transport:"Transport and source evidence",filter:"Filter parameters",readonly:"Not verified writable",object:"Selected object",next:"Next"},nl:{live:"Actueel",capture:"Historische snapshot",comparison:"Vergelijking",changes:"wijzigingen",transport:"Transport en bronbewijs",filter:"Parameters filteren",readonly:"Niet bevestigd schrijfbaar",object:"Geselecteerd object",next:"Volgende"},fr:{live:"En direct",capture:"Capture historique",comparison:"Comparaison",changes:"modifications",transport:"Transport et preuves source",filter:"Filtrer les paramètres",readonly:"Écriture non confirmée",object:"Objet sélectionné",next:"Suivant"}};
 const WEEK_COPY={en:{program:"Weekly program",Mo:"Monday",Di:"Tuesday",Mi:"Wednesday",Do:"Thursday",Fr:"Friday",Sa:"Saturday",So:"Sunday",unsupported:"Structural commissioning and SET/JobParam import are not supported.",no_intervals:"No active intervals",reference:"Known references; full ownership is checked on save."},nl:{program:"Weekprogramma",Mo:"Maandag",Di:"Dinsdag",Mi:"Woensdag",Do:"Donderdag",Fr:"Vrijdag",Sa:"Zaterdag",So:"Zondag",unsupported:"Structurele inbedrijfstelling en SET/JobParam-import worden niet ondersteund.",no_intervals:"Geen actieve intervallen",reference:"Bekende verwijzingen; volledig eigenaarschap wordt bij opslaan gecontroleerd."},fr:{program:"Programme hebdomadaire",Mo:"Lundi",Di:"Mardi",Mi:"Mercredi",Do:"Jeudi",Fr:"Vendredi",Sa:"Samedi",So:"Dimanche",unsupported:"La mise en service structurelle et l’import SET/JobParam ne sont pas pris en charge.",no_intervals:"Aucun intervalle actif",reference:"Références connues ; les liens sont vérifiés lors de l’enregistrement."}};
+const OBJECT_COPY={en:{mode:"Operating mode",target:"Target",configured_activity:"Configured activity",attention:"Needs attention",measurements:"Measurements",controls:"Controls",preferences:"Operating preferences",linked:"Linked weekly programs",unconfirmed:"No confirmed measurement for this object",status:"Status",history:"History",settings:"Settings",engineering:"Engineering"},nl:{mode:"Bedrijfsmodus",target:"Doelwaarde",configured_activity:"Ingestelde activiteit",attention:"Aandacht nodig",measurements:"Metingen",controls:"Bediening",preferences:"Bedrijfsinstellingen",linked:"Gekoppelde weekprogramma’s",unconfirmed:"Geen bevestigde meting voor dit object",status:"Status",history:"Historiek",settings:"Instellingen",engineering:"Engineering"},fr:{mode:"Mode de fonctionnement",target:"Consigne",configured_activity:"Activité configurée",attention:"Attention requise",measurements:"Mesures",controls:"Commandes",preferences:"Préférences de fonctionnement",linked:"Programmes hebdomadaires liés",unconfirmed:"Aucune mesure confirmée pour cet objet",status:"État",history:"Historique",settings:"Paramètres",engineering:"Ingénierie"}};
 const DAYS=["Mo","Di","Mi","Do","Fr","Sa","So"];
 const SECTIONS = ["overview","solar","heating","hot_water","energy","settings","engineering"];
 const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -66,7 +67,7 @@ class ResolDashboard extends HTMLElement {
       this.render();
     }
   }
-  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||(ENGINEERING_COPY[lang]||ENGINEERING_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||ENGINEERING_COPY.en[key]||(WEEK_COPY[lang]||WEEK_COPY.en)[key]||WEEK_COPY.en[key]||key;}
+  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||(ENGINEERING_COPY[lang]||ENGINEERING_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||ENGINEERING_COPY.en[key]||(WEEK_COPY[lang]||WEEK_COPY.en)[key]||WEEK_COPY.en[key]||(OBJECT_COPY[lang]||OBJECT_COPY.en)[key]||OBJECT_COPY.en[key]||key;}
   current(){return this.installations.find(item=>item.id===this.context);}
   rows(){return this.current()?.objects.flatMap(asset=>asset.capabilities)||[];}
   row(id){return this.rows().find(row=>row.entity_id===id);}
@@ -143,7 +144,7 @@ class ResolDashboard extends HTMLElement {
     if(this.tab==="settings")return rows.filter(row=>row.depth==="settings"||row.depth==="controls");
     if(this.tab==="engineering")return rows.filter(row=>row.depth==="engineering");
     if(this.tab==="overview"){
-      const operational=rows.filter(row=>row.depth==="status"||row.depth==="controls");
+      const operational=rows.filter(row=>row.depth==="status"||row.depth==="controls"||row.role==="configured_activity");
       return operational.length&&!this.object?operational:rows.filter(row=>row.depth!=="engineering");
     }
     return rows.filter(row=>row.section===this.tab&&row.depth!=="engineering");
@@ -160,17 +161,20 @@ class ResolDashboard extends HTMLElement {
     return '<section class="card" aria-label="'+escape(this.t("summary"))+'"><h2>'+escape(this.t("summary"))+'</h2><div class="grid"><div><strong class="'+(h.telemetry?"":"warning")+'">'+escape(this.t(h.telemetry?"telemetry_ok":"telemetry_bad"))+'</strong><p class="muted">'+available+' / '+rows.length+' '+escape(this.t("available"))+'</p></div>'+(h.parameter_access?'<div><strong>'+escape(this.t("selectors"))+'</strong><p>'+h.selectors_observed+' / '+h.selectors_total+'</p>'+(!h.catalogue?'<p class="warning">'+escape(this.t("catalogue_pending"))+'</p>':"")+(h.selectors_total?'<progress max="'+h.selectors_total+'" value="'+h.selectors_observed+'"></progress>':"")+'</div>':"")+'</div>'+(h.checkpoint?'<p class="warning">'+escape(this.t("checkpoint"))+'</p>':"")+'</section>';
   }
   weekPrograms(){
-    const assets=(this.current()?.objects||[]).filter(asset=>!this.object||asset.id===this.object);
+    const assets=this.current()?.objects||[];
+    const selected=assets.find(asset=>asset.id===this.object);
+    const linked=new Set((selected?.capabilities||[]).map(row=>row.linked_program).filter(Boolean));
     const programs=new Map();
     for(const asset of assets)for(const row of asset.capabilities){
       if(!row.schedule||!row.program||!DAYS.includes(row.day))continue;
+      if(this.object&&asset.id!==this.object&&!linked.has(row.program))continue;
       const key=asset.id+":"+row.program;
       if(!programs.has(key))programs.set(key,{number:row.program,days:new Map()});
       programs.get(key).days.set(row.day,row);
     }
     return [...programs.values()].sort((a,b)=>a.number-b.number);
   }
-  weekView(){
+  weekView(editable=true){
     const programs=this.weekPrograms();
     if(!programs.length)return "";
     return '<h2 style="margin-top:24px">'+escape(this.t("schedule"))+'</h2><div class="grid">'+programs.map(program=>{
@@ -185,9 +189,24 @@ class ResolDashboard extends HTMLElement {
           const a=minutes(pair[0]),b=minutes(pair[1]);
           return Number.isFinite(a)&&Number.isFinite(b)&&a>=0&&b<=1440&&b>a?'<span style="position:absolute;left:'+(a/14.4)+'%;width:'+((b-a)/14.4)+'%;height:100%;background:var(--primary-color)"></span>':"";
         }).join("");
-        return '<div class="line"><div class="grow"><strong>'+escape(this.t(day))+'</strong><div aria-hidden="true" style="height:10px;position:relative;border-radius:4px;overflow:hidden;background:var(--divider-color);margin:8px 0">'+bars+'</div><small>'+escape(this.valid(row)?value||this.t("no_intervals"):this.t("not_confirmed"))+'</small></div>'+this.control(row)+'</div>';
+        return '<div class="line"><div class="grow"><strong>'+escape(this.t(day))+'</strong><div aria-hidden="true" style="height:10px;position:relative;border-radius:4px;overflow:hidden;background:var(--divider-color);margin:8px 0">'+bars+'</div><small>'+escape(this.valid(row)?value||this.t("no_intervals"):this.t("not_confirmed"))+'</small></div>'+(editable?this.control(row):"")+'</div>';
       }).join("")+'</section>';
     }).join("")+'</div>';
+  }
+  prominentRows(rows){
+    // Pick semantically useful facts rather than registry insertion order.
+    // No invented values; unavailable facts stay visibly unavailable.
+    const candidates=rows.filter(row=>row.depth==="status"||row.depth==="controls"||row.role==="configured_activity");
+    const sorted=[...candidates].sort((a,b)=>(b.priority||0)-(a.priority||0)||String(a.name).localeCompare(String(b.name)));
+    return sorted.slice(0,4);
+  }
+  objectDetail(rows){
+    const groups=[
+      ["measurements",rows.filter(row=>row.depth==="status")],
+      ["controls",rows.filter(row=>row.depth==="controls")],
+      ["preferences",rows.filter(row=>row.depth==="settings"&&!row.schedule)]
+    ];
+    return groups.filter(([,items])=>items.length).map(([key,items])=>'<h3 style="margin-top:18px">'+escape(this.t(key))+'</h3>'+items.map(row=>this.detail(row,key==="controls")).join("")).join("");
   }
   cards(){
     const assets=(this.current()?.objects||[]).filter(asset=>!this.object||asset.id===this.object);
@@ -197,10 +216,11 @@ class ResolDashboard extends HTMLElement {
       const available=rows.filter(row=>this.valid(row)).length;
       const header='<div class="toolbar"><div class="grow"><h2>'+escape(this.objectTitle(asset))+'</h2><small>'+available+' / '+rows.length+' '+escape(this.t("available"))+'</small></div>'+(this.object?"":'<button data-object="'+escape(asset.id)+'">'+escape(this.t("details"))+'</button>')+'</div>';
       if(this.tab==="overview"&&!this.object){
-        const prominent=rows.filter(row=>this.valid(row)).slice(0,4);
-        return '<article class="card">'+header+prominent.map(row=>this.detail(row,false)).join("")+(available!==rows.length?'<p class="warning">'+(rows.length-available)+' '+escape(this.t("not_confirmed"))+'</p>':"")+'</article>';
+        const prominent=this.prominentRows(rows);
+        return '<article class="card">'+header+prominent.map(row=>this.detail(row,row.depth==="controls")).join("")+(!prominent.length?'<p class="muted">'+escape(this.t("unconfirmed"))+'</p>':"")+(available!==rows.length?'<p class="warning">'+(rows.length-available)+' '+escape(this.t("not_confirmed"))+'</p>':"")+'</article>';
       }
-      return '<article class="card">'+header+rows.map(row=>this.detail(row,row.depth==="controls"||this.tab==="settings"||this.tab==="engineering")).join("")+((this.tab!=="settings"&&this.tab!=="engineering"&&this.object&&this.current()?.settings&&rows.some(row=>row.depth==="settings"))?'<button data-tab="settings">'+escape(this.t("settings"))+'</button>':"")+'</article>';
+      const ordinary=this.tab!=="settings"&&this.tab!=="engineering";
+      return '<article class="card">'+header+(ordinary?this.objectDetail(rows):rows.map(row=>this.detail(row,true)).join(""))+((this.tab!=="settings"&&this.tab!=="engineering"&&this.object&&this.current()?.settings&&rows.some(row=>row.depth==="settings"))?'<button data-tab="settings">'+escape(this.t("settings"))+'</button>':"")+'</article>';
     }).filter(Boolean);
     return cards.length?'<div class="grid">'+cards.join("")+'</div>':this.tab==="settings"&&this.weekPrograms().length?"":'<p class="muted">'+escape(this.t("empty"))+'</p>';
   }
@@ -210,7 +230,7 @@ class ResolDashboard extends HTMLElement {
     const count=this.rows().filter(row=>row.depth==="status"&&!this.valid(row)).length;
     const options=this.installations.map(item=>'<option value="'+escape(item.id)+'" '+(item.id===this.context?"selected":"")+'>'+escape(item.name)+'</option>').join("");
     const objects=assets.map(asset=>'<option value="'+escape(asset.id)+'" '+(asset.id===this.object?"selected":"")+'>'+escape(this.objectTitle(asset))+'</option>').join("");
-    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="RESOL">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("status"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><p class="muted">'+escape(this.t("unsupported"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.engineeringView():"")+(this.tab==="overview"?this.summary():"")+this.cards()+(this.tab==="settings"?this.weekView():""))+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
+    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="RESOL">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("status"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><p class="muted">'+escape(this.t("unsupported"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.engineeringView():"")+(this.tab==="overview"?this.summary():"")+this.cards()+(this.tab==="settings"?this.weekView():this.object&&this.tab!=="engineering"?this.weekView(false):""))+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
     if(this.tab==="engineering")this.renderInventory();
   }
   async engineering(){

@@ -93,6 +93,54 @@ def object_kind(setting):
     }.get(family, "solar_function"), number
 
 
+def capability_role(setting, state, depth):
+    """Presentation only; derive roles from contracts and HA device classes."""
+    if setting:
+        if setting.weekly_slot is not None:
+            return "schedule", 50
+        if setting.name.endswith("_Betriebsart"):
+            return "mode", 100
+        if depth == "controls":
+            return "target", 90
+        if setting.name.endswith("_Aktiviert_Modus"):
+            return "configured_activity", 80
+        return "preference", 10
+    if state:
+        kind = state.attributes.get("device_class")
+        if kind in ("problem", "safety"):
+            return "attention", 120
+        if kind == "temperature":
+            return "temperature", 95
+        if kind == "power":
+            return "power", 90
+        if kind == "energy":
+            return "energy", 85
+        if kind == "volume_flow_rate":
+            return "flow", 75
+    return "measurement" if depth == "status" else "technical", 20
+
+
+def inherit_object_section(asset):
+    """Only inherit a section within the same positively classified function.
+
+    Do not move a controller-wide temperature into a hydraulic function
+    based on its label or its physical controller's parentage.
+    """
+    if not asset["object_confirmed"]:
+        return
+    groups = {
+        row["section"]
+        for row in asset["capabilities"]
+        if row["section"] not in ("overview", "schedule")
+    }
+    if len(groups) != 1:
+        return
+    section = next(iter(groups))
+    for row in asset["capabilities"]:
+        if row["section"] == "overview":
+            row["section"] = section
+
+
 def weekly_owner_label(name):
     """Human-readable label for a positively observed native schedule reference."""
     match = re.fullmatch(
@@ -126,7 +174,8 @@ def capability_access(registered, setting, state, user, engineering, *, relay=Fa
         if setting and (
             setting.name.endswith("_Betriebsart")
             or (
-                setting.kind == "number" and setting.name.endswith(("_TSoll", "_Tsoll"))
+                setting.kind == "number"
+                and setting.name.endswith(("_TSoll", "_Tsoll", "_TVorlaufVorgabe"))
             )
         ):
             depth = "controls"
@@ -201,6 +250,7 @@ def dashboard_objects(hass, user):
                 continue
             depth, control = access
             section = capability_section(setting, state)
+            role, priority = capability_role(setting, state, depth)
             asset = objects.setdefault(
                 device.id,
                 {
@@ -230,6 +280,9 @@ def dashboard_objects(hass, user):
                     "kind": row.entity_id.split(".", 1)[0],
                     "section": section,
                     "depth": depth,
+                    "role": role,
+                    "priority": priority,
+                    "linked_program": cap.program_reference if cap else None,
                     "availability": (
                         "available"
                         if state and state.state not in ("unknown", "unavailable")
@@ -263,6 +316,8 @@ def dashboard_objects(hass, user):
                     ),
                 }
             )
+        for asset in objects.values():
+            inherit_object_section(asset)
         if objects:
             installations.append(
                 {

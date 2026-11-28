@@ -25,6 +25,8 @@ class DashboardTests(unittest.TestCase):
             "engineering_enabled",
             "capability_access",
             "capability_section",
+            "capability_role",
+            "inherit_object_section",
             "object_kind",
             "observed_result",
             "scoped_control",
@@ -143,3 +145,31 @@ class DashboardTests(unittest.TestCase):
             service({"kind": "light"}, True)
         with self.assertRaises(ValueError):
             service({"kind": "number"}, True)
+
+    def test_semantic_priority_distinguishes_target_from_measurement(self):
+        role = self.ns["capability_role"]
+        setting = SimpleNamespace(
+            name="Heizung_Heizkreis1_Betriebsart", weekly_slot=None
+        )
+        temp = SimpleNamespace(attributes={"device_class": "temperature"})
+        alarm = SimpleNamespace(attributes={"device_class": "problem"})
+        self.assertEqual(role(setting, None, "controls"), ("mode", 100))
+        self.assertEqual(role(None, temp, "status"), ("temperature", 95))
+        self.assertGreater(role(None, alarm, "status")[1], 100)
+
+    def test_domain_inheritance_does_not_guess_physical_sensor_assignment(self):
+        inherit = self.ns["inherit_object_section"]
+        asset = {
+            "object_confirmed": True,
+            "capabilities": [{"section": "heating"}, {"section": "overview"}],
+        }
+        inherit(asset)
+        self.assertEqual(asset["capabilities"][1]["section"], "heating")
+        asset["object_confirmed"] = False
+        asset["capabilities"][1]["section"] = "overview"
+        inherit(asset)
+        self.assertEqual(asset["capabilities"][1]["section"], "overview")
+        asset["object_confirmed"] = True
+        asset["capabilities"].append({"section": "solar"})
+        inherit(asset)
+        self.assertEqual(asset["capabilities"][1]["section"], "overview")

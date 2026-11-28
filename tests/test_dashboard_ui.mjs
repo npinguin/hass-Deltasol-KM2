@@ -104,3 +104,24 @@ test("weekly programs use native object and program identity, not duplicate sche
   assert.ok(p.weekView().includes("08:00-10:00"));
   p.object="other";assert.equal(p.weekPrograms().length,0);
 });
+
+test("semantic summary prioritizes real mode and measurements over registry order",()=>{
+  const p=model(true,true);
+  const rows=[{name:"Preference",depth:"settings",priority:10},{name:"Temperature",depth:"status",priority:95},{name:"Mode",depth:"controls",priority:100},{name:"Power",depth:"status",priority:90},{name:"Alarm",depth:"status",priority:120},{name:"Flow",depth:"status",priority:75}];
+  assert.equal(p.prominentRows(rows).map(row=>row.name).join(","),"Alarm,Mode,Temperature,Power");
+});
+test("function detail follows a positively observed shared program without duplicating it",()=>{
+  const p=model(true,true);
+  const asset=p.current().objects[0], row=p.row("text.week");
+  row.program=3;row.day="Mo";
+  asset.capabilities=asset.capabilities.filter(item=>item!==row);
+  asset.capabilities[0].linked_program=3;
+  p.current().objects.push({id:"program-owner",capabilities:[row]});
+  p.object=asset.id;
+  assert.equal(p.weekPrograms().length,1);
+  assert.equal(p.weekPrograms()[0].number,3);
+  assert.ok(!p.weekView(false).includes("data-edit"));
+  assert.ok(p.weekView(true).includes("data-edit"));
+  asset.capabilities[0].linked_program=null;
+  assert.equal(p.weekPrograms().length,0);
+});
