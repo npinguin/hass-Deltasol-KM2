@@ -577,7 +577,9 @@ class DiscoveryTests(unittest.TestCase):
         exported = capture.weekly_program_evidence()
         result = exported["programs"]["Wsu1"]["days"]["Mo"]
         self.assertTrue(result["payload_verified"])
-        self.assertEqual(exported["programs"]["Wsu1"]["schedule_status"], "partial_payload")
+        self.assertEqual(
+            exported["programs"]["Wsu1"]["schedule_status"], "partial_payload"
+        )
         self.assertEqual(result["size_bytes"], 12)
         self.assertEqual(result["candidate_windows"][0]["start_minute"], 480)
         for bad_size in (None, 8, 16):
@@ -1508,7 +1510,7 @@ class DiscoveryTests(unittest.TestCase):
             {0: "Pendelladung", 1: "SukzessiveLadung"},
         )
         solar_optional = configuration.BX_PLUS_SOLAR_DEDICATED_SETTINGS
-        self.assertEqual(len({s.name for s in solar_optional}), 10)
+        self.assertEqual(len({s.name for s in solar_optional}), 52)
         for setting in solar_optional:
             target = definitions[setting.name]
             self.assertTrue(target.metadata["menu_refs"])
@@ -1517,7 +1519,7 @@ class DiscoveryTests(unittest.TestCase):
                 setting.installed_by.index,
             )
             self.assertTrue(
-                {"SensorNr", "SensorEinstrahlungNr"}.intersection(
+                {"SensorNr", "SensorEinstrahlungNr", "InstanzMaske"}.intersection(
                     definitions[setting.installed_by.name].metadata["type_chain"]
                 )
             )
