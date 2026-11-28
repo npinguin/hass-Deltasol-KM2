@@ -1616,10 +1616,14 @@ class DiscoveryTests(unittest.TestCase):
                 # Continue from the proven callback edges in research 4.40.
                 # Each helper is shared by both native instances.
                 for label, start, end in (
-                    ("registry add", 0xF9E38, 0xF9ECD),
-                    ("registry remove", 0xF9ECD, 0xF9ECD + 420),
-                    ("registry lookup", 0xF9563, 0xF9563 + 160),
-                    ("setup and periodic dispatch", 0x2BFC, 0x2C45),
+                    ("registry owner", 0x144A, 0x144A + 30),
+                    ("registration allocation", 0xF816A, 0xF816A + 700),
+                    ("deletion descriptor index", 0xF6540, 0xF6540 + 180),
+                    ("deletion instance", 0xF6758, 0xF6758 + 220),
+                    ("deletion finalization", 0xF722F, 0xF722F + 320),
+                    ("full setup", 0x35263, 0x35263 + 260),
+                    ("periodic translation", 0x34E20, 0x34E20 + 200),
+                    ("periodic entry", 0x2C45, 0x2C45 + 100),
                 ):
                     inspect_region(label, start, end)
 
