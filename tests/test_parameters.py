@@ -1121,6 +1121,35 @@ class ParameterTests(unittest.TestCase):
         values[pump + "_ORuhemodus"] = 0
         self.assertFalse(duration.accepts(values))
 
+    def test_heating_pump_start_and_overrun_follow_native_mode(self):
+        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        root = "Heizung_RelaisPumpe2"
+        timed = next(s for s in settings if s.name == root + "_Anlauf_dtAnlauf")
+        thermal = next(
+            s
+            for s in settings
+            if s.name == root + "_Anlauf_TAnlauf" and s.unit == "°C"
+        )
+        values = {
+            root + "_Type": 2,
+            root + "_Aktiviert_Modus": 1,
+            root + "_Relais1_Nr": 4,
+            root + "_Anlauf_Modus": 2,
+            timed.name: 60,
+            thermal.name: 500,
+            thermal.name + "_C": 500,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(timed.accepts(values, timed.encode(75)))
+        self.assertFalse(thermal.accepts(values))
+        values[root + "_Anlauf_Modus"] = 1
+        self.assertFalse(timed.accepts(values))
+        self.assertFalse(thermal.accepts(values))
+        values[root + "_AnlaufNachlauf_Sensor1_Nr"] = 6
+        self.assertTrue(thermal.accepts(values, thermal.encode(55)))
+        values[root + "_Relais1_Nr"] = 0
+        self.assertFalse(thermal.accepts(values))
+
     def test_energy_saving_requires_enabled_option_and_assigned_sensor(self):
         setting = next(
             s
