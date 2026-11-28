@@ -406,6 +406,74 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(self.session.write_verified.call_count, 3)
         self.assertEqual(set(controls()), {switch.name})
 
+    def test_native_heating_mode_respects_coupling_and_holiday(self):
+        self.session.read.return_value = 0x2734DABC
+        master = "Heizung_Heizkreis1"
+        follower = "Heizung_Heizkreis2"
+        self.values.update({
+            master + "_Type": (13684, 1),
+            master + "_Aktiviert_Modus": (13689, 1),
+            master + "_Betriebsart": (14014, 0),
+            master + "_OUrlaub": (14176, 0),
+            follower + "_Type": (14179, 1),
+            follower + "_Aktiviert_Modus": (14184, 1),
+            follower + "_Betriebsart": (14509, 0),
+            follower + "_Kopplung": (14534, 1),
+            follower + "_OUrlaub": (14671, 0),
+            "Urlaubsfunktion_Tage": (19063, 0),
+        })
+        hints = {
+            name: parameters.ParameterObservation(index, raw, "read")
+            for name, (index, raw) in self.values.items()
+            if name.endswith("_Type")
+        }
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        cap = controls()[master + "_Betriebsart"]
+        self.assertEqual(cap.value, "Auto")
+        self.assertNotIn(follower + "_Betriebsart", controls())
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, "Holiday")
+        self.session.write_verified.assert_not_called()
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, changeset, save), (0x7112, 0x2734DABC, True))
+            name = {14014: master, 14509: follower}[index] + "_Betriebsart"
+            self.values[name] = (index, value)
+
+        self.session.write_verified.side_effect = write
+        day = self.api.set_configuration(telemetry(), cap, "Day")
+        self.assertEqual(day.value, "Day")
+        self.assertEqual(day.unique_id, cap.unique_id)
+        self.api.set_configuration(telemetry(), day, "Day")
+        self.session.write_verified.assert_called_once()
+        self.values["Urlaubsfunktion_Tage"] = (19063, 7)
+        holiday = self.api.set_configuration(telemetry(), day, "Holiday")
+        self.assertEqual(holiday.value, "Holiday")
+        self.values[master + "_OUrlaub"] = (14176, 1)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), holiday, "Auto")
+        self.assertEqual(self.session.write_verified.call_count, 2)
+        self.values["Urlaubsfunktion_Tage"] = (19063, 0)
+        self.assertEqual(
+            self.api.set_configuration(telemetry(), holiday, "Auto").value, "Auto"
+        )
+        self.values[follower + "_Kopplung"] = (14534, 0)
+        independent = controls()[follower + "_Betriebsart"]
+        self.assertEqual(
+            self.api.set_configuration(telemetry(), independent, "Night").value,
+            "Night",
+        )
+        self.values[follower + "_Kopplung"] = (14534, 1)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), independent, "Off")
+        self.assertEqual(self.session.write_verified.call_count, 4)
+
     def test_heating_curve_checks_live_mode_and_quantization(self):
         self.session.read.return_value = 0x2734DABC
         setting = parameters_configuration.BX_PLUS_HEATING_SETTINGS[0]
