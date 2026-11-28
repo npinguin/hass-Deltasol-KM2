@@ -1547,7 +1547,9 @@ class DiscoveryTests(unittest.TestCase):
                     editor + 45 - base,
                     relocations,
                 )
-                print("Native change callback RVA:", representative, hex(callback - base))
+                print(
+                    "Native change callback RVA:", representative, hex(callback - base)
+                )
 
         def fingerprint(start, length, calls, relocation_count, expected):
             offset = locate(base + start, length, ".text")
