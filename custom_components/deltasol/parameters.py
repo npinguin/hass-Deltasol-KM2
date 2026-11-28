@@ -685,6 +685,8 @@ class RelayParameters:
             "failed_sessions": 0,
             "release_attempts": 0,
             "release_failures": 0,
+            "read_resync_attempts": 0,
+            "read_resync_successes": 0,
             "other_live_packets": 0,
             "other_release_offers": 0,
             "last_release_confirmation": None,
@@ -753,6 +755,10 @@ class RelayParameters:
             + (session.release_attempts if real_session else 0),
             "release_failures": previous["release_failures"]
             + (int(session.release_failed) if real_session else 0),
+            "read_resync_attempts": previous["read_resync_attempts"]
+            + (session.read_resync_attempts if real_session else 0),
+            "read_resync_successes": previous["read_resync_successes"]
+            + (session.read_resync_successes if real_session else 0),
             "other_live_packets": previous["other_live_packets"]
             + (session.other_live_packets if real_session else 0),
             "other_release_offers": previous["other_release_offers"]
@@ -770,7 +776,7 @@ class RelayParameters:
         }
 
     @contextmanager
-    def _session(self, address):
+    def _session(self, address, *, acquire=True):
         """Serialize polling and writes, including gateway recovery time."""
         with self._lock:
             delay = self._next_session - monotonic()
@@ -783,7 +789,10 @@ class RelayParameters:
             try:
                 with open_vbus(self.host, self.password) as session:
                     connect_seconds = monotonic() - started
-                    with session.bus(address):
+                    if acquire:
+                        with session.bus(address):
+                            yield session
+                    else:
                         yield session
             except BaseException as error:
                 failure = error
@@ -806,6 +815,31 @@ class RelayParameters:
                     elapsed if connect_seconds is None else connect_seconds,
                 )
 
+    def _read_only_session(self, address, operation):
+        """One bounded same-connection resync after a confirmed release."""
+        with self._session(address, acquire=False) as session:
+            session.read_resync_attempts = 0
+            session.read_resync_successes = 0
+            try:
+                with session.bus(address):
+                    result = operation(session)
+            except VBusTransientError as error:
+                if (
+                    error.phase != "response"
+                    or session.release_failed is not False
+                    or session.release_confirmation not in (
+                        "controller_offer", "controller_live_packet"
+                    )
+                ):
+                    raise
+                session.read_resync_attempts += 1
+                # The earlier bus grant has ended. Await a new offer, then
+                # restart the entire read-only operation, not just one value.
+                with session.bus(address):
+                    result = operation(session)
+                session.read_resync_successes += 1
+            return result
+
     def discover(
         self, telemetry, configuration_hints=None, catalog=None, previous=None
     ):
@@ -813,10 +847,10 @@ class RelayParameters:
         profile, controller = find_profile(inventory)
         if profile is None:
             return RelayDiscovery(None, {}, {})
-        capabilities = {}
-        status = {}
-        module_flags = {}
-        with self._session(profile.address) as session:
+        def read(session):
+            capabilities = {}
+            status = {}
+            module_flags = {}
             changeset = session.read(profile.address, 0)
             if not changeset:
                 raise VBusError("Controller changeset is unknown")
@@ -886,7 +920,7 @@ class RelayParameters:
                         )
                     )
                     cursor = (cursor + count) % len(selectors)
-            configuration_hints = {
+            effective_hints = {
                 **(configuration_hints or {}),
                 **selector_hints,
             }
@@ -897,7 +931,7 @@ class RelayParameters:
                 for setting in contracts
                 if setting.installed_by is None
                 or (
-                    (observation := configuration_hints.get(setting.installed_by.name))
+                    (observation := effective_hints.get(setting.installed_by.name))
                     is not None
                     and observation.status == "read"
                     and observation.index == setting.installed_by.index
@@ -926,21 +960,23 @@ class RelayParameters:
                         if setting.weekly_slot is not None
                     ),
                     controller,
-                    configuration_hints,
+                    effective_hints,
                 )
             )
-        return RelayDiscovery(
-            profile,
-            capabilities,
-            status,
-            module_flags,
-            controller,
-            changeset,
-            datetime.now(UTC),
-            configuration,
-            selector_hints,
-            cursor,
-        )
+            return RelayDiscovery(
+                profile,
+                capabilities,
+                status,
+                module_flags,
+                controller,
+                changeset,
+                datetime.now(UTC),
+                configuration,
+                selector_hints,
+                cursor,
+            )
+
+        return self._read_only_session(profile.address, read)
 
     def read_configuration_batch(
         self, telemetry, controller, names, changeset, packed=None
