@@ -1121,6 +1121,61 @@ class ParameterTests(unittest.TestCase):
         values[pump + "_ORuhemodus"] = 0
         self.assertFalse(duration.accepts(values))
 
+    def test_native_analogue_heating_flow_adjustment_requires_installed_feedback(self):
+        root = "Heizung_RelaisAnforderung1"
+        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        names = (
+            root + "_Ausgang_dTSollVorlauf",
+            root + "_Ausgang_Vorlauf_dTHysterese",
+            root + "_Ausgang_Vorlauf_dVKorrektur",
+            root + "_Ausgang_Vorlauf_dtIntervall",
+        )
+        offset, hysteresis, voltage, interval = (
+            next(s for s in settings if s.name == name and s.unit in ("K", "V", "s"))
+            for name in names
+        )
+        values = {
+            root + "_Type": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_OAusgang1": 1,
+            root + "_Ausgang1_Nr": 1,
+            root + "_Ausgang_OVorlauf": 1,
+            root + "_Ausgang_Vorlauf_Sensor1_Nr": 2,
+            "TemperatureHysteresisSelector": 0,
+            offset.name: 50,
+            offset.name + "_K": 50,
+            hysteresis.name: 10,
+            hysteresis.name + "_K": 10,
+            voltage.name: 1,
+            interval.name: 30,
+        }
+        for setting, value in ((offset, 7), (hysteresis, 1.5), (voltage, 0.2), (interval, 35)):
+            self.assertTrue(setting.accepts(values, setting.encode(value)))
+        self.assertFalse(hysteresis.accepts(values, 11))
+        self.assertFalse(voltage.accepts(values, 11))
+        self.assertFalse(interval.accepts(values, 31))
+        values[root + "_Ausgang_Vorlauf_Sensor1_Nr"] = 0
+        self.assertTrue(offset.accepts(values))
+        for setting in (hysteresis, voltage, interval):
+            self.assertFalse(setting.accepts(values))
+        values[root + "_Ausgang1_Nr"] = 0
+        self.assertFalse(offset.accepts(values))
+
+    def test_native_menu_review_reasons_do_not_grant_access(self):
+        reason = parameters_configuration.native_menu_review_reason
+        for name, expected in (
+            ("Relais_Modul1_R1_Handbetrieb", "existing_relay_owner"),
+            ("Wmz1_WertJahr_Wh", "runtime_or_history_preserved"),
+            ("Heizung_Heizkreis1_Relais2_Nr", "hardware_or_topology_assignment"),
+            ("Heizung_Heizkreis1_Kuehlung_Taupunkt_dTErhoehung", "protection_or_safety_configuration"),
+            ("Heizung_RelaisAnforderung1_Ausgang_Spannung1", "commissioning_or_control_scheme"),
+            ("Solar_Sp5_Vorrang", "unsupported_native_topology_slot"),
+            ("Solar_Wf1_DrainBack_Befuellzeit", "hydraulic_applicability_review_required"),
+            ("Heizung_Heizkreis1_OSchaltuhr", "program_option_review_required"),
+            ("Solar_Spreizladung_dTDifferenz", "native_operating_contract_unverified"),
+        ):
+            self.assertEqual(reason(name), expected)
+
     def test_native_mixer_requires_assignments_and_full_hysteresis_margin(self):
         settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
         root = "Heizung_Heizkreis1"

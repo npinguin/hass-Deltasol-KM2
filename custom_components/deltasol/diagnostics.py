@@ -3,6 +3,7 @@
 import re
 from collections import Counter
 
+from .configuration import native_menu_review_reason
 from .const import CONF_VBUS_PASSWORD
 from .discovery import compare_captures
 from .parameters import (
@@ -231,6 +232,18 @@ async def async_get_config_entry_diagnostics(hass, entry):
             )
         ):
             item["write_access_reason"] = "reserved_native_weekly_slot"
+        elif capture and capture.catalog.matches(0x7112, 0x2734DABC):
+            definition = capture.catalog.by_name.get(name)
+            if (
+                definition
+                and definition.metadata.get("menu_refs")
+                and not definition.metadata.get("compound_ref")
+                and (
+                    definition.metadata.get("rpt_storage") in ("preferences", "persistent")
+                    or definition.metadata.get("compound_parent_read_candidate")
+                )
+            ):
+                item["write_access_reason"] = native_menu_review_reason(name)
         if name in reference_contracts:
             item["reference_contract"] = reference_contracts[name]
             item["contract_status"] = (

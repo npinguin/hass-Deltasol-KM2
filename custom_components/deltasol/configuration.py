@@ -533,6 +533,15 @@ def _normalized_numeric(definition, limits):
     ):
         metadata["quant"] = metadata["storeFactor"]
         metadata["type_chain"] = [*chain, "Number"]
+    elif (
+        re.fullmatch(r"Heizung_RelaisAnforderung[12]_Ausgang_Vorlauf_dVKorrektur", definition.name)
+        and limits == ("0", "1", "0.1", "0.1")
+        and metadata.get("storeFactor") == "0.1"
+        and "quant" not in metadata
+        and "step" not in metadata
+    ):
+        # Native correction editor advances one raw tenth of a volt.
+        metadata["step"] = "0.1"
     elif "step" not in metadata and "quant" not in metadata:
         # Exact integer step established by the existing approved contract.
         if Decimal(limits[2]) != 1 or Decimal(limits[3]) != 1:
@@ -543,6 +552,63 @@ def _normalized_numeric(definition, limits):
     if actual != tuple(Decimal(value) for value in limits):
         raise CatalogError("Catalogue numeric contract differs")
     return normalized
+
+
+def native_menu_review_reason(name):
+    """Explain an unbound exact BX Plus menu preference, never authorize a write.
+
+    Review categories are scope/evidence decisions, not native access flags.
+    In particular, program options and remaining operating values stay open.
+    """
+    family = re.sub(r"(?<=\D)\d+", "X", name)
+    if re.fullmatch(r"Relais_(?:ModulX|Regler)_RX_Handbetrieb", family):
+        return "existing_relay_owner"
+    if re.search(
+        r"_Status_|_Brennerstarts$|_Betriebssekunden$|_Zaehlerstand(?:Heute|Jahr|Monat|Woche)?$"
+        r"|^WmzX_(?:Volumen|Wert)|^Sensor_Regler_SX_Wert$|_Neustarts_Neustarts$"
+        r"|_Estrichtrocknung_(?:Phase|TVorlaufSoll)$|_HeizkreisX_TVorlaufSoll$",
+        family,
+    ):
+        return "runtime_or_history_preserved"
+    if re.search(
+        r"_Nr$|Maske$|^Schema$|^Solar_SystemId$|^ModulX_Aktiviert$|_RelaisX_Funktion$",
+        family,
+    ):
+        return "hardware_or_topology_assignment"
+    if re.match(
+        r"MesseModus_|EntwicklerModus_|Produktionstest_|Heizung_Estrichtrocknung_",
+        family,
+    ):
+        return "engineering_or_commissioning_only"
+    if re.search(
+        r"^WmzX_(?:FrostschutzArt|FrostschutzGehalt)$"
+        r"|^Sensor(?:Einstrahlung|Flowrotor|GrundfosAnalog|GrundfosDigital|"
+        r"Luftfeuchtigkeit|Schalter|VolumenstromImpuls)?_(?:ModulX|Regler)_"
+        r"|^Heizung_RelaisAnforderungX_Ausgang_(?:TemperaturX|SpannungX|"
+        r"ODauerSpannung|DauerSpannung|TMin|TMax|OVorlauf)$"
+        r"|^WmzX_(?:OBezugsrelaisX|OVolumenstromSensor)$"
+        r"|_Invertiert$|_VentilInvertiert$|_System$|_Heizsystem$|_Kuehlsystem$"
+        r"|_Variante$|_Typ$|_Justierzeit$",
+        family,
+    ):
+        return "commissioning_or_control_scheme"
+    if re.search(
+        r"Frostschutz|Kesselschutz|Druckueberwachung|Volumenstromueberwachung|"
+        r"Taupunkt|Ueberwaerme|ThDesinfektion|Solar_Funktionskontrolle|"
+        r"Blockierschutz|_TVorlauf(?:Min|Max)$|_TMax_Kesselruecklauf$"
+        r"|_Onot$|_Tnot$|_OSpMaxAus$|_OSchornsteinfeger$|_TFrost$|_TSpeicherFrost$",
+        family,
+    ):
+        return "protection_or_safety_configuration"
+    if re.fullmatch(r"Solar_Sp5_Vorrang", name):
+        return "unsupported_native_topology_slot"
+    if family.endswith("_Handbetrieb"):
+        return "manual_override_contract_unverified"
+    if "_DrainBack_" in family:
+        return "hydraulic_applicability_review_required"
+    if re.search(r"_Aktiviert(?:_Modus)?$|_Modus$|_O[A-Z][A-Za-z]*X?$|_Option$|_ModusSchaltuhr$", family):
+        return "program_option_review_required"
+    return "native_operating_contract_unverified"
 
 
 def bind_setting(setting, definitions):
@@ -1932,6 +1998,74 @@ def _heating_operating_settings():
                 unit="min",
                 installed_by=Dependency(f"{root}_Type", 10724 + offset, (1,)),
                 dependencies=(*common, *output),
+            )
+        # Ordinary flow correction of an already installed analogue
+        # heating demand. Leave the device voltage/temperature calibration,
+        # fixed voltage and protection limits to commissioning.
+        installed = Dependency(f"{root}_Type", 10724 + offset, (1,))
+        output = (
+            Dependency(f"{root}_Aktiviert_Modus", 10727 + offset, (1,)),
+            Dependency(f"{root}_OAusgang1", 10744 + offset, (1,)),
+            RangeDependency(f"{root}_Ausgang1_Nr", 10745 + offset, 1, 4),
+        )
+        feedback = (
+            *output,
+            Dependency(f"{root}_Ausgang_OVorlauf", 10773 + offset, (1,)),
+            RangeDependency(f"{root}_Ausgang_Vorlauf_Sensor1_Nr", 10775 + offset, 1, 65),
+        )
+        for suffix, index, label, k, r, deps in (
+            (
+                "dTSollVorlauf",
+                10770,
+                "flow target offset",
+                ("0", "20", "1", "0.1"),
+                ("0", "40", "2", "0.1"),
+                output,
+            ),
+            (
+                "Vorlauf_dTHysterese",
+                10778,
+                "flow correction hysteresis",
+                ("0.5", "20", "0.5", "0.1"),
+                ("1", "40", "1", "0.1"),
+                feedback,
+            ),
+        ):
+            name = f"{root}_Ausgang_{suffix}"
+            index += offset
+            for selector, alias, unit, limits in (
+                (0, "_K", "K", k),
+                (1, "_R", "°R", r),
+            ):
+                yield Setting(
+                    name,
+                    index,
+                    f"Heating demand {slot} {label}",
+                    "number",
+                    True,
+                    limits=limits,
+                    unit=unit,
+                    installed_by=installed,
+                    dependencies=(
+                        *deps,
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    compound_mirrors=((name, index, name + alias, index + selector + 1),),
+                )
+        for suffix, index, label, limits, unit in (
+            ("dVKorrektur", 10781, "voltage correction", ("0", "1", "0.1", "0.1"), "V"),
+            ("dtIntervall", 10782, "correction interval", ("10", "600", "5", "1"), "s"),
+        ):
+            yield Setting(
+                f"{root}_Ausgang_Vorlauf_{suffix}",
+                index + offset,
+                f"Heating demand {slot} {label}",
+                "number",
+                True,
+                limits=limits,
+                unit=unit,
+                installed_by=installed,
+                dependencies=feedback,
             )
     for slot in range(1, 3):
         offset = (slot - 1) * 29

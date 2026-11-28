@@ -1529,62 +1529,22 @@ class DiscoveryTests(unittest.TestCase):
             "normalized families",
         )
         print("Unbound native menu families:", sorted(families.items()))
-        # Targeted evidence for the remaining operational contracts. Report
-        # only first-slot reference metadata, not the vendor XML or DLL.
-        review_names = (
-            "Heizung_Heizkreis1_Heizsystem_Raumeinfluss_Faktor",
-            "Heizung_Heizkreis1_Heizsystem_Raumeinfluss_Abweichung",
-            "Heizung_Heizkreis1_Heizsystem",
-            "Heizung_Heizkreis1_System",
-            "Heizung_Heizkreis1_MischerIntervall",
-            "Heizung_Heizkreis1_Relais1_Nr",
-            "Heizung_Heizkreis1_Relais2_Nr",
-            "Heizung_Heizkreis1_Relais3_Nr",
-            "Heizung_Heizkreis1_Relais4_Nr",
-            "Heizung_Heizkreis1_Sensor1_Nr",
-            "Heizung_Heizkreis1_Sensor2_Nr",
-            "Heizung_Heizkreis1_Sensor4_Nr",
-            "Heizung_Heizkreis1_Raumthermostat1_Option",
-            "Heizung_Heizkreis1_Raumthermostat1_Typ",
-            "Heizung_RelaisAnforderung1_Type",
-            "Heizung_RelaisAnforderung1_OMindestlaufzeit",
-            "Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin",
-            "Heizung_RelaisAnforderung1_ORelais1",
-            "Heizung_RelaisAnforderung1_Relais1_Nr",
-            "Heizung_RelaisAnforderung1_OAusgang1",
-            "Heizung_RelaisAnforderung1_Ausgang1_Nr",
-            "Anlage_Wf1_Funktionsblock_OMindestausschaltzeit",
-            "Anlage_Wf1_Funktionsblock_dtMindestausschaltzeit",
-            "Anlage_Wf1_Relais1_Nr",
-            "Anlage_Wf1_Bezugsrelais1_Nr",
-            "Anlage_Wf1_Parallelrelais_ONachlauf",
-            "Anlage_Wf1_Parallelrelais_OVerzoegerung",
-        )
-        for name in review_names:
-            row = definitions.get(name)
-            if row is None:
-                print("Operational review missing:", name)
-                continue
-            print(
-                "Operational review:",
-                name,
-                row.index,
-                {
-                    key: row.metadata[key]
-                    for key in (
-                        "type_chain",
-                        "minimum",
-                        "maximum",
-                        "quant",
-                        "quant_step",
-                        "storeFactor",
-                        "unit",
-                        "menu_refs",
-                        "rpt_storage",
-                    )
-                    if key in row.metadata
-                },
+        # Every remaining preference is explicitly accounted for, including
+        # open reviews. A read-only scope reason is not a native access bit.
+        reasons = Counter(configuration.native_menu_review_reason(name) for name in unbound)
+        self.assertEqual(sum(reasons.values()), len(unbound))
+        print("Native menu review categories:", sorted(reasons.items()))
+        pending = Counter(
+            re.sub(r"(?<=\D)\d+", "X", name)
+            for name in unbound
+            if configuration.native_menu_review_reason(name) in (
+                "program_option_review_required",
+                "native_operating_contract_unverified",
+                "hydraulic_applicability_review_required",
+                "manual_override_contract_unverified",
             )
+        )
+        print("Pending semantic menu review:", sorted(pending.items()))
         for slot in range(1, 17):
             prefix = f"Anlage_Wf{slot}"
             self.assertEqual(
@@ -1911,7 +1871,7 @@ class DiscoveryTests(unittest.TestCase):
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
         self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 435)
-        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 359)
+        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 371)
         for setting in configuration.BX_PLUS_HEATING_OPERATING_SETTINGS:
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)

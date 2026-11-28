@@ -67,6 +67,10 @@ CONFIG_SELECTORS = {
     "Heizung_Heizkreis1_Relais2_Nr": (13772, 2),
     "Heizung_Heizkreis1_Relais3_Nr": (13780, 3),
     "Heizung_RelaisAnforderung1_Type": (10724, 1),
+    "Heizung_RelaisAnforderung1_OAusgang1": (10744, 1),
+    "Heizung_RelaisAnforderung1_Ausgang1_Nr": (10745, 1),
+    "Heizung_RelaisAnforderung1_Ausgang_OVorlauf": (10773, 1),
+    "Heizung_RelaisAnforderung1_Ausgang_Vorlauf_Sensor1_Nr": (10775, 2),
     "Heizung_RelaisAnforderung1_Aktiviert_Modus": (10727, 1),
     "Heizung_RelaisAnforderung1_OMindestlaufzeit": (10798, 1),
     "Heizung_RelaisAnforderung1_ORelais1": (10734, 1),
@@ -174,6 +178,10 @@ CONFIG_SETTINGS = {
     "Heizung_Heizkreis1_Mischer_dTEin": (14168, 15, 5, 50),
     "Heizung_Heizkreis1_Mischer_dTAus": (14171, 10, 0, 45),
     "Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin": (10799, 10, 0, 120),
+    "Heizung_RelaisAnforderung1_Ausgang_dTSollVorlauf": (10770, 50, 0, 200),
+    "Heizung_RelaisAnforderung1_Ausgang_Vorlauf_dTHysterese": (10778, 10, 5, 200),
+    "Heizung_RelaisAnforderung1_Ausgang_Vorlauf_dVKorrektur": (10781, 1, 0, 10),
+    "Heizung_RelaisAnforderung1_Ausgang_Vorlauf_dtIntervall": (10782, 30, 10, 600),
     "Anlage_Wf5_Funktionsblock_dtMindestausschaltzeit": (7748, 60, 1, 1439),
     "Heizung_Heizkreis1_Nachheizung_dTEin": (13747, -50, -150, 445),
     "Heizung_Heizkreis1_Nachheizung_dTAus": (13750, 50, -145, 450),
@@ -242,6 +250,8 @@ CONFIG_SETTINGS = {
 # This peer deliberately models the selected-unit parent contract. It is
 # independent software evidence, not a physical observation of this encoding.
 COMPOUND_NAMES = (
+    "Heizung_RelaisAnforderung1_Ausgang_dTSollVorlauf",
+    "Heizung_RelaisAnforderung1_Ausgang_Vorlauf_dTHysterese",
     "Anlage_Wf6_Waermeaustausch_HMinMax",
     "Heizung_Heizkreis1_Mischer_dTEin",
     "Heizung_Heizkreis1_Mischer_dTAus",
@@ -625,6 +635,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                             3582,
                             3585,
                             7912,
+                            10778,
                             7261,
                             7264,
                             3908,
@@ -648,6 +659,14 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     }
                     if index in (14168, 14171):
                         assert proposed[14168] >= proposed[14171] + 5
+                    elif index in (10770, 10778):
+                        assert Peer.extra_values[10724] == 1
+                        assert Peer.extra_values[10727] == 1
+                        assert Peer.extra_values[10744] == 1
+                        assert 1 <= Peer.extra_values[10745] <= 4
+                        if index == 10778:
+                            assert Peer.extra_values[10773] == 1
+                            assert Peer.extra_values[10775] > 0
                     elif index == 7912:
                         assert Peer.extra_values[7814] == 5
                         assert Peer.extra_values[7821] == 1
@@ -790,6 +809,13 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert Peer.extra_values[13796] > 0
                     assert Peer.extra_values[13772] > 0
                     assert Peer.extra_values[13780] > 0
+                if index in (10781, 10782):
+                    assert Peer.extra_values[10724] == Peer.extra_values[10727] == 1
+                    assert Peer.extra_values[10744] == Peer.extra_values[10773] == 1
+                    assert 1 <= Peer.extra_values[10745] <= 4
+                    assert Peer.extra_values[10775] > 0
+                    if index == 10782:
+                        assert value % 5 == 0
                 if index == 10799:
                     assert Peer.extra_values[10724] == 1
                     assert Peer.extra_values[10727] == 1
@@ -1415,6 +1441,10 @@ async def qualify(directory, phase):
                     ("Heizung_Heizkreis1_Mischer_dTEin", "number", 4),
                     ("Heizung_Heizkreis1_Mischer_dTAus", "number", 2.4),
                     ("Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin", "number", 15),
+                    ("Heizung_RelaisAnforderung1_Ausgang_dTSollVorlauf", "number", 14),
+                    ("Heizung_RelaisAnforderung1_Ausgang_Vorlauf_dTHysterese", "number", 3),
+                    ("Heizung_RelaisAnforderung1_Ausgang_Vorlauf_dVKorrektur", "number", 0.2),
+                    ("Heizung_RelaisAnforderung1_Ausgang_Vorlauf_dtIntervall", "number", 35),
                     ("Anlage_Wf5_Funktionsblock_dtMindestausschaltzeit", "number", 75),
                     ("Heizung_Heizkreis1_Betriebsart", "select", "Day"),
                     ("Heizung_Heizkreis1_Nachheizung_dTEin", "number", -9),
@@ -2420,6 +2450,24 @@ async def qualify(directory, phase):
             )
             == 5
         )
+
+        before_analogue = Peer.saves
+        root = "Heizung_RelaisAnforderung1_Ausgang_"
+        for suffix, value in (
+            ("dTSollVorlauf", 14),
+            ("Vorlauf_dTHysterese", 3),
+            ("Vorlauf_dVKorrektur", 0.2),
+            ("Vorlauf_dtIntervall", 35),
+        ):
+            await number(root + suffix, value)
+        assert Peer.saves == before_analogue + 4
+        interval = entity(root + "Vorlauf_dtIntervall", "number")
+        Peer.extra_values[10775] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(interval).state == "unavailable"
+        Peer.extra_values[10775] = 2
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert float(hass.states.get(interval).state) == 35
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"
