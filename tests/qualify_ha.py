@@ -3158,7 +3158,9 @@ async def qualify(directory, phase):
         analog_manual = entity("Ausgang_Regler_A1_Handbetrieb", "select")
         assert circuit_activity and analog_manual
         before_circuit = Peer.saves
-        assignments = {i: Peer.extra_values[i] for i in (13764, 13772, 13780, 13796, 13800)}
+        assignments = {
+            i: Peer.extra_values[i] for i in (13764, 13772, 13780, 13796, 13800)
+        }
         await set_mode(circuit_activity, "Deactivated")
         assert Peer.settings[13689] == 0
         await set_mode(circuit_activity, "External switch")
