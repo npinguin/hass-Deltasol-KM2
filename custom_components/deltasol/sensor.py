@@ -20,6 +20,7 @@ from homeassistant.const import (
     UnitOfVolumeFlowRate,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -65,6 +66,18 @@ async def async_setup_platform(
     return True
 
 
+def sensor_identity(registry, entry_id, serial, field):
+    """Keep legacy registry identities; namespace newly discovered fields."""
+    scoped = f"{serial}_{field}"
+    legacy = registry.async_get_entity_id("sensor", DOMAIN, field)
+    current = registry.async_get_entity_id("sensor", DOMAIN, scoped)
+    if current:
+        return scoped
+    if legacy and registry.async_get(legacy).config_entry_id == entry_id:
+        return field
+    return scoped
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config: DeltasolConfigEntry,
@@ -72,6 +85,7 @@ async def async_setup_entry(
 ):
     """Set up the Sensors."""
     coordinator = config.runtime_data.coordinator
+    registry = er.async_get(hass)
     registered = set()
 
     @callback
@@ -79,11 +93,18 @@ async def async_setup_entry(
         if not coordinator.last_update_success or not coordinator.data:
             return
         new = [
-            DeltasolSensor(coordinator, unique_id, endpoint)
-            for unique_id, endpoint in coordinator.data.items()
-            if unique_id not in registered
+            DeltasolSensor(
+                coordinator,
+                sensor_identity(
+                    registry, config.entry_id, endpoint.product_details["serial"], key
+                ),
+                endpoint,
+                data_key=key,
+            )
+            for key, endpoint in coordinator.data.items()
+            if key not in registered
         ]
-        registered.update(entity.unique_id for entity in new)
+        registered.update(entity.data_key for entity in new)
         if new:
             async_add_entities(new)
 
@@ -189,6 +210,8 @@ class DeltasolSensor(CoordinatorEntity, SensorEntity):
         coordinator: DeltasolCoordinator,
         unique_id: str,
         endpoint: DeltasolEndpoint,
+        *,
+        data_key: str | None = None,
     ) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator)
@@ -197,6 +220,7 @@ class DeltasolSensor(CoordinatorEntity, SensorEntity):
         self.coordinator: DeltasolCoordinator = coordinator
 
         self._attr_unique_id = unique_id
+        self.data_key = data_key if data_key is not None else unique_id
         self._endpoint = endpoint
 
         self._last_updated = dt_util.now()
@@ -218,7 +242,7 @@ class DeltasolSensor(CoordinatorEntity, SensorEntity):
         return (
             self.coordinator.last_update_success
             and self.coordinator.data is not None
-            and self.unique_id in self.coordinator.data
+            and self.data_key in self.coordinator.data
         )
 
     @callback
@@ -235,7 +259,7 @@ class DeltasolSensor(CoordinatorEntity, SensorEntity):
         if not self.available:
             return None
 
-        value = self.coordinator.data[self.unique_id].value
+        value = self.coordinator.data[self.data_key].value
         # ggf. hier noch die anderen sprachen?
         if self._attr_name in ("system_time", "heure"):
             hours, minutes = divmod(value, 60)
@@ -265,7 +289,7 @@ class DeltasolSensor(CoordinatorEntity, SensorEntity):
             return SensorDeviceClass.VOLUME_FLOW_RATE
         # Use the current value when the field is present. Fall back to the creation-time value when it disappears.
         current = (
-            self.coordinator.data.get(self.unique_id) if self.coordinator.data else None
+            self.coordinator.data.get(self.data_key) if self.coordinator.data else None
         )
         value = current.value if current is not None else self._endpoint.value
         if isinstance(value, date):

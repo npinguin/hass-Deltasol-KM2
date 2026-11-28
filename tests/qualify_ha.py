@@ -1232,7 +1232,9 @@ class HttpHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         assert self.path == "/cgi-bin/get_resol_device_information"
         data = (
-            'product = "KM2"\nvendor = "RESOL"\nserial = "isolated-gateway"\n'
+            'product = "KM2"\nvendor = "RESOL"\nserial = "'
+            + ("isolated-secondary" if self.server.server_port == 18081 else "isolated-gateway")
+            + '"\n'
             'version = "2.0"\nbuild = "test"\nname = "KM2"\nfeatures = "VBus"\n'
         )
         self.send(data.encode())
@@ -2349,6 +2351,7 @@ async def qualify(directory, phase):
             dashboard_objects,
             scoped_control,
             ws_engineering,
+            ws_action,
         )
 
         admin = await hass.auth.async_create_user(
@@ -2394,6 +2397,36 @@ async def qualify(directory, phase):
             for row in asset["capabilities"]
         )
         assert scoped_control(hass, admin, entry.entry_id, select)["control"]
+        second = ConfigEntry(
+            version=entry.version,
+            minor_version=entry.minor_version,
+            domain="deltasol",
+            title="Second installation",
+            data={**entry.data, "port": 18081},
+            source="user",
+            unique_id="isolated-secondary",
+            options={"enable_dashboard": True, "show_engineering": False},
+            discovery_keys=MappingProxyType({}),
+            subentries_data=None,
+        )
+        await hass.config_entries.async_add(second)
+        await hass.async_block_till_done()
+        assert second.state == ConfigEntryState.LOADED
+        second_sensor = registry.async_get_entity_id(
+            "sensor", "deltasol", f"isolated-secondary_{SENSOR_UID}"
+        )
+        assert second_sensor and second_sensor != sensor
+        assert registry.async_get(second_sensor).config_entry_id == second.entry_id
+        assert float(hass.states.get(second_sensor).state) == 42
+        views = {view["id"]: view for view in dashboard_objects(hass, admin)}
+        assert set(views) == {entry.entry_id, second.entry_id}
+        assert views[entry.entry_id]["engineering"]
+        assert not views[second.entry_id]["engineering"]
+        assert "resol" in hass.data[DATA_PANELS]
+        assert await hass.config_entries.async_remove(second.entry_id)
+        assert "resol" in hass.data[DATA_PANELS]
+        assert len(dashboard_objects(hass, admin)) == 1
+        assert registry.async_get(sensor).config_entry_id == entry.entry_id
         for user, ident in ((resident, entry.entry_id), (admin, "other-entry")):
             try:
                 scoped_control(hass, user, ident, select)
@@ -2403,6 +2436,39 @@ async def qualify(directory, phase):
                 raise AssertionError("Engineering or foreign entry control leaked")
         from types import SimpleNamespace
 
+        replies = []
+        connection = SimpleNamespace(
+            user=admin,
+            send_result=lambda _id, result: replies.append(result),
+            send_error=lambda *_: replies.append({"error": True}),
+        )
+        await ws_action.__wrapped__(
+            hass,
+            connection,
+            {
+                "id": 2,
+                "entry_id": entry.entry_id,
+                "entity_id": select,
+                "value": hass.states.get(select).state,
+                "preview": False,
+            },
+        )
+        assert replies == [
+            {"outcome": "observed", "value": hass.states.get(select).state}
+        ]
+        connection.user = resident
+        await ws_action.__wrapped__(
+            hass,
+            connection,
+            {
+                "id": 3,
+                "entry_id": entry.entry_id,
+                "entity_id": select,
+                "value": "Off",
+                "preview": False,
+            },
+        )
+        assert replies[-1] == {"error": True}
         try:
             ws_engineering(
                 hass,
@@ -3647,9 +3713,10 @@ def main():
         }
     with (
         ThreadingHTTPServer(("127.0.0.1", 18080), HttpHandler) as http,
+        ThreadingHTTPServer(("127.0.0.1", 18081), HttpHandler) as secondary,
         VBusServer(("127.0.0.1", 7053), VBusHandler) as vbus,
     ):
-        for server in (http, vbus):
+        for server in (http, secondary, vbus):
             threading.Thread(target=server.serve_forever, daemon=True).start()
         asyncio.run(qualify(directory, phase))
     print(f"ISOLATED_HA {phase} PASS (controlled loopback protocol peer)")

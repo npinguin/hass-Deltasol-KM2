@@ -125,3 +125,37 @@ class DeltasolDateParsingTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SensorIdentityTests(unittest.TestCase):
+    def test_existing_identity_and_new_gateway_are_separate(self):
+        from types import SimpleNamespace
+
+        path = API_SOURCE.with_name("sensor.py")
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        function = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name == "sensor_identity"
+        )
+        namespace = {"DOMAIN": "deltasol"}
+        exec(  # noqa: S102
+            compile(ast.Module(body=[function], type_ignores=[]), str(path), "exec"),
+            namespace,
+        )
+        ids = {"field": "sensor.existing"}
+        owners = {"sensor.existing": SimpleNamespace(config_entry_id="old")}
+        registry = SimpleNamespace(
+            async_get_entity_id=lambda _domain, _platform, key: ids.get(key),
+            async_get=lambda entity: owners[entity],
+        )
+        identity = namespace["sensor_identity"]
+        self.assertEqual(identity(registry, "old", "gateway1", "field"), "field")
+        self.assertEqual(
+            identity(registry, "new", "gateway2", "field"), "gateway2_field"
+        )
+        ids["gateway2_field"] = "sensor.second"
+        del ids["field"]
+        self.assertEqual(
+            identity(registry, "new", "gateway2", "field"), "gateway2_field"
+        )
