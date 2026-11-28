@@ -38,6 +38,21 @@ HQM_SENSOR_UID = "00_0010_7131_0100__004_4_0"
 # Independent wire fixtures: exact 2.08 reference positions, not imported
 # production Setting objects. Persistent state belongs to the protocol peer.
 CONFIG_SELECTORS = {
+    "Heizung_Wf3_Relais1_Nr": (11623, 4),
+    "Heizung_Wf3_SensorDurchfluss1_Nr": (11617, 4),
+    "Heizung_Wf3_Sensor3_Nr": (11600, 3),
+    "Heizung_Wf3_Sensor2_Nr": (11596, 2),
+    "Heizung_Wf3_Sensor1_Nr": (11592, 1),
+    "Heizung_Wf3_Aktiviert_Modus": (11575, 1),
+    "Heizung_Wf3_Type": (11568, 3),
+    "Anlage_Wf2_Relais1_Nr": (6843, 2),
+    "Anlage_Wf2_Sensor3_Nr": (6835, 3),
+    "Anlage_Wf2_Sensor2_Nr": (6831, 2),
+    "Anlage_Wf2_Sensor1_Nr": (6827, 1),
+    "Anlage_Wf5_Sensor4_Nr": (7592, 4),
+    "Anlage_Wf5_Sensor3_Nr": (7588, 3),
+    "Anlage_Wf5_Sensor2_Nr": (7584, 2),
+    "Anlage_Wf5_Sensor1_Nr": (7580, 1),
     "Anlage_Wf7_Type": (8065, 8),
     "Anlage_Wf7_Aktiviert_Modus": (8072, 1),
     "Anlage_Wf7_Relais1_Nr": (8098, 2),
@@ -162,6 +177,22 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
+    "Heizung_Wf3_BwVorerwaermung_dTAus": (11704, 40, 5, 495),
+    "Heizung_Wf3_BwVorerwaermung_dTEin": (11701, 60, 10, 500),
+    "Heizung_Wf3_BwVorerwaermung_ODifferenz": (11700, 1, 0, 1),
+    "Anlage_Wf2_Feststoffkessel_Zieltemperatur_TZiel": (6933, 600, 300, 850),
+    "Anlage_Wf2_Feststoffkessel_OZieltemperatur": (6932, 1, 0, 1),
+    "Anlage_Wf5_Funktionsblock_Anstieg": (7736, 20, 5, 200),
+    "Anlage_Wf5_Funktionsblock_dTSoll": (7717, 100, 20, 1000),
+    "Anlage_Wf5_Funktionsblock_dTAus": (7714, 40, 5, 495),
+    "Anlage_Wf5_Funktionsblock_dTEin": (7711, 60, 10, 500),
+    "Anlage_Wf5_Funktionsblock_TTh2Aus": (7729, 500, -400, 2500),
+    "Anlage_Wf5_Funktionsblock_TTh2Ein": (7726, 600, -400, 2500),
+    "Anlage_Wf5_Funktionsblock_TTh1Aus": (7723, 500, -400, 2500),
+    "Anlage_Wf5_Funktionsblock_TTh1Ein": (7720, 400, -400, 2500),
+    "Anlage_Wf5_Funktionsblock_ODifferenz": (7708, 1, 0, 1),
+    "Anlage_Wf5_Funktionsblock_OThermostat2": (7710, 1, 0, 1),
+    "Anlage_Wf5_Funktionsblock_OThermostat1": (7709, 1, 0, 1),
     "Anlage_Wf7_Ruecklaufanhebung_OSommerAus": (8200, 1, 0, 1),
     "Anlage_Wf7_Ruecklaufanhebung_TSommerAus": (8207, 200, 100, 600),
     "Heizung_Heizkreis1_OEnergiesparbetrieb": (14158, 1, 0, 1),
@@ -276,6 +307,12 @@ CONFIG_SETTINGS = {
 # This peer deliberately models the selected-unit parent contract. It is
 # independent software evidence, not a physical observation of this encoding.
 COMPOUND_NAMES = (
+    "Heizung_Wf3_BwVorerwaermung_dTAus",
+    "Heizung_Wf3_BwVorerwaermung_dTEin",
+    "Anlage_Wf5_Funktionsblock_Anstieg",
+    "Anlage_Wf5_Funktionsblock_dTSoll",
+    "Anlage_Wf5_Funktionsblock_dTAus",
+    "Anlage_Wf5_Funktionsblock_dTEin",
     "Heizung_Heizkreis1_Energiesparbetrieb_dTAus",
     "Solar_Spreizladung_dTDifferenz",
     "Heizung_RelaisAnforderung1_Ausgang_dTSollVorlauf",
@@ -309,6 +346,11 @@ COMPOUND_ALIASES = {
 }
 COMPOUND_PARENTS = {CONFIG_SETTINGS[name][0] for name in COMPOUND_NAMES}
 TEMPERATURE_NAMES = (
+    "Anlage_Wf2_Feststoffkessel_Zieltemperatur_TZiel",
+    "Anlage_Wf5_Funktionsblock_TTh2Aus",
+    "Anlage_Wf5_Funktionsblock_TTh2Ein",
+    "Anlage_Wf5_Funktionsblock_TTh1Aus",
+    "Anlage_Wf5_Funktionsblock_TTh1Ein",
     "Anlage_Wf7_Ruecklaufanhebung_TSommerAus",
     "Anlage_Wf2_Feststoffkessel_TMax",
     "Anlage_Wf2_Feststoffkessel_TMin",
@@ -1537,6 +1579,11 @@ async def qualify(directory, phase):
                     ("Solar_OPausendrehzahl", "switch", "on"),
                     ("Solar_OPumpenverzoegerung", "switch", "on"),
                     ("Solar_OSpreizladung", "switch", "on"),
+                    ("Anlage_Wf5_Funktionsblock_OThermostat1", "switch", "on"),
+                    ("Anlage_Wf5_Funktionsblock_OThermostat2", "switch", "on"),
+                    ("Anlage_Wf5_Funktionsblock_ODifferenz", "switch", "on"),
+                    ("Anlage_Wf2_Feststoffkessel_OZieltemperatur", "switch", "on"),
+                    ("Heizung_Wf3_BwVorerwaermung_ODifferenz", "switch", "on"),
                     ("Anlage_Wf7_Ruecklaufanhebung_OSommerAus", "switch", "on"),
                     ("Heizung_Heizkreis1_OHeizgrenze", "switch", "on"),
                     ("Heizung_Heizkreis1_Heizgrenze", "select", "Day/Night"),
@@ -2555,6 +2602,31 @@ async def qualify(directory, phase):
 
         # Native flags use the same persistent owner as their companion Numbers.
         for flag, index, companion in (
+            (
+                "Anlage_Wf5_Funktionsblock_OThermostat1",
+                7709,
+                "Anlage_Wf5_Funktionsblock_TTh1Ein",
+            ),
+            (
+                "Anlage_Wf5_Funktionsblock_OThermostat2",
+                7710,
+                "Anlage_Wf5_Funktionsblock_TTh2Ein",
+            ),
+            (
+                "Anlage_Wf5_Funktionsblock_ODifferenz",
+                7708,
+                "Anlage_Wf5_Funktionsblock_dTEin",
+            ),
+            (
+                "Anlage_Wf2_Feststoffkessel_OZieltemperatur",
+                6932,
+                "Anlage_Wf2_Feststoffkessel_Zieltemperatur_TZiel",
+            ),
+            (
+                "Heizung_Wf3_BwVorerwaermung_ODifferenz",
+                11700,
+                "Heizung_Wf3_BwVorerwaermung_dTEin",
+            ),
             ("Solar_OPausendrehzahl", 3420, "Solar_Pausendrehzahl"),
             ("Solar_OPumpenverzoegerung", 3422, "Solar_Pumpenverzoegerung"),
             ("Solar_OSpreizladung", 3424, "Solar_Spreizladung_dTDifferenz"),
@@ -2613,6 +2685,30 @@ async def qualify(directory, phase):
             assert Peer.settings[index] == 1 and Peer.saves == before + 2
             assert hass.states.get(target).state == "on"
             assert hass.states.get(number_id).state == original
+
+        # Never remove the last proven function-block predicate.
+        first = entity("Anlage_Wf5_Funktionsblock_OThermostat1", "switch")
+        second = entity("Anlage_Wf5_Funktionsblock_OThermostat2", "switch")
+        differential = entity("Anlage_Wf5_Funktionsblock_ODifferenz", "switch")
+        before_thermal = Peer.saves
+        for option in (second, differential):
+            await hass.services.async_call(
+                "switch", "turn_off", {"entity_id": option}, blocking=True
+            )
+        try:
+            await hass.services.async_call(
+                "switch", "turn_off", {"entity_id": first}, blocking=True
+            )
+        except HomeAssistantError:
+            pass
+        else:
+            raise AssertionError("Last function-block predicate removed")
+        assert Peer.saves == before_thermal + 2
+        for option in (second, differential):
+            await hass.services.async_call(
+                "switch", "turn_on", {"entity_id": option}, blocking=True
+            )
+        assert Peer.saves == before_thermal + 4
 
         seasonal = entity("Heizung_Heizkreis1_Heizgrenze", "select")
         night = entity("Heizung_Heizkreis1_TSommerNacht", "number")
