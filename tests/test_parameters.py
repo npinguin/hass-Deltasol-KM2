@@ -118,6 +118,33 @@ class ParameterTests(unittest.TestCase):
         values["Relais_Regler_R1_AktorFunktion"] = 8
         self.assertFalse(setting.accepts(values, 4))
 
+    def test_native_analog_manual_uses_volatile_writer(self):
+        root = "Ausgang_Regler_A1"
+        name = root + "_Handbetrieb"
+        role = root + "_AktorFunktion"
+        self.session.read.return_value = 0x2734DABC
+        self.values.update({role: (2602, 7), name: (2612, 2)})
+        hints = {role: parameters.ParameterObservation(2602, 7, "read")}
+        cap = next(
+            cap
+            for cap in self.api.discover(telemetry(), hints).configuration.values()
+            if cap.setting.name == name
+        )
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((index, value, save), (2612, 4, False))
+            self.values[name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        cap = self.api.set_configuration(telemetry(), cap, "On")
+        self.assertEqual(cap.value, "On")
+        self.api.set_configuration(telemetry(), cap, "On")
+        self.values[role] = (2602, 1)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, "Off")
+        self.session.write_verified.assert_called_once()
+
     def test_cooling_priority_bounds(self):
         RelativeConstraint = parameters_configuration.RelativeConstraint
 
@@ -1795,7 +1822,10 @@ class ParameterTests(unittest.TestCase):
         hints = {
             installed.name: parameters.ParameterObservation(installed.index, 1, "read")
         }
-        cap = next(iter(self.api.discover(telemetry(), hints).configuration.values()))
+        cap = next(
+            cap for cap in self.api.discover(telemetry(), hints).configuration.values()
+            if cap.setting.name == setting.name
+        )
         self.assertEqual(cap.value, 1.2)
 
         def write(address, index, value, changeset, *, save):
@@ -1806,7 +1836,12 @@ class ParameterTests(unittest.TestCase):
         self.session.write_verified.side_effect = write
         self.assertEqual(self.api.set_configuration(telemetry(), cap, 1.5).value, 1.5)
         self.values[mode.name] = (mode.index, 2)
-        self.assertFalse(self.api.discover(telemetry(), hints).configuration)
+        self.assertFalse(
+            any(
+                cap.setting.name == setting.name
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            )
+        )
         with self.assertRaises(parameters.VBusError):
             self.api.set_configuration(telemetry(), cap, 1.6)
         self.session.write_verified.assert_called_once()
