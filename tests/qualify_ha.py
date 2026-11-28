@@ -1231,10 +1231,13 @@ class VBusServer(socketserver.ThreadingTCPServer):
 class HttpHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         assert self.path == "/cgi-bin/get_resol_device_information"
+        serial = (
+            "isolated-secondary"
+            if self.server.server_port == 18081
+            else "isolated-gateway"
+        )
         data = (
-            'product = "KM2"\nvendor = "RESOL"\nserial = "'
-            + ("isolated-secondary" if self.server.server_port == 18081 else "isolated-gateway")
-            + '"\n'
+            f'product = "KM2"\nvendor = "RESOL"\nserial = "{serial}"\n'
             'version = "2.0"\nbuild = "test"\nname = "KM2"\nfeatures = "VBus"\n'
         )
         self.send(data.encode())
@@ -1469,9 +1472,7 @@ async def qualify(directory, phase):
             options = hass.config_entries.options
             result = await options.async_init(entry.entry_id)
             assert result["step_id"] == "init", result
-            with patch(
-                "custom_components.deltasol.load_catalog", return_value=fixture
-            ):
+            with patch("custom_components.deltasol.load_catalog", return_value=fixture):
                 result = await options.async_configure(
                     result["flow_id"], {"vbus_password": "local-test"}
                 )

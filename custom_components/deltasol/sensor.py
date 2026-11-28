@@ -96,7 +96,10 @@ async def async_setup_entry(
             DeltasolSensor(
                 coordinator,
                 sensor_identity(
-                    registry, config.entry_id, endpoint.product_details["serial"], key
+                    registry,
+                    config.entry_id,
+                    endpoint.product_details["serial"],
+                    key,
                 ),
                 endpoint,
                 data_key=key,
