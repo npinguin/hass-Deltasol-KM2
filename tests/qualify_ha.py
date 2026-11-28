@@ -1329,6 +1329,8 @@ async def qualify(directory, phase):
         },
         "deltasol": {},
     }
+    if phase in ("upgrade", "restart"):
+        config.update({"http": {"server_port": 18123}, "frontend": {}})
     # Load the installed candidate's own catalogue types from the actual
     # isolated HA config directory, before entry setup can start Discovery.
     sys.path.insert(0, str(directory))
@@ -2319,10 +2321,104 @@ async def qualify(directory, phase):
             ):
                 break
         else:
-            raise AssertionError("Native function not recovered without historical capture")
+            raise AssertionError(
+                "Native function not recovered without historical capture"
+            )
         assert runtime.capture is None
         assert (Peer.writes, Peer.saves) == before
         print("ISOLATED_HA independent live capability recovery PASS", flush=True)
+        from homeassistant.auth.const import (
+            GROUP_ID_ADMIN,
+            GROUP_ID_READ_ONLY,
+            GROUP_ID_USER,
+        )
+        from homeassistant.components.frontend import DATA_PANELS
+        from homeassistant.exceptions import Unauthorized
+
+        from custom_components.deltasol.dashboard import (
+            dashboard_objects,
+            scoped_control,
+            ws_engineering,
+        )
+
+        admin = await hass.auth.async_create_user(
+            "Qualification administrator", group_ids=[GROUP_ID_ADMIN]
+        )
+        resident = await hass.auth.async_create_user(
+            "Qualification resident", group_ids=[GROUP_ID_USER]
+        )
+        readonly = await hass.auth.async_create_user(
+            "Qualification reader", group_ids=[GROUP_ID_READ_ONLY]
+        )
+        assert not resident.is_admin and not readonly.is_admin
+        assert not dashboard_objects(hass, admin)
+        assert "resol" not in hass.data.get(DATA_PANELS, {})
+        options = hass.config_entries.options
+        result = await options.async_init(entry.entry_id)
+        result = await options.async_configure(
+            result["flow_id"],
+            {
+                "vbus_password": "local-test",
+                "enable_dashboard": True,
+                "show_engineering": True,
+            },
+        )
+        assert result["type"] == "create_entry"
+        await hass.async_block_till_done()
+        assert entry.state == ConfigEntryState.LOADED
+        assert "resol" in hass.data[DATA_PANELS]
+        (admin_view,) = dashboard_objects(hass, admin)
+        (resident_view,) = dashboard_objects(hass, resident)
+        (reader_view,) = dashboard_objects(hass, readonly)
+        assert admin_view["engineering"] and admin_view["settings"]
+        assert not resident_view["engineering"] and not resident_view["settings"]
+        assert not reader_view["engineering"]
+        assert all(
+            not row["control"]
+            for asset in reader_view["objects"]
+            for row in asset["capabilities"]
+        )
+        assert any(
+            row["entity_id"] == sensor
+            for asset in resident_view["objects"]
+            for row in asset["capabilities"]
+        )
+        assert scoped_control(hass, admin, entry.entry_id, select)["control"]
+        for user, ident in ((resident, entry.entry_id), (admin, "other-entry")):
+            try:
+                scoped_control(hass, user, ident, select)
+            except HomeAssistantError:
+                pass
+            else:
+                raise AssertionError("Engineering or foreign entry control leaked")
+        from types import SimpleNamespace
+
+        try:
+            ws_engineering(
+                hass, SimpleNamespace(user=resident), {"id": 1, "entry_id": entry.entry_id}
+            )
+        except Unauthorized:
+            pass
+        else:
+            raise AssertionError("Engineering endpoint accepted a non-admin")
+        assert (Peer.writes, Peer.saves) == before
+        # Disable using the native options flow, verify single panel removal.
+        result = await options.async_init(entry.entry_id)
+        result = await options.async_configure(
+            result["flow_id"],
+            {
+                "vbus_password": "local-test",
+                "enable_dashboard": False,
+                "show_engineering": False,
+            },
+        )
+        assert result["type"] == "create_entry"
+        await hass.async_block_till_done()
+        assert entry.state == ConfigEntryState.LOADED
+        assert "resol" not in hass.data.get(DATA_PANELS, {})
+        assert not dashboard_objects(hass, admin)
+        assert (Peer.writes, Peer.saves) == before
+        print("ISOLATED_HA native dashboard lifecycle and role scope PASS", flush=True)
         await hass.services.async_call(
             "button", "press", {"entity_id": button}, blocking=True
         )

@@ -29,6 +29,9 @@ jobs:
         run: |
           node --check custom_components/deltasol/frontend/dashboard.js
           node --test tests/test_dashboard_ui.mjs
+      - name: Dashboard browser journeys
+        if: matrix.python-version == '3.14'
+        run: node --test tests/test_dashboard_browser.mjs
       - name: Verify exact vendor catalogue (no redistribution)
         if: matrix.python-version == '3.13'
         shell: bash
