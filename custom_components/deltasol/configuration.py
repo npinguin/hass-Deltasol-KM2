@@ -1038,26 +1038,39 @@ def native_menu_review_reason(name):
         name,
     ):
         return "unsupported_native_topology_slot"
-    # Exact BX Plus native lifecycle evidence (research sections 4.38/4.40).
-    # These are unresolved operational contracts, not a scope exclusion.
-    # Exact setup helpers clear associated persistent sensor/actor references
-    # on disable (research 4.43). These are native hardware allocation options,
-    # read-only in DS-PAR-03, not unresolved ordinary operating controls.
+    # Exact native setup/registry evidence (research 4.38–4.44).
+    # DS-PAR-03 preserves installed program and hardware mapping; these
+    # options are not independent operating preferences.
     if family in (
         "Anlage_WfX_Feststoffkessel_OMischer",
         "Anlage_WfX_Funktionsblock_OVolumenstrom",
         "Heizung_WfX_BwVorerwaermung_OVentil",
         "Heizung_WfX_ThBwErwaermung_OLadepumpe",
+        "Heizung_HeizkreisX_RaumthermostatX_Option",
+        "Heizung_HeizkreisX_ONachheizung",
+        "Solar_OVorlaufSensor",
+        "Solar_ORuecklaufSensor",
+        "Solar_WfX_DrainBack_OBooster",
     ):
         return "native_registration_clears_assignment"
-    if family == "Heizung_HeizkreisX_RaumthermostatX_Option":
-        return "native_registration_transition_unverified"
+    if family in (
+        "Heizung_HeizkreisX_OFernzugriff",
+        "Heizung_HeizkreisX_Fernzugriff_Modus",
+    ):
+        return "native_input_source_configuration"
+    if family in (
+        "Heizung_RelaisAnforderungX_OAusgangX",
+        "Heizung_RelaisAnforderungX_ORelaisX",
+    ):
+        return "native_output_assignment_configuration"
     if family in (
         "Heizung_RelaisAnforderungX_Aktiviert_Modus",
         "Heizung_RelaisPumpeX_Aktiviert_Modus",
         "Heizung_RelaisVentilX_Aktiviert_Modus",
     ):
-        return "native_deallocation_preservation_unverified"
+        return "native_function_registry_membership"
+    if name == "Anlage_WTUmwaelzpumpe_Aktiviert_Modus":
+        return "native_menu_permanently_hidden"
     if family.endswith("_Handbetrieb"):
         return "manual_override_contract_unverified"
     if "_DrainBack_" in family:

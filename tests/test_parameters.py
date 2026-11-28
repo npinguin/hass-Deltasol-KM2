@@ -2527,7 +2527,7 @@ class ParameterTests(unittest.TestCase):
             ),
             (
                 "Heizung_Heizkreis7_Raumthermostat5_Option",
-                "native_registration_transition_unverified",
+                "native_registration_clears_assignment",
             ),
             (
                 "Heizung_Wf16_BwVorerwaermung_OVentil",
@@ -2539,15 +2539,15 @@ class ParameterTests(unittest.TestCase):
             ),
             (
                 "Heizung_RelaisAnforderung2_Aktiviert_Modus",
-                "native_deallocation_preservation_unverified",
+                "native_function_registry_membership",
             ),
             (
                 "Heizung_RelaisPumpe1_Aktiviert_Modus",
-                "native_deallocation_preservation_unverified",
+                "native_function_registry_membership",
             ),
             (
                 "Heizung_RelaisVentil2_Aktiviert_Modus",
-                "native_deallocation_preservation_unverified",
+                "native_function_registry_membership",
             ),
             ("Heizung_Heizkreis1_OSchaltuhr", "program_option_review_required"),
             ("Solar_Spreizladung_dTDifferenz", "native_operating_contract_unverified"),
@@ -2570,6 +2570,35 @@ class ParameterTests(unittest.TestCase):
                     "native_registration_clears_assignment",
                 )
                 self.assertNotIn(name, names)
+
+    def test_final_native_hardware_review_has_no_operational_writer(self):
+        c = parameters_configuration
+        names = {setting.name for setting in c.BX_PLUS_SETTINGS}
+        cases = {
+            "Anlage_WTUmwaelzpumpe_Aktiviert_Modus": "native_menu_permanently_hidden",
+            "Solar_OVorlaufSensor": "native_registration_clears_assignment",
+            "Solar_ORuecklaufSensor": "native_registration_clears_assignment",
+            "Solar_Wf1_DrainBack_OBooster": "native_registration_clears_assignment",
+        }
+        for circuit in range(1, 8):
+            root = f"Heizung_Heizkreis{circuit}"
+            cases[root + "_ONachheizung"] = "native_registration_clears_assignment"
+            for suffix in ("OFernzugriff", "Fernzugriff_Modus"):
+                cases[root + "_" + suffix] = "native_input_source_configuration"
+            for room in range(1, 6):
+                name = f"{root}_Raumthermostat{room}_Option"
+                cases[name] = "native_registration_clears_assignment"
+        for slot in range(1, 3):
+            for family in ("Anforderung", "Pumpe", "Ventil"):
+                root = f"Heizung_Relais{family}{slot}"
+                cases[root + "_Aktiviert_Modus"] = "native_function_registry_membership"
+            root = f"Heizung_RelaisAnforderung{slot}"
+            for suffix in ("ORelais1", "OAusgang1"):
+                cases[root + "_" + suffix] = "native_output_assignment_configuration"
+        self.assertEqual(len(cases), 70)
+        for name, reason in cases.items():
+            self.assertEqual(c.native_menu_review_reason(name), reason)
+            self.assertNotIn(name, names)
 
     def test_native_mixer_requires_assignments_and_full_hysteresis_margin(self):
         settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS

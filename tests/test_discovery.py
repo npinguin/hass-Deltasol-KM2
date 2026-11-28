@@ -6,9 +6,7 @@ import importlib
 import io
 import os
 import re
-import shutil
 import struct
-import subprocess
 import sys
 import types
 import unittest
@@ -1684,124 +1682,136 @@ class DiscoveryTests(unittest.TestCase):
         for call in (0x1006D, 0x109D6, 0x109F7):
             self.assertEqual(direct_call_target(call), 0xD3C61)
 
-        # Final batch: analyze all 70 remaining native options together.
-        remaining = {
-            family: names
-            for family, names in review.items()
-            if family != "Solar_Losreissimpuls"
-            and configuration.native_menu_review_reason(names[0])
-            in (
-                "program_option_review_required",
-                "native_registration_transition_unverified",
-                "native_deallocation_preservation_unverified",
-                "native_operating_contract_unverified",
-                "hydraulic_applicability_review_required",
-            )
-        }
-        self.assertEqual(sum(map(len, remaining.values())), 70)
-        for family, names in remaining.items():
-            first = min(names, key=values.get)
-            pointer, flag, editor, _ = descriptor(first)
-            parts = first.split("_")
-            if parts[0] == "Solar":
-                root = "_".join(parts[:2]) if parts[1].startswith("Wf") else "Solar"
-            else:
-                root = "_".join(parts[:2])
-            parent = root + "_Type"
-            origin = descriptor(parent)[0] if parent in values else pointer
-            refs = []
-            for name, index in values.items():
-                if (
-                    name.startswith(root + "_")
-                    and (
-                        name.endswith(("_Nr", "_Type", "_Modus"))
-                        or name == first
-                    )
-                    and parsed[name].metadata.get("rpt_storage") == "preferences"
-                ):
-                    if root == "Solar" and re.search(r"_Wf\d|_Sp\d|_Koll\d", name):
-                        continue
-                    if "Raumthermostat" in name and "Raumthermostat1_" not in name:
-                        continue
-                    refs.append(
-                        (name.removeprefix(root + "_"), index,
-                         descriptor(name)[0] - origin, hex(descriptor(name)[1]))
-                    )
-            print(
-                "Batch70 layout:", first, len(names), values[first],
-                hex(pointer - base), pointer - origin, hex(flag),
-                sorted(refs, key=lambda row: row[1]),
-            )
-            print("Batch70 menu:", first, parsed[first].metadata.get("menu_refs"))
-            print(
-                "Batch70 pointer peers:", first,
-                [(name, hex(descriptor(name)[1])) for name in values
-                 if descriptor(name)[0] == pointer][:20],
-            )
-
-        if shutil.which("objdump"):
-            with TemporaryDirectory() as directory:
-                library = Path(directory) / "reference.dll"
-                library.write_bytes(binary)
-                output = subprocess.run(
-                    ["objdump", "-d", "-Mintel", "--no-show-raw-insn", str(library)],
-                    check=True, capture_output=True, text=True, timeout=30,
-                ).stdout
-            instructions = []
-            for line in output.splitlines():
-                match = re.match(r"\s*([0-9a-f]+):\s+(\w+)\s*(.*)", line)
-                if match:
-                    address, opcode, operands = match.groups()
-                    instructions.append((int(address, 16) - base, opcode, operands))
-
-            def target(row):
-                if row[1] != "call":
-                    return None
-                match = re.match(r"([0-9a-f]+)(?:\s|$)", row[2])
-                return int(match[1], 16) - base if match else None
-
-            def window(label, start, end):
-                rows = [
-                    (hex(rva), op, args.split(" <")[0])
-                    for rva, op, args in instructions if start <= rva < end
-                ]
-                print("Batch70 window:", label, rows)
-
-            # Complete the remaining native links: remote sensor modes,
-            # shared demand output selection, and descriptor initialization.
-            for row in instructions:
-                address, opcode, operands = row
-                if target(row) == 0x1454:
-                    window("registry initializer caller", address - 40, address + 8)
-                if not 0x16000 <= address < 0x2C100:
-                    continue
-                if opcode not in ("lea", "movzx", "add"):
-                    continue
-                if not re.search(r"\+0x(?:85|86|126|138)\]", operands):
-                    continue
-                if address > 0x19500:
-                    continue
-                window("remote reference " + hex(address), address - 40, address + 90)
-            for start, end, label in (
-                (0x2FF45, 0x2FFB0, "drainback booster setup"),
-                (0x17E10, 0x17FF0, "room and supplementary setup"),
-                (0xF6273, 0xF6480, "registry initialization"),
-                (0x37150, 0x37320, "shared demand flags"),
-                (0x34E20, 0x34E90, "runtime dispatch"),
+        # Final 70-entry review: hardware registration, native function
+        # membership, input/output selection and the permanently hidden option.
+        # Exact slot layout and actual setup call sites, not menu text alone.
+        for circuit in range(1, 8):
+            root = f"Heizung_Heizkreis{circuit}"
+            off = 495 * (circuit - 1)
+            origin = descriptor(root + "_Type")[0]
+            for suffix, index, relative, flag in (
+                ("ONachheizung", 13705, 0, 0xFFFB),
+                ("Relais5_Nr", 13788, -292, 7),
+                ("Relais6_Nr", 14003, -180, 7),
+                ("OFernzugriff", 14044, 2, 0xFFFF),
+                ("Fernzugriff_Modus", 14045, -16, 7),
+                ("Fernzugriff_SensorBAS_Nr", 14047, -177, 7),
+                ("Fernzugriff_SensorFV_Nr", 14051, -176, 7),
             ):
-                window(label, start, end)
-            # All direct references to the two shared demand flags and the
-            # companion physical/actor numbers (not just the menu editor).
-            for name in (
-                "Heizung_RelaisAnforderung1_ORelais1",
-                "Heizung_RelaisAnforderung1_Relais1_Nr",
-                "Heizung_RelaisAnforderung1_Ausgang1_Nr",
-                "Heizung_RelaisAnforderung1_ARelais1_Nr",
-                "Heizung_RelaisAnforderung1_AAusgang1_Nr",
+                name = root + "_" + suffix
+                self.assertEqual(values[name], index + off)
+                self.assertEqual(descriptor(name)[:2], (origin + relative, flag))
+            for room in range(1, 6):
+                prefix = f"{root}_Raumthermostat{room}"
+                option = prefix + "_Option"
+                actor = prefix + "_Relais1_Nr"
+                delta = 32 * (room - 1)
+                self.assertEqual(values[option], 13819 + off + delta)
+                self.assertEqual(values[actor], 13842 + off + delta)
+                self.assertEqual(
+                    descriptor(option)[:2],
+                    (origin - 267 + 20 * (room - 1), 0xFFFF),
+                )
+                self.assertEqual(
+                    descriptor(actor)[:2],
+                    (origin - 282 + 20 * (room - 1), 7),
+                )
+        for call, flag_at, ref_at in (
+            (0x17E40, 0x136, 0x12),
+            (0x17E90, 0x136, 0x82),
+            (0x17ED4, 0x2B, 0x1C),
+            (0x17F18, 0x3F, 0x30),
+            (0x17F5C, 0x53, 0x44),
+            (0x17FA0, 0x67, 0x58),
+            (0x17FE4, 0x7B, 0x6C),
+            (0x2FFAA, 0xC, 0x4),
+        ):
+            self.assertEqual(direct_call_target(call), 0x108B3)
+            start = locate(base + call - 65, 65, ".text")
+            body = binary[start : start + 65]
+            for opcode, displacement in ((0xB6, flag_at), (0x8D, ref_at)):
+                if displacement < 128:
+                    pattern = bytes((opcode, 0x40, displacement))
+                else:
+                    pattern = bytes((opcode, 0x80)) + struct.pack(
+                        "<I", displacement
+                    )
+                # Ignore only the destination register in ModR/M.
+                self.assertTrue(
+                    any(
+                        body[i] == pattern[0]
+                        and body[i + 1] & 0xC7 == pattern[1]
+                        and body[i + 2 : i + len(pattern)] == pattern[2:]
+                        for i in range(len(body) - len(pattern) + 1)
+                    ),
+                    hex(call),
+                )
+
+        for name, companion, call, address_at, flag in (
+            ("Solar_OVorlaufSensor", "Solar_VorlaufSensor_Nr", 0x2C021, 0x2C013, 0xFFFB),
+            ("Solar_ORuecklaufSensor", "Solar_RuecklaufSensor_Nr", 0x2C05E, 0x2C050, 0xFFFA),
+        ):
+            self.assertEqual(descriptor(name)[1], flag)
+            self.assertEqual(direct_call_target(call), 0x10082)
+            offset = locate(base + address_at, 4, ".text")
+            self.assertEqual(
+                struct.unpack_from("<I", binary, offset)[0],
+                descriptor(companion)[0],
+            )
+        self.assertEqual(direct_call_target(0x100C0), 0xFF84)
+        self.assertEqual(descriptor("Solar_Wf1_DrainBack_OBooster")[1], 0xFFFF)
+        self.assertEqual(
+            descriptor("Solar_Wf1_DrainBack_Relais1_Nr")[0],
+            descriptor("Solar_Wf1_DrainBack_OBooster")[0] - 8,
+        )
+        # The remote selector chooses between two distinct physical input
+        # references or the virtual App input, not a heating operating mode.
+        for address, opcode in (
+            (0x174FD, "0fb68038010000"),
+            (0x17520, "0fb68026010000"),
+            (0x1752A, "83f802"),
+            (0x17538, "83f801"),
+            (0x1860A, "0fb68038010000"),
+            (0x1862D, "0fb68026010000"),
+        ):
+            expected = bytes.fromhex(opcode)
+            start = locate(base + address, len(expected), ".text")
+            self.assertEqual(binary[start : start + len(expected)], expected)
+        for slot in range(1, 3):
+            root = f"Heizung_RelaisAnforderung{slot}"
+            off = 221 * (slot - 1)
+            origin = descriptor(root + "_Type")[0]
+            for suffix, index, relative, flag in (
+                ("ORelais1", 10734, 12, 0xFFFF),
+                ("OAusgang1", 10744, 12, 0xFFFE),
+                ("Relais1_Nr", 10735, 3, 0x10007),
+                ("Ausgang1_Nr", 10745, 4, 0x10007),
+                ("ARelais1_Nr", 10737, -43, 7),
+                ("AAusgang1_Nr", 10747, -39, 7),
             ):
-                for ref in references.get(descriptor(name)[0], []):
-                    if ref < 0x49000:
-                        window(name + " " + hex(ref), ref - 20, ref + 60)
+                name = root + "_" + suffix
+                self.assertEqual(values[name], index + off)
+                self.assertEqual(descriptor(name)[:2], (origin + relative, flag))
+        # Native scheme setup sets the output-type bit with the companion
+        # physical output number. This is not the existing manual mode.
+        for name, companion, bit_at, number_at, bit in (
+            ("Heizung_RelaisAnforderung1_ORelais1",
+             "Heizung_RelaisAnforderung1_Relais1_Nr", 0x3718D, 0x3719B, 1),
+            ("Heizung_RelaisAnforderung1_OAusgang1",
+             "Heizung_RelaisAnforderung1_Ausgang1_Nr", 0x3945D, 0x3946B, 2),
+        ):
+            for target, address in ((name, bit_at), (companion, number_at)):
+                offset = locate(base + address, 4, ".text")
+                self.assertEqual(
+                    struct.unpack_from("<I", binary, offset)[0],
+                    descriptor(target)[0],
+                )
+            offset = locate(base + bit_at + 4, 3, ".text")
+            self.assertEqual(binary[offset : offset + 3], bytes((0x83, 0xC8, bit)))
+        hidden = parsed["Anlage_WTUmwaelzpumpe_Aktiviert_Modus"]
+        self.assertEqual(
+            {ref.get("mask") for ref in hidden.metadata["menu_refs"]}, {"Never"}
+        )
 
         # Keep the prior startup-duration editor evidence as an assertion.
         self.assertEqual(descriptor("Solar_Losreissimpuls")[2] - base, 0x6B972)
@@ -2245,6 +2255,7 @@ class DiscoveryTests(unittest.TestCase):
             )
         )
         print("Pending semantic menu review:", sorted(pending.items()))
+        self.assertFalse(pending, "Unresolved native operational menu contracts")
         for slot in range(1, 17):
             prefix = f"Anlage_Wf{slot}"
             self.assertEqual(
