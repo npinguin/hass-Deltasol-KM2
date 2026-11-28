@@ -567,7 +567,7 @@ class WeeklyOwner:
 
     name: str
     index: int
-    conditions: tuple[Dependency, ...]
+    conditions: tuple[Dependency | RangeDependency, ...]
 
     @property
     def expected(self):
@@ -586,8 +586,8 @@ class WeeklyOwner:
 def _weekly_owners():
     for slot in range(1, 17):
         for prefix, base, stride, timer, ref, types in (
-            ("Anlage_Wf", 6559, 251, 15, 61, tuple(range(1, 13))),
-            ("Heizung_Wf", 11266, 151, 22, 80, tuple(range(1, 5))),
+            ("Anlage_Wf", 6559, 251, 15, 61, (3, 5, 9)),
+            ("Heizung_Wf", 11266, 151, 22, 80, (2,)),
         ):
             root = f"{prefix}{slot}"
             index = base + stride * (slot - 1)
@@ -610,7 +610,12 @@ def _weekly_owners():
         yield WeeklyOwner(
             root + "_SchaltuhrNr",
             index + 133,
-            (*conditions, Dependency(root + "_OSchaltuhr", index + 19, (1,))),
+            (
+                *conditions,
+                Dependency(root + "_System", index + 13, (0, 2)),
+                Dependency(root + "_Heizsystem", index + 294, (1, 2, 3, 5)),
+                Dependency(root + "_OSchaltuhr", index + 19, (1,)),
+            ),
         )
         for room in range(1, 6):
             room_root = f"{root}_Raumthermostat{room}"
@@ -622,6 +627,8 @@ def _weekly_owners():
                     *conditions,
                     Dependency(room_root + "_Aktiviert", offset, (1, 2)),
                     Dependency(room_root + "_OSchaltuhr", offset + 1, (1,)),
+                    Dependency(room_root + "_Typ", offset + 3, (0,)),
+                    RangeDependency(room_root + "_Sensor1_Nr", offset + 14, 1, 65),
                 ),
             )
 
