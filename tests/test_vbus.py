@@ -169,7 +169,9 @@ class VBusTests(unittest.TestCase):
                     TimeoutError() if lost_response else response(0x1601, index, 1),
                 ]
 
-                def on_send(data):
+                def on_send(
+                    data, sent=sent, applied=applied, lost_response=lost_response
+                ):
                     packet = vbus.Datagram.decode(data)
                     sent.append(packet.command)
                     if packet.command == 0x1500 or (
