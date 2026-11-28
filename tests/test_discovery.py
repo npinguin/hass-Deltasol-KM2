@@ -1521,7 +1521,14 @@ class DiscoveryTests(unittest.TestCase):
             target = definitions[root + "_Betriebsart"]
             self.assertEqual(
                 catalog.ordinal_options(target),
-                {0: "Automatik", 1: "Tag", 2: "Nacht", 3: "Sommer", 4: "Urlaub", 5: "Aus"},
+                {
+                    0: "Automatik",
+                    1: "Tag",
+                    2: "Nacht",
+                    3: "Sommer",
+                    4: "Urlaub",
+                    5: "Aus",
+                },
             )
             self.assertEqual(target.storage, "unspecified")
             self.assertEqual(definitions[root + "_Betriebsstatus"].storage, "volatile")
