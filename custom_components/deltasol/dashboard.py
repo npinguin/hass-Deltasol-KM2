@@ -243,6 +243,12 @@ def dashboard_objects(hass, user):
                     ),
                     "control": control,
                     "schedule": bool(setting and setting.weekly_slot is not None),
+                    "program": setting.weekly_slot if setting else None,
+                    "day": (
+                        setting.name.rsplit("_Tag", 1)[-1].split("_", 1)[0]
+                        if setting and setting.weekly_slot is not None
+                        else None
+                    ),
                     "shared_references": (
                         [weekly_owner_label(owner) for owner in cap.owners]
                         if cap and setting and setting.weekly_slot is not None

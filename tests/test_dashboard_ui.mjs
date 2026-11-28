@@ -92,3 +92,15 @@ test("native labels retain custom names and localize known capability semantics"
   p._hass.language="fr";
   assert.equal(p.capabilityLabel({name:"Heating circuit 1 heating curve"}),"Circuit de chauffage 1 · Courbe de chauffe");
 });
+
+test("weekly programs use native object and program identity, not duplicate schedules",()=>{
+  const p=model(true,true);
+  const asset=p.current().objects[0];
+  const row=p.row("text.week");row.program=1;row.day="Mo";row.shared_references=["Heating"];
+  asset.capabilities.push({...row,entity_id:"text.tuesday",day:"Di"});
+  assert.equal(p.weekPrograms().length,1);
+  assert.equal(p.weekPrograms()[0].days.size,2);
+  assert.equal(p.capabilityLabel(row),"Weekprogramma 1 · Maandag");
+  assert.ok(p.weekView().includes("08:00-10:00"));
+  p.object="other";assert.equal(p.weekPrograms().length,0);
+});

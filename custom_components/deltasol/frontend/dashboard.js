@@ -10,6 +10,8 @@ const STATUS_COPY = {
   fr:{solid_fuel:"Chauffage à combustible solide",function:"Fonction du régulateur",store:"Ballon solaire",collector:"Capteur solaire",circuit:"Circuit de chauffage",heating_function:"Fonction de chauffage",meter:"Compteur de chaleur",solar_function:"Fonction solaire",telemetry_ok:"Télémétrie disponible",telemetry_bad:"Télémétrie indisponible",catalogue_pending:"Fonctions du micrologiciel non confirmées",selectors:"Détection des fonctions en direct",checkpoint:"La découverte historique nécessite une vérification ; les fonctions actuelles sont contrôlées séparément.",available:"Disponible",not_confirmed:"Non confirmé actuellement",controls:"Commandes",summary:"État de l’installation"}
 };
 const ENGINEERING_COPY={en:{live:"Live",capture:"Historical capture",comparison:"Comparison",changes:"changes",transport:"Transport and source evidence",filter:"Filter parameters",readonly:"Not verified writable",object:"Selected object",next:"Next"},nl:{live:"Actueel",capture:"Historische snapshot",comparison:"Vergelijking",changes:"wijzigingen",transport:"Transport en bronbewijs",filter:"Parameters filteren",readonly:"Niet bevestigd schrijfbaar",object:"Geselecteerd object",next:"Volgende"},fr:{live:"En direct",capture:"Capture historique",comparison:"Comparaison",changes:"modifications",transport:"Transport et preuves source",filter:"Filtrer les paramètres",readonly:"Écriture non confirmée",object:"Objet sélectionné",next:"Suivant"}};
+const WEEK_COPY={en:{program:"Weekly program",Mo:"Monday",Di:"Tuesday",Mi:"Wednesday",Do:"Thursday",Fr:"Friday",Sa:"Saturday",So:"Sunday",unsupported:"Structural commissioning and SET/JobParam import are not supported.",no_intervals:"No active intervals",reference:"Known references; full ownership is checked on save."},nl:{program:"Weekprogramma",Mo:"Maandag",Di:"Dinsdag",Mi:"Woensdag",Do:"Donderdag",Fr:"Vrijdag",Sa:"Zaterdag",So:"Zondag",unsupported:"Structurele inbedrijfstelling en SET/JobParam-import worden niet ondersteund.",no_intervals:"Geen actieve intervallen",reference:"Bekende verwijzingen; volledig eigenaarschap wordt bij opslaan gecontroleerd."},fr:{program:"Programme hebdomadaire",Mo:"Lundi",Di:"Mardi",Mi:"Mercredi",Do:"Jeudi",Fr:"Vendredi",Sa:"Samedi",So:"Dimanche",unsupported:"La mise en service structurelle et l’import SET/JobParam ne sont pas pris en charge.",no_intervals:"Aucun intervalle actif",reference:"Références connues ; les liens sont vérifiés lors de l’enregistrement."}};
+const DAYS=["Mo","Di","Mi","Do","Fr","Sa","So"];
 const SECTIONS = ["overview","solar","heating","hot_water","energy","settings","engineering"];
 const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const style = " :host{display:block;color:var(--primary-text-color);background:var(--primary-background-color);min-height:100%;font:inherit}*{box-sizing:border-box}main{max-width:1440px;margin:auto;padding:clamp(12px,3vw,32px)}header{display:flex;gap:12px;align-items:center;flex-wrap:wrap}h1{font-size:1.8rem;margin:0}h2{font-size:1.1rem;margin:0 0 12px}h3{font-size:1rem;margin:0 0 6px}p{line-height:1.45}nav{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color);padding:12px 0;margin:10px 0 18px}button,input,select{font:inherit;color:inherit;background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:9px;max-width:100%}button{cursor:pointer;min-height:40px}button:disabled{opacity:.5;cursor:not-allowed}button.active,button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px}.card{padding:16px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);min-width:0}.line{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--divider-color)}.line:last-child{border:0}.value{font-weight:600;overflow-wrap:anywhere}.muted,small{color:var(--secondary-text-color)}.warning{color:var(--warning-color,#aa6b00)}.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.grow{flex:1}.toolbar{margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.technical{overflow:auto;max-height:65vh}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}.notice{padding:10px 0;min-height:1.8em}.interval{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0}.interval input{max-width:135px}table{width:100%;border-collapse:collapse;text-align:left;font-size:.85rem}th,td{padding:8px;border-bottom:1px solid var(--divider-color);overflow-wrap:anywhere}a{color:var(--primary-color)}@media(max-width:520px){main{padding:12px}nav button{font-size:.9rem;padding:8px}.card{padding:12px}.line{align-items:flex-start}.actions{width:100%}header select{width:100%}}";
@@ -64,7 +66,7 @@ class ResolDashboard extends HTMLElement {
       this.render();
     }
   }
-  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||(ENGINEERING_COPY[lang]||ENGINEERING_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||ENGINEERING_COPY.en[key]||key;}
+  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||(ENGINEERING_COPY[lang]||ENGINEERING_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||ENGINEERING_COPY.en[key]||(WEEK_COPY[lang]||WEEK_COPY.en)[key]||WEEK_COPY.en[key]||key;}
   current(){return this.installations.find(item=>item.id===this.context);}
   rows(){return this.current()?.objects.flatMap(asset=>asset.capabilities)||[];}
   row(id){return this.rows().find(row=>row.entity_id===id);}
@@ -96,6 +98,7 @@ class ResolDashboard extends HTMLElement {
       nl:{"configured mode":"Bedrijfsmodus","configured mode (including coupled circuits)":"Bedrijfsmodus (inclusief gekoppelde circuits)","day correction":"Dagcorrectie","night correction":"Nachtcorrectie","heating curve":"Stooklijn","thermostat 1 on":"Thermostaat 1 inschakeltemperatuur","thermostat 1 off":"Thermostaat 1 uitschakeltemperatuur","thermostat 2 on":"Thermostaat 2 inschakeltemperatuur","thermostat 2 off":"Thermostaat 2 uitschakeltemperatuur","automatic daylight saving time":"Automatische zomertijd","power":"Vermogen","temperature":"Temperatuur","energy":"Energie"},
       fr:{"configured mode":"Mode configuré","configured mode (including coupled circuits)":"Mode configuré (circuits couplés inclus)","day correction":"Correction de jour","night correction":"Correction de nuit","heating curve":"Courbe de chauffe","thermostat 1 on":"Thermostat 1 température d’enclenchement","thermostat 1 off":"Thermostat 1 température d’arrêt","thermostat 2 on":"Thermostat 2 température d’enclenchement","thermostat 2 off":"Thermostat 2 température d’arrêt","automatic daylight saving time":"Heure d’été automatique","power":"Puissance","temperature":"Température","energy":"Énergie"}
     };
+    if(row.schedule&&row.program&&DAYS.includes(row.day))return this.t("program")+" "+row.program+" · "+this.t(row.day);
     const label=row.native_label||row.name||"RESOL";
     const match=label.match(/^(Heating circuit|Function block|Arrangement function|Solar store|Solar collector|Heating function) (\d+) (.+)$/i);
     if(match){
@@ -156,10 +159,40 @@ class ResolDashboard extends HTMLElement {
     const available=rows.filter(row=>this.valid(row)).length;
     return '<section class="card" aria-label="'+escape(this.t("summary"))+'"><h2>'+escape(this.t("summary"))+'</h2><div class="grid"><div><strong class="'+(h.telemetry?"":"warning")+'">'+escape(this.t(h.telemetry?"telemetry_ok":"telemetry_bad"))+'</strong><p class="muted">'+available+' / '+rows.length+' '+escape(this.t("available"))+'</p></div>'+(h.parameter_access?'<div><strong>'+escape(this.t("selectors"))+'</strong><p>'+h.selectors_observed+' / '+h.selectors_total+'</p>'+(!h.catalogue?'<p class="warning">'+escape(this.t("catalogue_pending"))+'</p>':"")+(h.selectors_total?'<progress max="'+h.selectors_total+'" value="'+h.selectors_observed+'"></progress>':"")+'</div>':"")+'</div>'+(h.checkpoint?'<p class="warning">'+escape(this.t("checkpoint"))+'</p>':"")+'</section>';
   }
+  weekPrograms(){
+    const assets=(this.current()?.objects||[]).filter(asset=>!this.object||asset.id===this.object);
+    const programs=new Map();
+    for(const asset of assets)for(const row of asset.capabilities){
+      if(!row.schedule||!row.program||!DAYS.includes(row.day))continue;
+      const key=asset.id+":"+row.program;
+      if(!programs.has(key))programs.set(key,{number:row.program,days:new Map()});
+      programs.get(key).days.set(row.day,row);
+    }
+    return [...programs.values()].sort((a,b)=>a.number-b.number);
+  }
+  weekView(){
+    const programs=this.weekPrograms();
+    if(!programs.length)return "";
+    return '<h2 style="margin-top:24px">'+escape(this.t("schedule"))+'</h2><div class="grid">'+programs.map(program=>{
+      const refs=[...new Set([...program.days.values()].flatMap(row=>row.shared_references||[]))];
+      return '<section class="card"><h3>'+escape(this.t("program")+" "+program.number)+'</h3><p class="muted">'+escape(this.t("reference"))+' '+escape(refs.join(", ")||this.t("no_refs"))+'</p>'+DAYS.map(day=>{
+        const row=program.days.get(day);
+        if(!row)return '<div class="line"><span>'+escape(this.t(day))+'</span><span class="muted">'+escape(this.t("not_confirmed"))+'</span></div>';
+        const value=this.state(row)?.state;
+        const intervals=this.valid(row)&&value?value.split(",").map(interval=>interval.trim().split("-")):[];
+        const bars=intervals.map(pair=>{
+          const minutes=clock=>{const parts=clock?.split(":").map(Number)||[];return parts.length===2?parts[0]*60+parts[1]:NaN;};
+          const a=minutes(pair[0]),b=minutes(pair[1]);
+          return Number.isFinite(a)&&Number.isFinite(b)&&a>=0&&b<=1440&&b>a?'<span style="position:absolute;left:'+(a/14.4)+'%;width:'+((b-a)/14.4)+'%;height:100%;background:var(--primary-color)"></span>':"";
+        }).join("");
+        return '<div class="line"><div class="grow"><strong>'+escape(this.t(day))+'</strong><div aria-hidden="true" style="height:10px;position:relative;border-radius:4px;overflow:hidden;background:var(--divider-color);margin:8px 0">'+bars+'</div><small>'+escape(this.valid(row)?value||this.t("no_intervals"):this.t("not_confirmed"))+'</small></div>'+this.control(row)+'</div>';
+      }).join("")+'</section>';
+    }).join("")+'</div>';
+  }
   cards(){
     const assets=(this.current()?.objects||[]).filter(asset=>!this.object||asset.id===this.object);
     const cards=assets.map(asset=>{
-      const rows=this.visibleRows(asset);
+      const rows=this.visibleRows(asset).filter(row=>this.tab!=="settings"||!row.schedule||!row.program);
       if(!rows.length)return "";
       const available=rows.filter(row=>this.valid(row)).length;
       const header='<div class="toolbar"><div class="grow"><h2>'+escape(this.objectTitle(asset))+'</h2><small>'+available+' / '+rows.length+' '+escape(this.t("available"))+'</small></div>'+(this.object?"":'<button data-object="'+escape(asset.id)+'">'+escape(this.t("details"))+'</button>')+'</div>';
@@ -169,7 +202,7 @@ class ResolDashboard extends HTMLElement {
       }
       return '<article class="card">'+header+rows.map(row=>this.detail(row,row.depth==="controls"||this.tab==="settings"||this.tab==="engineering")).join("")+((this.tab!=="settings"&&this.tab!=="engineering"&&this.object&&this.current()?.settings&&rows.some(row=>row.depth==="settings"))?'<button data-tab="settings">'+escape(this.t("settings"))+'</button>':"")+'</article>';
     }).filter(Boolean);
-    return cards.length?'<div class="grid">'+cards.join("")+'</div>':'<p class="muted">'+escape(this.t("empty"))+'</p>';
+    return cards.length?'<div class="grid">'+cards.join("")+'</div>':this.tab==="settings"&&this.weekPrograms().length?"":'<p class="muted">'+escape(this.t("empty"))+'</p>';
   }
   render(){
     if(!this.shadowRoot)return;
@@ -177,7 +210,7 @@ class ResolDashboard extends HTMLElement {
     const count=this.rows().filter(row=>row.depth==="status"&&!this.valid(row)).length;
     const options=this.installations.map(item=>'<option value="'+escape(item.id)+'" '+(item.id===this.context?"selected":"")+'>'+escape(item.name)+'</option>').join("");
     const objects=assets.map(asset=>'<option value="'+escape(asset.id)+'" '+(asset.id===this.object?"selected":"")+'>'+escape(this.objectTitle(asset))+'</option>').join("");
-    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="RESOL">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("status"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.engineeringView():"")+(this.tab==="overview"?this.summary():"")+this.cards())+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
+    this.shadowRoot.innerHTML='<style>'+style+'</style><main><header><ha-icon icon="mdi:solar-power"></ha-icon><h1 class="grow">RESOL</h1><select id="installation" aria-label="'+escape(this.t("installation"))+'">'+options+'</select><button data-refresh>'+escape(this.t("refresh"))+'</button></header><nav aria-label="RESOL">'+tabs.map(tab=>'<button data-tab="'+tab+'" class="'+(this.tab===tab?"active":"")+'" aria-current="'+(this.tab===tab?"page":"false")+'">'+escape(this.t(tab))+'</button>').join("")+'</nav><div role="status" class="notice">'+escape(this.notice)+'</div>'+(!this.loaded?'<p>'+escape(this.t("loading"))+'</p>':!installation?'<p>'+escape(this.t("empty"))+'</p>':'<div class="toolbar"><select id="object" aria-label="'+escape(this.t("choose"))+'"><option value="">'+escape(this.t("all"))+'</option>'+objects+'</select>'+(this.tab==="overview"?'<span class="'+(count?"warning":"muted")+'">'+escape(count?this.t("attention")+": "+count:this.t("status"))+'</span>':"")+'</div>'+(this.tab==="settings"?'<section class="card"><h2>'+escape(this.t("configure"))+'</h2><p>'+escape(this.t("configure_help"))+'</p><p class="muted">'+escape(this.t("unsupported"))+'</p><a href="/config/integrations/integration/deltasol">'+escape(this.t("configure"))+'</a></section>':"")+(this.tab==="engineering"?this.engineeringView():"")+(this.tab==="overview"?this.summary():"")+this.cards()+(this.tab==="settings"?this.weekView():""))+(this.editor?this.editorView():"")+(this.history?this.historyView():"")+'</main>';
     if(this.tab==="engineering")this.renderInventory();
   }
   async engineering(){
