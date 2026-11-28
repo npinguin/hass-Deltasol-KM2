@@ -2026,6 +2026,19 @@ class DiscoveryTests(unittest.TestCase):
         parameters = importlib.import_module(f"{PACKAGE}.parameters")
         profile = parameters.PROFILES[0]
         bound = profile.settings_for(catalog.BX_PLUS_CHANGESET, parsed)
+        # The independent HA peer must match the actual vendor catalogue,
+        # not just its own fixture maps or the integration's assumptions.
+        peer = importlib.import_module("qualify_ha")
+        for group in (
+            peer.CONFIG_SELECTORS,
+            peer.CONFIG_SETTINGS,
+            peer.TIMER_VALUES,
+            peer.COMPOUND_ALIASES,
+            peer.TEMPERATURE_ALIASES,
+        ):
+            for name, row in group.items():
+                self.assertIn(name, definitions)
+                self.assertEqual(definitions[name].index, row[0], name)
         for setting in profile.settings:
             with self.subTest(contract=setting.name, unit=setting.unit):
                 compiled = configuration.bind_setting(setting, parsed.by_name)

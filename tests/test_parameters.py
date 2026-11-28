@@ -80,13 +80,18 @@ class QualificationFixtureTests(unittest.TestCase):
         f = self.fixture
         peer = f["Peer"]
         definitions = {
-            **f["CONFIG_SELECTORS"], **f["CONFIG_SETTINGS"], **f["TIMER_VALUES"]
+            **f["CONFIG_SELECTORS"],
+            **f["CONFIG_SETTINGS"],
+            **f["TIMER_VALUES"],
         }
         aliases = {**f["COMPOUND_ALIASES"], **f["TEMPERATURE_ALIASES"]}
-        self.assertEqual(len({row[0] for row in definitions.values()}), len(definitions))
+        self.assertEqual(
+            len({row[0] for row in definitions.values()}), len(definitions)
+        )
         self.assertEqual(len({row[0] for row in aliases.values()}), len(aliases))
         self.assertFalse(
-            {row[0] for row in aliases.values()} & {row[0] for row in definitions.values()}
+            {row[0] for row in aliases.values()}
+            & {row[0] for row in definitions.values()}
         )
         for name, row in {**definitions, **aliases}.items():
             self.assertEqual(peer.extra_lookups[f["semantic_hash"](name)], row[0], name)
@@ -95,6 +100,21 @@ class QualificationFixtureTests(unittest.TestCase):
         for setting in profile.settings:
             contracts.setdefault(setting.name, []).append(setting)
         failures = []
+        compound = set(f["COMPOUND_NAMES"]) | set(f["TEMPERATURE_NAMES"])
+        for name, (index, initial, low, high) in f["CONFIG_SETTINGS"].items():
+            self.assertLessEqual(low, initial, name)
+            self.assertLessEqual(initial, high, name)
+            if name in compound:
+                continue
+            matching = [
+                setting
+                for setting in contracts.get(name, ())
+                if setting.index == index
+            ]
+            if not matching or not any(
+                setting.decode(initial) is not None for setting in matching
+            ):
+                failures.append((name, "scalar", initial))
         for names, units in (
             (f["COMPOUND_NAMES"], ("K", "°R")),
             (f["TEMPERATURE_NAMES"], ("°C", "°F")),
