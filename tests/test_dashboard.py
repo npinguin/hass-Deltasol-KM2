@@ -242,3 +242,87 @@ class DashboardTests(unittest.TestCase):
             inventory["Schema"]["write_access_reason"],
             "hardware_or_topology_assignment",
         )
+
+    def test_native_subscription_coalesces_updates_and_detaches_on_unload(self):
+        tree = ast.parse(PATH.read_text(encoding="utf-8"))
+        method = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef)
+            and node.name == "ws_dashboard_subscribe"
+        )
+        method.decorator_list = []
+        callbacks = []
+        queued = []
+
+        def listen(*args):
+            callback = args[-1]
+            callbacks.append(callback)
+            return lambda: callbacks.remove(callback)
+
+        def later(delay, callback):
+            queued.append(callback)
+            return SimpleNamespace(cancel=lambda: queued.remove(callback))
+
+        coordinator = SimpleNamespace(async_add_listener=listen)
+        runtime = SimpleNamespace(
+            coordinator=coordinator,
+            relay_coordinator=coordinator,
+            capture_listeners=set(),
+        )
+        entry = SimpleNamespace(
+            entry_id="one",
+            runtime_data=runtime,
+            async_on_state_change=listen,
+        )
+        entries = [entry]
+        projection = [{"id": "one", "health": {"parameter_current": True}}]
+        hass = SimpleNamespace(
+            loop=SimpleNamespace(call_later=later),
+            bus=SimpleNamespace(async_listen=listen),
+            config_entries=SimpleNamespace(async_entries=lambda *_: entries),
+        )
+        connection = SimpleNamespace(
+            user=object(),
+            subscriptions={},
+            send_result=MagicMock(),
+            send_event=MagicMock(),
+        )
+        namespace = {
+            "callback": lambda func: func,
+            "DOMAIN": "deltasol",
+            "SIGNAL_CONFIG_ENTRY_CHANGED": "changed",
+            "async_dispatcher_connect": listen,
+            "dashboard_objects": lambda *_: list(projection),
+        }
+        exec(  # noqa: S102
+            compile(ast.Module(body=[method], type_ignores=[]), str(PATH), "exec"),
+            namespace,
+        )
+        namespace["ws_dashboard_subscribe"](hass, connection, {"id": 1})
+        self.assertEqual(connection.send_event.call_count, 1)
+        self.assertEqual(len(callbacks), 6)
+        self.assertEqual(len(runtime.capture_listeners), 1)
+        for notify in list(callbacks):
+            notify()
+        self.assertEqual(len(queued), 1)
+        queued.pop()()
+        self.assertEqual(connection.send_event.call_count, 1)
+        projection[0] = {"id": "one", "health": {"parameter_current": False}}
+        callbacks[-1]()
+        queued.pop()()
+        self.assertEqual(connection.send_event.call_count, 2)
+        self.assertFalse(
+            connection.send_event.call_args.args[1][0]["health"]["parameter_current"]
+        )
+        entries.clear()
+        projection.clear()
+        callbacks[0]()
+        queued.pop()()
+        self.assertEqual(connection.send_event.call_args.args, (1, []))
+        self.assertEqual(len(callbacks), 3)
+        self.assertFalse(runtime.capture_listeners)
+        callbacks[0]()
+        connection.subscriptions[1]()
+        self.assertFalse(callbacks)
+        self.assertFalse(queued)

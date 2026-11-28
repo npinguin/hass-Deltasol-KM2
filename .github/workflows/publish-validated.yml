@@ -99,6 +99,7 @@ jobs:
           unzip -Z1 "$PACKAGE" | grep -Fx switch.py
           unzip -Z1 "$PACKAGE" | grep -Fx button.py
           unzip -Z1 "$PACKAGE" | grep -Fx VBUS-LICENSE.txt
+          unzip -Z1 "$PACKAGE" | grep -Fx services.yaml
           unzip -Z1 "$PACKAGE" | grep -Fx dashboard.py
           unzip -Z1 "$PACKAGE" | grep -Fx frontend/dashboard.js
           unzip -Z1 "$PACKAGE" | grep -Fx DASHBOARD-LICENSE.txt

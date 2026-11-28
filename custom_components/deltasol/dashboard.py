@@ -471,9 +471,7 @@ async def ws_dashboard_list(hass, connection, msg):
     connection.send_result(msg["id"], dashboard_objects(hass, connection.user))
 
 
-@websocket_api.websocket_command(
-    {vol.Required("type"): "deltasol/dashboard/subscribe"}
-)
+@websocket_api.websocket_command({vol.Required("type"): "deltasol/dashboard/subscribe"})
 @callback
 def ws_dashboard_subscribe(hass, connection, msg):
     """Publish the same scoped projection on native source updates, never poll."""
