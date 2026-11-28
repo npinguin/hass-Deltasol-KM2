@@ -597,7 +597,7 @@ class VBusSession:
         return value
 
     def write_packed_verified(self, address, index, before, wanted, changeset):
-        """Internal atomic three-word transport for a previously verified Blob.
+        """Internal non-atomic three-word transport for a previously verified Blob.
 
         MIT resol-vbus connection.js bulk transaction and upstream
         connection.spec.js zero-status acknowledgements, including subindex
@@ -605,8 +605,10 @@ class VBusSession:
         authorization, layout, packing and storage semantics before calling.
         A fresh capability response must advertise bulk transactions (bit
         0x08, observed in RESOL RPT 2.02). This is transport evidence only,
-        not authorization to write any particular Blob. Never fall back to
-        individual writes or retry an uncertain commit.
+        not authorization to write any particular Blob. BX Plus mutates the
+        parameter buffer during each stage. No rollback is established.
+        A failed stage or commit requires a fresh read-only reconciliation;
+        never replay the request or commit a partially applied value.
         """
         if (
             type(index) is not int
@@ -640,26 +642,20 @@ class VBusSession:
             if response.value != 0:
                 raise VBusError("VBus bulk transaction rejected")
 
-        # Only roll back a transaction whose begin was acknowledged. If
-        # begin itself times out, inactivity expiration is the upstream
-        # recovery mechanism; do not attempt another begin or write.
+        # Begin rejection is not an acknowledged transaction. A lost begin
+        # response is already classified as uncertain by request().
         acknowledged(0x1400, 0x1401, value=10)
         try:
             for subindex, word in enumerate(wanted):
                 acknowledged(0x1500 | subindex, 0x1600 | subindex, index, word)
             if self.read(address, 0) != changeset:
                 raise VBusError("Controller changeset changed during write")
-        except (OSError, VBusError):
-            try:
-                acknowledged(0x1404, 0x1405)
-            except (OSError, VBusError) as rollback_error:
-                raise VBusError(
-                    "VBus bulk transaction rollback unconfirmed"
-                ) from rollback_error
-            raise
-        # A missing commit reply may mean it committed. Never send commit
-        # twice or attempt rollback after commit has been attempted.
-        acknowledged(0x1402, 0x1403, value=10)
+            acknowledged(0x1402, 0x1403, value=10)
+        except (OSError, VBusError) as error:
+            # Prior words may already have changed even on an explicit
+            # rejection. Do not invent rollback, commit, or another begin.
+            # Let the bus owner recover and reconcile via a fresh read.
+            raise VBusError("VBus write outcome uncertain") from error
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during write")
         if read_words() != wanted:
