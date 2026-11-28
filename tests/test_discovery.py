@@ -1672,7 +1672,9 @@ class DiscoveryTests(unittest.TestCase):
                 ],
             )
             self.assertTrue(
-                all(item.get("value") is None for item in variant.metadata["value_text"])
+                all(
+                    item.get("value") is None for item in variant.metadata["value_text"]
+                )
             )
             self.assertEqual(variant.index, 11405 + (slot - 1) * 151)
             setting = next(
