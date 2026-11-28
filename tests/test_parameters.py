@@ -1126,9 +1126,7 @@ class ParameterTests(unittest.TestCase):
         root = "Heizung_RelaisPumpe2"
         timed = next(s for s in settings if s.name == root + "_Anlauf_dtAnlauf")
         thermal = next(
-            s
-            for s in settings
-            if s.name == root + "_Anlauf_TAnlauf" and s.unit == "°C"
+            s for s in settings if s.name == root + "_Anlauf_TAnlauf" and s.unit == "°C"
         )
         values = {
             root + "_Type": 2,
