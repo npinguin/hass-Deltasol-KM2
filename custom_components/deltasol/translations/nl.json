@@ -59,10 +59,14 @@
       "init": {
         "description": "Lokale VBus-parametertoegang (KM2/DL2 Plus). Laat leeg om de bestaande uitlezing te behouden. Handbediening kan actief blijven na verbindingsverlies; zet na gebruik terug op Auto.",
         "data": {
-          "vbus_password": "VBus-wachtwoord voor toegang op afstand"
+          "vbus_password": "VBus-wachtwoord voor toegang op afstand",
+          "enable_dashboard": "RESOL-dashboard inschakelen",
+          "show_engineering": "Engineering-tabblad tonen"
         },
         "data_description": {
-          "vbus_password": "Niet hetzelfde als het HTTP/webwachtwoord. Stel het in bij Toegang op afstand op de RESOL-gateway."
+          "vbus_password": "Niet hetzelfde als het HTTP/webwachtwoord. Stel het in bij Toegang op afstand op de RESOL-gateway.",
+          "enable_dashboard": "Eén optionele zijbalkapplicatie voor alle ingeschakelde RESOL-installaties.",
+          "show_engineering": "Engineering voor beheerders binnen hetzelfde dashboard."
         }
       }
     }

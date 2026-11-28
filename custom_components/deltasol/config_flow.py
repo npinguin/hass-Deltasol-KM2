@@ -22,6 +22,8 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import selector
 
 from .const import (
+    CONF_DASHBOARD,
+    CONF_ENGINEERING,
     CONF_VBUS_PASSWORD,
     DEFAULT_PORT,
     DEFAULT_SCAN_INTERVAL,
@@ -370,6 +372,8 @@ class ResolOptionsFlow(OptionsFlow):
                 data={
                     **self.config_entry.options,
                     CONF_VBUS_PASSWORD: user_input.get(CONF_VBUS_PASSWORD, ""),
+                    CONF_DASHBOARD: user_input.get(CONF_DASHBOARD, False),
+                    CONF_ENGINEERING: user_input.get(CONF_ENGINEERING, False),
                 },
             )
         schema = vol.Schema(
@@ -380,6 +384,14 @@ class ResolOptionsFlow(OptionsFlow):
                 ): selector.TextSelector(
                     selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
                 ),
+                vol.Optional(
+                    CONF_DASHBOARD,
+                    default=self.config_entry.options.get(CONF_DASHBOARD, False),
+                ): bool,
+                vol.Optional(
+                    CONF_ENGINEERING,
+                    default=self.config_entry.options.get(CONF_ENGINEERING, False),
+                ): bool,
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

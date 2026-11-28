@@ -59,10 +59,14 @@
       "init": {
         "description": "Accesso locale ai parametri VBus (KM2/DL2 Plus). Lasciare vuoto per mantenere la sola lettura. Il modo manuale può restare attivo dopo la disconnessione; ripristinare Auto dopo l'uso.",
         "data": {
-          "vbus_password": "Password VBus per accesso remoto"
+          "vbus_password": "Password VBus per accesso remoto",
+          "enable_dashboard": "Attiva il dashboard RESOL",
+          "show_engineering": "Mostra la scheda Engineering"
         },
         "data_description": {
-          "vbus_password": "Separata dalla password HTTP/web. Impostarla nella configurazione di accesso remoto del gateway RESOL."
+          "vbus_password": "Separata dalla password HTTP/web. Impostarla nella configurazione di accesso remoto del gateway RESOL.",
+          "enable_dashboard": "Una sola applicazione laterale per tutti gli impianti RESOL attivi.",
+          "show_engineering": "Strumenti tecnici riservati agli amministratori nello stesso dashboard."
         }
       }
     }

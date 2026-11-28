@@ -46,6 +46,7 @@ from .catalog import (
 )
 from .configuration import encode_action
 from .const import (
+    CONF_DASHBOARD,
     CONF_VBUS_PASSWORD,
     DEFAULT_NAME,
     DEFAULT_SCAN_INTERVAL,
@@ -205,6 +206,10 @@ async def async_setup_entry(
 
             config_entry.async_on_unload(relay.async_add_listener(restore_when_ready))
 
+    if config_entry.options.get(CONF_DASHBOARD, False):
+        from .dashboard import async_setup_dashboard
+
+        await async_setup_dashboard(hass)
     # Return true to denote a successful setup.
     return True
 
@@ -238,6 +243,10 @@ async def async_unload_entry(
         runtime.closing = False
         if runtime.relay_coordinator:
             runtime.relay_coordinator.closing = False
+    elif config_entry.options.get(CONF_DASHBOARD, False):
+        from .dashboard import async_remove_dashboard
+
+        await async_remove_dashboard(hass, config_entry.entry_id)
     return unloaded
 
 

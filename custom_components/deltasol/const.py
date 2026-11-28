@@ -11,3 +11,6 @@ DEFAULT_PORT = 80
 DEFAULT_USERNAME = "admin"
 
 CONF_VBUS_PASSWORD = "vbus_password"
+
+CONF_DASHBOARD = "enable_dashboard"
+CONF_ENGINEERING = "show_engineering"
