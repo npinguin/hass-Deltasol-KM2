@@ -6,9 +6,7 @@ import importlib
 import io
 import os
 import re
-import shutil
 import struct
-import subprocess
 import sys
 import types
 import unittest
@@ -1554,78 +1552,40 @@ class DiscoveryTests(unittest.TestCase):
                     "Native change callback RVA:", representative, hex(callback - base)
                 )
 
-        # Static disassembly of the exact registered archive is an optional
-        # developer evidence probe, not a runtime dependency or write gate.
-        # Log only semantic operands/call edges, never vendor bytes.
-        if shutil.which("objdump"):
-            with TemporaryDirectory() as directory:
-                library = Path(directory) / "reference.dll"
-                library.write_bytes(binary)
+        # Exact registered native lifecycle call graph (research 4.42).
+        # A registry transition is not a scalar activity preference. Assert
+        # the verified call targets without requiring an external disassembler.
+        def direct_call_target(rva):
+            offset = locate(base + rva, 5, ".text")
+            self.assertEqual(binary[offset], 0xE8)
+            return rva + 5 + struct.unpack_from("<i", binary, offset + 1)[0]
 
-                def inspect_region(label, start, end):
-                    output = subprocess.run(
-                        [
-                            "objdump",
-                            "-d",
-                            "-Mintel",
-                            "--no-show-raw-insn",
-                            f"--start-address={base + start}",
-                            f"--stop-address={base + end}",
-                            str(library),
-                        ],
-                        check=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                    ).stdout
-                    edges = []
-                    memory = []
-                    immediates = []
-                    for line in output.splitlines():
-                        match = re.match(r"\s*([0-9a-f]+):\s+(\w+)\s*(.*)", line)
-                        if not match:
-                            continue
-                        address, mnemonic, operands = match.groups()
-                        rva = int(address, 16) - base
-                        if mnemonic in ("call", "jmp") or mnemonic.startswith("j"):
-                            target = re.match(r"([0-9a-f]+)(?:\s|$)", operands)
-                            edges.append(
-                                (
-                                    hex(rva),
-                                    mnemonic,
-                                    hex(int(target[1], 16) - base)
-                                    if target
-                                    else "indirect",
-                                )
-                            )
-                        if (
-                            mnemonic
-                            in ("mov", "movzx", "movsx", "and", "or", "test", "cmp")
-                            and "PTR [" in operands
-                        ):
-                            memory.append((hex(rva), mnemonic, operands))
-                        if mnemonic in ("mov", "push", "cmp", "test", "and", "or") and (
-                            re.search(r"(?:^|,)0x[0-9a-f]+$", operands)
-                        ):
-                            immediates.append((hex(rva), mnemonic, operands))
-                    self.assertTrue(edges or memory or immediates, label)
-                    print("Native region edges:", label, edges)
-                    print("Native region memory:", label, memory)
-                    print("Native region constants:", label, immediates)
+        for activate, lookup, remove in (
+            (0x71E3, 0x722F, 0x724D),
+            (0x766D, 0x76B9, 0x76D7),
+            (0x7794, 0x77E0, 0x77FE),
+        ):
+            self.assertEqual(direct_call_target(activate), 0xF9E38)
+            self.assertEqual(direct_call_target(lookup), 0xF9563)
+            self.assertEqual(direct_call_target(remove), 0xF9ECD)
+        self.assertEqual(direct_call_target(0xF9E7D), 0xF816A)
+        self.assertEqual(direct_call_target(0xF9FDF), 0xF6540)
+        self.assertEqual(direct_call_target(0xFA020), 0xF6758)
+        self.assertEqual(direct_call_target(0xFA058), 0xF722F)
+        indirect = locate(base + 0xFA038, 2, ".text")
+        self.assertEqual(binary[indirect], 0xFF)
+        self.assertEqual(binary[indirect + 1] & 0x38, 0x10)
+        # Full setup is a separate path; periodic translation is not proof
+        # of re-registration following a generic VBus preference write.
+        self.assertEqual(direct_call_target(0x2C18), 0x35263)
+        self.assertEqual(direct_call_target(0x2C23), 0x34E20)
+        self.assertEqual(direct_call_target(0x2C58), 0x34E20)
 
-                # Continue from the proven callback edges in research 4.40.
-                # Each helper is shared by both native instances.
-                for label, start, end in (
-                    ("registry owner", 0x144A, 0x144A + 30),
-                    ("registration allocation", 0xF816A, 0xF816A + 700),
-                    ("deletion descriptor index", 0xF6540, 0xF6540 + 180),
-                    ("deletion instance", 0xF6758, 0xF6758 + 220),
-                    ("deletion finalization", 0xF722F, 0xF722F + 320),
-                    ("full setup", 0x35263, 0x35263 + 260),
-                    ("periodic translation", 0x34E20, 0x34E20 + 200),
-                    ("periodic entry", 0x2C45, 0x2C45 + 100),
-                ):
-                    inspect_region(label, start, end)
+        # Keep the prior startup-duration editor evidence as an assertion.
+        self.assertEqual(descriptor("Solar_Losreissimpuls")[2] - base, 0x6B972)
+        self.assertEqual(direct_call_target(0x6B994), 0x4FEF6)
+        self.assertEqual(direct_call_target(0x6B9A7), 0x10C124)
+        self.assertEqual(direct_call_target(0x6B9BA), 0x10C152)
 
         # Only compact exact metadata; large inherited role tables add no
         # transition evidence.
