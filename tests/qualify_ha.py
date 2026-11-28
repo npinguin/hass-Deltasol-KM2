@@ -52,6 +52,15 @@ CONFIG_SELECTORS = {
     "Heizung_Heizkreis1_Type": (13684, 1),
     "Heizung_Heizkreis1_Aktiviert_Modus": (13689, 1),
     "Heizung_Heizkreis1_Heizsystem": (13978, 1),
+    "Heizung_Heizkreis1_System": (13697, 0),
+    "Heizung_Heizkreis1_OHeizgrenze": (13739, 1),
+    "Heizung_Heizkreis1_Heizgrenze": (13740, 1),
+    "Heizung_Heizkreis1_Sensor2_Nr": (13800, 3),
+    "Heizung_Heizkreis1_Raumthermostat1_Option": (13819, 1),
+    "Heizung_Heizkreis1_Raumthermostat1_Aktiviert": (13820, 1),
+    "Heizung_Heizkreis1_Raumthermostat1_OSchaltuhr": (13821, 1),
+    "Heizung_Heizkreis1_Raumthermostat1_Typ": (13823, 0),
+    "Heizung_Heizkreis1_Raumthermostat1_Sensor1_Nr": (13834, 4),
     "Heizung_Heizkreis1_OUrlaub": (14176, 0),
     "Heizung_Heizkreis2_Type": (14179, 1),
     "Heizung_Heizkreis2_Aktiviert_Modus": (14184, 1),
@@ -96,6 +105,11 @@ CONFIG_SELECTORS = {
 CONFIG_SETTINGS = {
     "Anlage_Wf1_Mischer_dtIntervall": (6625, 4, 1, 20),
     "Heizung_Heizkreis1_Heizkurve": (13698, 12, 3, 30),
+    "Heizung_Heizkreis1_TSommerTag": (13741, 200, 0, 400),
+    "Heizung_Heizkreis1_TSommerNacht": (13744, 140, 0, 400),
+    "Heizung_Heizkreis1_tSommerTagEin": (13700, 540, 0, 1425),
+    "Heizung_Heizkreis1_tSommerTagAus": (13701, 1260, 0, 1425),
+    "Heizung_Heizkreis1_Raumthermostat1_dTAbsenkung": (13830, 50, 10, 200),
     "Urlaubsfunktion_Tage": (19063, 0, 0, 200),
     "Heizung_Heizkreis1_Betriebsart": (14014, 0, 0, 5),
     "Heizung_Heizkreis2_Betriebsart": (14509, 0, 0, 5),
@@ -160,6 +174,7 @@ COMPOUND_NAMES = (
     "Solar_Wf1_ExtWT_dTein",
     "Solar_Wf1_ExtWT_dTaus",
     "Solar_Wf1_ExtWT_dTAnstieg",
+    "Heizung_Heizkreis1_Raumthermostat1_dTAbsenkung",
 )
 COMPOUND_ALIASES = {
     name + suffix: (CONFIG_SETTINGS[name][0] + delta, CONFIG_SETTINGS[name][0], factor)
@@ -174,6 +189,8 @@ TEMPERATURE_NAMES = (
     "Heizung_Wf1_Zirkulation_TAus",
     "Solar_Wf1_Zieltemperatur_Zieltemperatur",
     "Solar_Wf1_ExtWT_ZieltemperaturSekundaer",
+    "Heizung_Heizkreis1_TSommerTag",
+    "Heizung_Heizkreis1_TSommerNacht",
 )
 TEMPERATURE_PARENTS = {CONFIG_SETTINGS[name][0] for name in TEMPERATURE_NAMES}
 TEMPERATURE_ALIASES = {
@@ -1154,6 +1171,11 @@ async def qualify(directory, phase):
                     ("Anlage_Wf1_Mischer_dtIntervall", "number", 5),
                     ("Heizung_Heizkreis1_Heizkurve", "number", 1.5),
                     ("Heizung_Heizkreis1_Betriebsart", "select", "Day"),
+                    ("Heizung_Heizkreis1_TSommerTag", "number", 70),
+                    ("Heizung_Heizkreis1_TSommerNacht", "number", 60),
+                    ("Heizung_Heizkreis1_tSommerTagEin", "number", 555),
+                    ("Heizung_Heizkreis1_tSommerTagAus", "number", 1275),
+                    ("Heizung_Heizkreis1_Raumthermostat1_dTAbsenkung", "number", 12),
                     ("Urlaubsfunktion_Tage", "number", 0),
                     ("Wmz1_OAlternativAnzeige", "switch", "on"),
                     ("Wmz1_AlternativAnzeigeEinheit", "select", "Gas"),
@@ -1895,6 +1917,23 @@ async def qualify(directory, phase):
         assert entity(exchanger + "_dTein", "number") == exchanger_entity
         assert float(hass.states.get(tube_entity).state) == 390
         assert float(hass.states.get(exchanger_entity).state) == 14
+
+        before_comfort = Peer.saves
+        for suffix, value in (
+            ("TSommerTag", 70), ("TSommerNacht", 60),
+            ("tSommerTagEin", 555), ("tSommerTagAus", 1275),
+            ("Raumthermostat1_dTAbsenkung", 12),
+        ):
+            await number("Heizung_Heizkreis1_" + suffix, value)
+        assert Peer.saves == before_comfort + 5
+        day_clock = entity("Heizung_Heizkreis1_tSommerTagEin", "number")
+        Peer.extra_values[13740] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(day_clock).state == "unavailable"
+        Peer.extra_values[13740] = 1
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert entity("Heizung_Heizkreis1_tSommerTagEin", "number") == day_clock
+        assert float(hass.states.get(day_clock).state) == 555
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"
