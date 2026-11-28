@@ -395,6 +395,70 @@ class ActorReferences:
         )
 
 
+@dataclass(frozen=True)
+class FunctionSelection:
+    """Validate the native mask against observed function numbers, not UI slots."""
+
+    name: str
+    index: int
+    heating: bool = False
+
+    @property
+    def slots(self):
+        prefix, base, stride, count = (
+            ("Heizung_Heizkreis", 13684, 495, 7)
+            if self.heating
+            else ("Anlage_Wf", 6559, 251, 16)
+        )
+        return tuple((f"{prefix}{n + 1}", base + stride * n) for n in range(count))
+
+    @property
+    def expected(self):
+        result = {self.name: self.index}
+        for root, base in self.slots:
+            result.update({root + "_Type": base, root + "_Nr": base + 1})
+            if self.heating:
+                result.update(
+                    {
+                        root + "_System": base + 13,
+                        root + "_Sensor1_Nr": base + 112,
+                        root + "_Relais1_Nr": base + 80,
+                    }
+                )
+        return result
+
+    def matches(self, values):
+        mask = values.get(self.name)
+        if type(mask) is not int or not 0 < mask < (1 << len(self.slots)):
+            return False
+        available = 0
+        for slot, (root, _) in enumerate(self.slots, 1):
+            kind = values.get(root + "_Type")
+            if type(kind) is not int:
+                return False
+            if kind != (1 if self.heating else 6):
+                continue
+            nr = values.get(root + "_Nr")
+            if type(nr) is not int or not 1 <= nr <= len(self.slots):
+                return False
+            bit = 1 << (nr - 1)
+            if available & bit:
+                return False
+            if self.heating and mask & bit:
+                # Runtime indexes the internal circuit registry directly.
+                if nr != slot or values.get(root + "_System") not in (0, 2):
+                    return False
+                for field, maximum in (("Sensor1_Nr", 65), ("Relais1_Nr", 100)):
+                    assigned = values.get(root + "_" + field)
+                    if type(assigned) is not int or not 1 <= assigned <= maximum:
+                        return False
+            available |= bit
+        return mask & available == mask
+
+    def context(self, values):
+        return tuple((name, values.get(name)) for name in sorted(self.expected))
+
+
 def _dependency_layout(dependencies):
     result = {}
     for dep in dependencies:
@@ -505,70 +569,6 @@ class SolarSelection:
                 if mask & (1 << bit)
             )
         )
-
-
-@dataclass(frozen=True)
-class FunctionSelection:
-    """Validate the native mask against observed function numbers, not UI slots."""
-
-    name: str
-    index: int
-    heating: bool = False
-
-    @property
-    def slots(self):
-        prefix, base, stride, count = (
-            ("Heizung_Heizkreis", 13684, 495, 7)
-            if self.heating
-            else ("Anlage_Wf", 6559, 251, 16)
-        )
-        return tuple((f"{prefix}{n + 1}", base + stride * n) for n in range(count))
-
-    @property
-    def expected(self):
-        result = {self.name: self.index}
-        for root, base in self.slots:
-            result.update({root + "_Type": base, root + "_Nr": base + 1})
-            if self.heating:
-                result.update(
-                    {
-                        root + "_System": base + 13,
-                        root + "_Sensor1_Nr": base + 112,
-                        root + "_Relais1_Nr": base + 80,
-                    }
-                )
-        return result
-
-    def matches(self, values):
-        mask = values.get(self.name)
-        if type(mask) is not int or not 0 < mask < (1 << len(self.slots)):
-            return False
-        available = 0
-        for slot, (root, _) in enumerate(self.slots, 1):
-            kind = values.get(root + "_Type")
-            if type(kind) is not int:
-                return False
-            if kind != (1 if self.heating else 6):
-                continue
-            nr = values.get(root + "_Nr")
-            if type(nr) is not int or not 1 <= nr <= len(self.slots):
-                return False
-            bit = 1 << (nr - 1)
-            if available & bit:
-                return False
-            if self.heating and mask & bit:
-                # Runtime indexes the internal circuit registry directly.
-                if nr != slot or values.get(root + "_System") not in (0, 2):
-                    return False
-                for field, maximum in (("Sensor1_Nr", 65), ("Relais1_Nr", 100)):
-                    assigned = values.get(root + "_" + field)
-                    if type(assigned) is not int or not 1 <= assigned <= maximum:
-                        return False
-            available |= bit
-        return mask & available == mask
-
-    def context(self, values):
-        return tuple((name, values.get(name)) for name in sorted(self.expected))
 
 
 @dataclass(frozen=True)
