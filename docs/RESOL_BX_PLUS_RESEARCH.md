@@ -474,6 +474,26 @@ The same XML/native join confirms 99 further preferences with the same Boolean c
 
 The existing assigned input/output and function mode guards remain authoritative. Enable start/stop optimization only with a valid 0–300 minute companion; cooling uses the existing quarter-hour daily clocks. Solar off uses a positive native store mask within the configured system topology. The Tset condition additionally requires the selected store target/maximum values to match their selected-unit aliases, with target <= maximum and the existing 4–95°C or 40–204°F bounds/steps. Disabling a parent preserves the subordinate preference and hides its control until applicable again. This adds no wiring, sensor assignment, safety override, second writer or raw service. Source tests verify exact layouts and guard behavior; actual HA fixture journeys are prepared but not yet executed.
 
+
+## 4.29 Installed operating selectors and external input options
+
+Exact BX Plus 2.08 XML and native descriptors corroborate the following additional operating preferences (65 distinct names, 91 typed variants):
+
+| Family | First index / stride | Count |
+| --- | --- | ---: |
+| DHW thermostat / zone mode | 11378 / 151 | 16 |
+| DHW operating-mode switch off option | 11287 / 151 | 16 |
+| DHW manual heating input option | 11387 / 151 | 16 |
+| Heating circuit weekly day/night or day/off mode | 13704 / 495 | 7 |
+| Heating circuit cooling outdoor / external / both mode | 14066 / 495 | 7 |
+| Solar collector minimum temperature option | 3533 / 14 | 3 |
+
+Use the existing persistent writer and requested-mode conditions. DHW mode requires assigned demand output, primary sensor, configured pump output when applicable, and ordered selected-unit threshold mirrors; zone mode additionally requires the secondary sensor. The external-input flags require assigned native input references and do not manipulate input state or directly command heat. Heating timer mode requires an allocated initialized week and valid day payloads, plus valid night correction for day/night. Cooling mode checks the appropriate outdoor threshold and/or assigned external input. Collector minimum enable requires a compatible installed system, assigned collector and solar output, and existing valid minimum threshold. Preserve topology, safety limits, input assignments, settings and history.
+
+The earlier reference-output investigation is narrowed by native callback helper 0x258fc: it splits the reference into a low-byte number and high-byte kind; high byte 1 or legacy positive high byte 0 identifies relay, high byte 2 identifies analogue output, other kinds return no reference. Reverse helper 0x2596f constructs kind 1 or 2. This is not yet proof of the complete installed output-number namespace or permission to control a referenced output. Solid-fuel selection callbacks 0x2397a/0x23a21 enumerate active native records and use a record-specific ordinal for the selection bit; a simple assumption that every mask bit is an arrangement slot is not justified. Both remain open along with room thermostat activation, type-specific activity and protection semantics, weekly allocation, and remaining operational modes.
+
+The exact firmware and developer source tests corroborate the 65 bindings; actual HA lifecycle and physical behavior are not yet qualified. The larger numerical target is not an acceptance criterion that permits speculative writes.
+
 ## 5. Architecture: a single native Home Assistant integration
 
 The proposed implementation direction builds on the existing Python components instead of importing RPT into Home Assistant. The native controller remains the authority for actual configuration, telemetry and physical control. RPT and other verified sources provide evidence for how to interpret those capabilities.
