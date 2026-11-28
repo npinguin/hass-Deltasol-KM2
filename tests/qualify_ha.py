@@ -191,7 +191,7 @@ CONFIG_SETTINGS = {
     "Heizung_Heizkreis1_RTH_HKaus": (14041, 0, 0, 1),
     "Heizung_Heizkreis1_Raumthermostat1_TRaum": (13824, 200, 100, 300),
     "Heizung_Heizkreis1_Raumthermostat1_dTRaum": (13827, 10, 5, 200),
-    "Heizung_RelaisPumpe1_Anlauf_TAnlauf": (11179, 450, 100, 900),
+    "Heizung_RelaisPumpe1_Anlauf_TAnlauf": (11179, 400, 100, 900),
     "Heizung_Wf3_BwVorerwaermung_TMax": (11691, 600, 200, 900),
     "Heizung_Wf3_BwVorerwaermung_dTMax": (11696, 50, 5, 100),
     "Heizung_Wf2_ThBwErwaermung_Modus": (11529, 0, 0, 1),
