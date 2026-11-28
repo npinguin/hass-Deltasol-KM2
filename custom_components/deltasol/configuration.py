@@ -447,6 +447,16 @@ def _normalized_numeric(definition, limits):
     metadata = dict(definition.metadata)
     chain = metadata.get("type_chain", ())
     if "DayTime" in chain:
+        # Native day-period editor has coarse 60-minute and fine 15-minute
+        # increments (RPT quant step is the index, not a second wire factor).
+        if metadata.get("quant_step") == "1" and metadata.get("quant") == "15":
+            if not any(
+                suffix in type_id
+                for type_id in chain
+                for suffix in ("tSommerTagEin", "tSommerTagAus")
+            ):
+                raise CatalogError("Unsupported clock increment variant")
+            metadata.pop("quant_step")
         if limits[3] != "1":
             raise CatalogError("Unsupported clock encoding")
         for key in ("minimum", "maximum"):
@@ -643,6 +653,7 @@ def _weekly_owners():
                 offset + 29,
                 (
                     *conditions,
+                    Dependency(room_root + "_Option", offset - 1, (1,)),
                     Dependency(room_root + "_Aktiviert", offset, (1, 2)),
                     Dependency(room_root + "_OSchaltuhr", offset + 1, (1,)),
                     Dependency(room_root + "_Typ", offset + 3, (0,)),
@@ -2430,6 +2441,56 @@ def _heating_comfort_settings():
                         (name, index, name + alias, index + selector + 1),
                     ),
                 )
+        limit_conditions = (
+            active,
+            heating,
+            Dependency(f"{root}_OHeizgrenze", 13739 + offset, (1,)),
+            RangeDependency(f"{root}_Sensor2_Nr", 13800 + offset, 1, 65),
+        )
+        for suffix, index, label, modes in (
+            ("TSommerTag", 13741, "day heating cut-off", (0, 1)),
+            ("TSommerNacht", 13744, "night heating cut-off", (1,)),
+        ):
+            name = f"{root}_{suffix}"
+            index += offset
+            for selector, alias, unit, limits in (
+                (0, "_C", "°C", ("0", "40", "1", "0.1")),
+                (1, "_F", "°F", ("32", "104", "2", "0.1")),
+            ):
+                yield Setting(
+                    name,
+                    index,
+                    f"Heating circuit {circuit} {label}",
+                    "number",
+                    True,
+                    limits=limits,
+                    unit=unit,
+                    installed_by=installed,
+                    dependencies=(
+                        *limit_conditions,
+                        Dependency(f"{root}_Heizgrenze", 13740 + offset, modes),
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    compound_mirrors=((name, index, name + alias, index + selector + 1),),
+                )
+        for suffix, index, label in (
+            ("tSommerTagEin", 13700, "heating limit day period start"),
+            ("tSommerTagAus", 13701, "heating limit day period end"),
+        ):
+            yield Setting(
+                f"{root}_{suffix}",
+                index + offset,
+                f"Heating circuit {circuit} {label}",
+                "number",
+                True,
+                limits=("0", "1425", "15", "1"),
+                unit="min",
+                installed_by=installed,
+                dependencies=(
+                    *limit_conditions,
+                    Dependency(f"{root}_Heizgrenze", 13740 + offset, (1,)),
+                ),
+            )
         for thermostat in range(1, 6):
             prefix = f"{root}_Raumthermostat{thermostat}"
             base = 13819 + offset + (thermostat - 1) * 32
@@ -2439,6 +2500,7 @@ def _heating_comfort_settings():
                 Dependency(f"{prefix}_Option", base, (1,)),
                 Dependency(f"{prefix}_Aktiviert", base + 1, (1, 2)),
                 Dependency(f"{prefix}_Typ", base + 4, (0,)),
+                RangeDependency(f"{prefix}_Sensor1_Nr", base + 15, 1, 65),
             )
             for suffix, delta, label, variants in (
                 (
@@ -2459,6 +2521,15 @@ def _heating_comfort_settings():
                         ("_R", "°R", ("1", "40", "0.2", "0.1")),
                     ),
                 ),
+                (
+                    "dTAbsenkung",
+                    11,
+                    "room setback",
+                    (
+                        ("_K", "K", ("1", "20", "1", "0.1")),
+                        ("_R", "°R", ("2", "40", "2", "0.1")),
+                    ),
+                ),
             ):
                 name = f"{prefix}_{suffix}"
                 index = base + delta
@@ -2473,6 +2544,11 @@ def _heating_comfort_settings():
                         unit=unit,
                         dependencies=(
                             *conditions,
+                            *(
+                                (Dependency(f"{prefix}_OSchaltuhr", base + 2, (1,)),)
+                                if suffix == "dTAbsenkung"
+                                else ()
+                            ),
                             Dependency(
                                 "TemperatureHysteresisSelector", 60, (selector,)
                             ),
