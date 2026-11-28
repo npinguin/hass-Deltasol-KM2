@@ -483,10 +483,21 @@ def _read_weekly_settings(
         if row is None or row.status != "read" or row.index != setting.index:
             continue
         words = row.packed_words
-        if not words or words[0] != row.value:
+        if (
+            len(words) != 3
+            or words[0] != row.value
+            or any(type(word) is not int or not -(2**31) <= word < 2**31 for word in words)
+        ):
             continue
         slot = setting.weekly_slot
-        if not setting.accepts({**values, setting.name: words}):
+        if complete:
+            # Reconciliation must retain malformed but fully observed partial
+            # words. Only the live display and initial edit require decoding.
+            if not setting.installed_by.matches(values) or not all(
+                dep.matches(values) for dep in setting.dependencies
+            ):
+                continue
+        elif not setting.accepts({**values, setting.name: words}):
             continue
         cap = ConfigurationCapability(
             setting, controller, controller, changeset, words,
