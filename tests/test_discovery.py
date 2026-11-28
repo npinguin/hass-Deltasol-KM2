@@ -1496,6 +1496,32 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertIn(compiled, bound)
                 self.assertEqual(compiled.name, setting.name)
                 self.assertEqual(compiled.expected, setting.expected)
+        options = configuration.BX_PLUS_PROGRAM_OPTIONS
+        self.assertEqual(len({setting.name for setting in options}), 51)
+        for setting in options:
+            target = definitions[setting.name]
+            self.assertEqual(target.metadata["rpt_storage"], "preferences")
+            self.assertTrue(target.metadata["menu_refs"])
+            self.assertEqual(target.index, setting.index)
+            self.assertTrue(setting.save)
+            if setting.kind == "switch":
+                self.assertIn("Boolean", target.metadata["type_chain"])
+                self.assertTrue(
+                    any(
+                        "BooleanNop" in ref.get("mask", "")
+                        for ref in target.metadata["menu_refs"]
+                    )
+                )
+            else:
+                self.assertEqual(setting.kind, "select")
+                self.assertEqual(
+                    catalog.ordinal_options(target), {0: "Tag", 1: "TagNacht"}
+                )
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+            for rule in setting.requested_conditions:
+                for dependency in rule.alternatives:
+                    self.assertEqual(definitions[dependency.name].index, dependency.index)
         self.assertEqual(len(bound), len(profile.settings) + 350)
         self.assertEqual(len([s for s in bound if s.weekly_slot is not None]), 350)
         # Report the remaining catalogue/menu review surface as part of the
