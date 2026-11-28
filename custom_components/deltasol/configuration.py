@@ -2939,7 +2939,10 @@ def _coordination_options():
                         1,
                         (
                             RangeDependency(
-                                prefix + "_" + companion, companion_index + offset, 0, 300
+                                prefix + "_" + companion,
+                                companion_index + offset,
+                                0,
+                                300,
                             ),
                         ),
                     ),
