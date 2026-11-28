@@ -38,6 +38,13 @@ HQM_SENSOR_UID = "00_0010_7131_0100__004_4_0"
 # Independent wire fixtures: exact 2.08 reference positions, not imported
 # production Setting objects. Persistent state belongs to the protocol peer.
 CONFIG_SELECTORS = {
+    "Heizung_Wf2_Type": (11417, 2),
+    "Heizung_Wf2_Aktiviert_Modus": (11424, 1),
+    "Heizung_Wf2_ThBwErwaermung_OLadepumpe": (11526, 1),
+    "Heizung_Wf2_Relais2_Nr": (11480, 2),
+    "Heizung_Wf2_NhRelais1_Nr": (11488, 3),
+    "Heizung_Wf2_Sensor1_Nr": (11441, 4),
+    "Heizung_Wf2_ThBwErwaermung_Modus": (11529, 0),
     "SDKarte_Status_KarteVorhanden": (18227, 1),
     "SDKarte_Status_Schreibfehler": (18228, 0),
     "SDKarte_Status_KarteUnbekannt": (18229, 0),
@@ -154,6 +161,8 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
+    "Heizung_Wf2_ThBwErwaermung_ONachlaufzeit": (11527, 1, 0, 1),
+    "Heizung_Wf2_ThBwErwaermung_Nachlaufzeit": (11528, 4, 1, 10),
     "Solar_OSpreizladung": (3424, 1, 0, 1),
     "Solar_OPumpenverzoegerung": (3422, 1, 0, 1),
     "Solar_OPausendrehzahl": (3420, 1, 0, 1),
@@ -1512,6 +1521,8 @@ async def qualify(directory, phase):
                     ("Solar_OPausendrehzahl", "switch", "on"),
                     ("Solar_OPumpenverzoegerung", "switch", "on"),
                     ("Solar_OSpreizladung", "switch", "on"),
+                    ("Heizung_Wf2_ThBwErwaermung_ONachlaufzeit", "switch", "on"),
+                    ("Heizung_Wf2_ThBwErwaermung_Nachlaufzeit", "number", 4),
                     ("Anlage_Wf3_RLBeimischung_dTEin", "number", 11),
                     ("Anlage_Wf3_RLBeimischung_dTSoll", "number", -20),
                     ("Anlage_Wf3_RLBeimischung_Mischerlaufzeit", "number", 120),
@@ -2523,6 +2534,11 @@ async def qualify(directory, phase):
             ("Solar_OPausendrehzahl", 3420, "Solar_Pausendrehzahl"),
             ("Solar_OPumpenverzoegerung", 3422, "Solar_Pumpenverzoegerung"),
             ("Solar_OSpreizladung", 3424, "Solar_Spreizladung_dTDifferenz"),
+            (
+                "Heizung_Wf2_ThBwErwaermung_ONachlaufzeit",
+                11527,
+                "Heizung_Wf2_ThBwErwaermung_Nachlaufzeit",
+            ),
         ):
             target = entity(flag, "switch")
             number_id = entity(companion, "number")
