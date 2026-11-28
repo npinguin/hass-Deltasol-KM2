@@ -202,7 +202,9 @@ class PeerComparison:
             and type(left) is int
             and type(right) is int
             and compare(
-                left, right + (self.margin if self.operation in ("gt", "ge") else -self.margin)
+                left,
+                right
+                + (self.margin if self.operation in ("gt", "ge") else -self.margin),
             )
         )
 
@@ -4740,71 +4742,153 @@ def _remaining_operating_settings():
                 )
             )
         )
-        valid_maximum = AnyDependencies(tuple(
-            (
-                maximum,
-                Dependency("TemperatureHysteresisSelector", 60, (unit,)),
-                PeerComparison(tmax, ti, "Solar_Kol1_Tnot", 3542, "le", margin),
+        valid_maximum = AnyDependencies(
+            tuple(
+                (
+                    maximum,
+                    Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                    PeerComparison(tmax, ti, "Solar_Kol1_Tnot", 3542, "le", margin),
+                )
+                for unit, margin in ((0, 100), (1, 180))
             )
-            for unit, margin in ((0, 100), (1, 180))
-        ))
-        priorities = AnyDependencies(tuple(
-            (
-                Dependency("Solar_SystemId", 3416, tuple(sorted(
-                    system for system in BX_PLUS_SOLAR_SYSTEMS
-                    if (system // 100) % 100 == count
-                ))),
-                *(
-                    AnyDependencies((
-                        (Dependency(f"{root}_Vorrang{slot}", priority + slot - 1, (0,)),),
-                        *((Dependency(f"{root}_Vorrang{slot}", priority + slot - 1, (n,)), _solar_store_present(n))
-                          for n in range(1, count + 1)),
-                    ))
-                    for slot in range(1, count + 1)
-                ),
+        )
+        priorities = AnyDependencies(
+            tuple(
+                (
+                    Dependency(
+                        "Solar_SystemId",
+                        3416,
+                        tuple(
+                            sorted(
+                                system
+                                for system in BX_PLUS_SOLAR_SYSTEMS
+                                if (system // 100) % 100 == count
+                            )
+                        ),
+                    ),
+                    *(
+                        AnyDependencies(
+                            (
+                                (
+                                    Dependency(
+                                        f"{root}_Vorrang{slot}",
+                                        priority + slot - 1,
+                                        (0,),
+                                    ),
+                                ),
+                                *(
+                                    (
+                                        Dependency(
+                                            f"{root}_Vorrang{slot}",
+                                            priority + slot - 1,
+                                            (n,),
+                                        ),
+                                        _solar_store_present(n),
+                                    )
+                                    for n in range(1, count + 1)
+                                ),
+                            )
+                        )
+                        for slot in range(1, count + 1)
+                    ),
+                )
+                for count in range(1, 5)
             )
-            for count in range(1, 5)
-        ))
-        targets = AnyDependencies(tuple(
-            (
-                Dependency("Solar_SystemId", 3416, tuple(sorted(
-                    system for system in BX_PLUS_SOLAR_SYSTEMS
-                    if (system // 100) % 100 == count
-                ))),
-                Dependency("TemperatureHysteresisSelector", 60, (unit,)),
-                *(
-                    dep for slot in range(1, count + 1)
-                    for dep in _unit_value(f"{root}_TSp{slot}Max", 6345 + 3 * (slot - 1), unit, alias, lo, hi, step)
-                ),
+        )
+        targets = (
+            AnyDependencies(
+                tuple(
+                    (
+                        Dependency(
+                            "Solar_SystemId",
+                            3416,
+                            tuple(
+                                sorted(
+                                    system
+                                    for system in BX_PLUS_SOLAR_SYSTEMS
+                                    if (system // 100) % 100 == count
+                                )
+                            ),
+                        ),
+                        Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                        *(
+                            dep
+                            for slot in range(1, count + 1)
+                            for dep in _unit_value(
+                                f"{root}_TSp{slot}Max",
+                                6345 + 3 * (slot - 1),
+                                unit,
+                                alias,
+                                lo,
+                                hi,
+                                step,
+                            )
+                        ),
+                    )
+                    for count in range(1, 5)
+                    for unit, alias, lo, hi, step in (
+                        (0, "_C", 40, 950, 10),
+                        (1, "_F", 400, 2040, 20),
+                    )
+                )
             )
-            for count in range(1, 5)
-            for unit, alias, lo, hi, step in ((0, "_C", 40, 950, 10), (1, "_F", 400, 2040, 20))
-        )) if holiday else None
-        store_cooling_ready = AnyDependencies(((pair, *((targets,) if targets else ())),))
-        cooling_ready = AnyDependencies((
-            (Dependency(flag, fi, (0,)),),
-            (Dependency(flag, fi, (1,)), store_cooling_ready),
-        ))
+            if holiday
+            else None
+        )
+        store_cooling_ready = AnyDependencies(
+            ((pair, *((targets,) if targets else ())),)
+        )
+        cooling_ready = AnyDependencies(
+            (
+                (Dependency(flag, fi, (0,)),),
+                (Dependency(flag, fi, (1,)), store_cooling_ready),
+            )
+        )
         if holiday:
             yield Setting(
-                mode, mi, "Solar holiday cooling mode", "select", True,
-                options=(("Disabled", 0), ("System cooling", 1), ("Collector cooling", 2)),
-                installed_by=collector, dependencies=deps,
+                mode,
+                mi,
+                "Solar holiday cooling mode",
+                "select",
+                True,
+                options=(
+                    ("Disabled", 0),
+                    ("System cooling", 1),
+                    ("Collector cooling", 2),
+                ),
+                installed_by=collector,
+                dependencies=deps,
                 requested_conditions=(
-                    RequestedCondition(1, (AnyDependencies(((priorities, cooling_ready),)),)),
-                    RequestedCondition(2, (AnyDependencies(((priorities, cooling_ready, valid_maximum),)),)),
+                    RequestedCondition(
+                        1, (AnyDependencies(((priorities, cooling_ready),)),)
+                    ),
+                    RequestedCondition(
+                        2,
+                        (
+                            AnyDependencies(
+                                ((priorities, cooling_ready, valid_maximum),)
+                            ),
+                        ),
+                    ),
                 ),
             )
         else:
             yield replace(
-                _activity_setting(root, 4358, collector, (
-                    cooling_ready,
-                    AnyDependencies((
-                        (Dependency(mode, mi, (0,)),),
-                        (Dependency(mode, mi, (1,)), priorities),
-                        (Dependency(mode, mi, (2,)), priorities, valid_maximum),
-                    )),
-                )),
+                _activity_setting(
+                    root,
+                    4358,
+                    collector,
+                    (
+                        cooling_ready,
+                        AnyDependencies(
+                            (
+                                (Dependency(mode, mi, (0,)),),
+                                (Dependency(mode, mi, (1,)), priorities),
+                                (Dependency(mode, mi, (2,)), priorities, valid_maximum),
+                            )
+                        ),
+                    ),
+                ),
                 dependencies=deps,
             )
         yield Setting(
