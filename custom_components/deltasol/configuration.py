@@ -239,9 +239,7 @@ class RequestedCondition:
     alternatives: tuple[Dependency | RangeDependency, ...]
 
     def matches(self, raw, values):
-        return raw != self.raw or any(
-            dep.matches(values) for dep in self.alternatives
-        )
+        return raw != self.raw or any(dep.matches(values) for dep in self.alternatives)
 
 
 @dataclass(frozen=True)
