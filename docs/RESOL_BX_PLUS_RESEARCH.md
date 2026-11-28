@@ -412,6 +412,27 @@ DHW overrun requires the existing enabled loading-pump/valve flag, positively as
 
 Remaining parallel-relay timing flags are also ordinary Boolean preferences, but the reference output type is RelaisOderAusgangAlleNr, distinct from the controlled AktorNr output; its callback at 0x23552 delegates to 0x517b8 and does not establish a simple numeric range. Do not guess a shared reference namespace or grant new writes until the actual reference-resolution semantics are understood. The remaining options, DrainBack and separate manual override ownership still require semantic review; no blanket scope exclusion.
 
+
+### 4.26 Seasonal and circulation program options
+
+The owner-supplied BX Plus 2.08 archive matches Appendix A. Join all selected names to their native descriptor indices (supplied DLL) and inherited XML types, storage and menu context. This identified 51 distinct ordinary preferences in eight families, including 44 Boolean flags and seven two-valued selectors. All 44 Boolean descriptors share the native callback pair 0x4f2e8/0x4f3aa; all seven heating-limit mode descriptors share 0x4ff16/0x4ffd8 (raw 0 = Tag, 1 = Tag/Nacht). The native callbacks establish 0/1 bounds; exact registered archive binding checks independently verify the storage, menu and index relationships.
+
+| Native family | Instances | First index / stride | Required program context |
+| --- | ---: | --- | --- |
+| Arrangement return-flow preheat summer cut-off | 16 | 6694 / 251 | Type 8; assigned output, source, return and summer sensor |
+| Heating summer cut-off enable | 7 | 13739 / 495 | Type 1, heating capable, assigned pump, flow and outdoor sensors |
+| Heating cut-off Day/Day-Night mode | 7 | 13740 / 495 | Same and summer cut-off enabled |
+| Heating energy saving | 7 | 14158 / 495 | Heating capable with installed pump, flow and return sensors |
+| Heating automatic holiday participation | 7 | 14176 / 495 | Active installed independent circuit, valid mode, commissioning and day counter |
+| Solar external exchanger target-temperature option | 5 | 4091 / 49 | Exact topology/store selection, both sensors and assigned outputs |
+| Central exchanger circulation pump run-on/idle | 2 | 10647 / 10650 | Actual assigned pump and native enabled/switch-controlled activity |
+
+The first summer cut-off menu explicitly lists Sensor3_Nr below the enable option; the day/night threshold and clock relationships are described in §4.18. For all relevant temperature/hysteresis companions the parent and selected C/F or K/R alias must agree; enable and mode-change operations validate exact raw steps and bounds, including the quarter-hour day periods when Day/Night is requested. In Day-only mode the night temperature and clock fields are not required for enabling. Energy saving also validates the configured pause/runtime (0–60 minutes each); pump idle duration requires raw 5–240 step 5 (0.5–24 h). External exchanger target temperature and modulation-rise companions use the previously established native bounds. No sensor/output assignment, native protection, preset/default or numeric companion is written by these options. All option writes reuse the same persistent serialized owner; existing numeric entities retain their native identities and conditional availability.
+
+The per-circuit OUrlaub flag is specifically automatic entry from Auto into Holiday when the global day counter is positive: the supplied native runtime at 0x19728–0x19784 tests the flag and counter, whereas 0x196dd–0x19728 reverts Holiday to Auto only when the day count reaches zero. Disabling participation must not claim to cancel an active holiday. The integration edits only the preference, not the runtime operating mode or global counter, and uses the existing coupling boundary.
+
+The exact archive test covers all 51 definitions and applicable dependencies; focused regressions reject invalid steps, missing assignments, wrong heating mode and unassigned switch-controlled activity. The independent HA fixture is extended with representative switches, Day/Day-Night select, no-op, companion visibility and restart assertions. Qualification remains pending until the complete V1 batch is Feature Complete. The remaining parallel reference-output resolution, schedule allocation/option lifecycle, DrainBack and separate manual overrides remain open; no blanket exclusion or scope reduction.
+
 ## 5. Architecture: a single native Home Assistant integration
 
 The proposed implementation direction builds on the existing Python components instead of importing RPT into Home Assistant. The native controller remains the authority for actual configuration, telemetry and physical control. RPT and other verified sources provide evidence for how to interpret those capabilities.
