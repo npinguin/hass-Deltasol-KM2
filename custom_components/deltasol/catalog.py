@@ -516,6 +516,7 @@ ORDINAL_TYPES = frozenset(
         "WmzX_Type",
         "ActivityMode",
         "Heizung_HeizkreisX_Heizsystem",
+        "Heizung_HeizkreisX_Heizgrenze",
         "Heizung_HeizkreisX_Betriebsart",
         "VtTemperatureHysteresisSelector",
         "VtFlowSelector",
