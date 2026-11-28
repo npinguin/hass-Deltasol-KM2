@@ -4611,6 +4611,32 @@ def _remaining_operating_settings():
     solar_output = RangeDependency("Solar_Relais1_Nr", 3452, 1, 100)
     store = AnyDependencies(tuple((_solar_store_present(n),) for n in range(1, 5)))
     base = (solar_output, store)
+    # Exact native expert duration: a stored pump-start preference, not a
+    # manual actuation. Require the installed actor and an active solar store.
+    yield Setting(
+        "Solar_Losreissimpuls",
+        3438,
+        "Solar pump startup pulse duration",
+        "number",
+        True,
+        limits=("10", "300", "1", "1"),
+        unit="s",
+        installed_by=collector,
+        dependencies=(
+            ActorReferences("Solar_Relais1_Nr", 3452, ()),
+            AnyDependencies(
+                tuple(
+                    (
+                        _solar_store_present(n),
+                        _installed_activity(
+                            f"Solar_Sp{n}", 3604 + 36 * (n - 1), 3606 + 36 * (n - 1)
+                        ),
+                    )
+                    for n in range(1, 5)
+                )
+            ),
+        ),
+    )
     for slot in range(1, 5):
         root = f"Solar_Sp{slot}"
         off = 36 * (slot - 1)

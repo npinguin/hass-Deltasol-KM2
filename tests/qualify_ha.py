@@ -198,6 +198,10 @@ CONFIG_SELECTORS = {
     "Solar_Wf1_ExtWT_Sensor2_Nr": (4098, 5),
     "Solar_Wf1_ExtWT_Relais1_Nr": (4102, 3),
     "Solar_Relais1_Nr": (3452, 1),
+    "Solar_Relais1_Funktion": (3453, 2),
+    "Aktor1_Funktion": (2660, 2),
+    "Aktor1_RelaisNr": (2661, 1),
+    "Aktor1_AusgangNr": (2662, 0),
     "Solar_Kol1_Sensor1_Nr": (3536, 1),
     "Solar_Sp1_Sensor1_Nr": (3576, 2),
     "Solar_Sp2_Sensor1_Nr": (3612, 3),
@@ -223,6 +227,7 @@ CONFIG_SETTINGS = {
     "Heizung_Heizkreis2_Aktiviert_Modus": (14184, 1, 0, 2),
     "Heizung_Heizkreis1_Aktiviert_Modus": (13689, 1, 0, 2),
     "Solar_Beladungstyp": (3417, 0, 0, 1),
+    "Solar_Losreissimpuls": (3438, 10, 10, 300),
     "Solar_Sp2_Aktiviert_Modus": (3640, 1, 0, 2),
     "Solar_Sp1_Aktiviert_Modus": (3604, 1, 0, 2),
     "Heizung_Wf2_OFeststoffkesselAus": (11436, 0, 0, 1),
@@ -3153,6 +3158,16 @@ async def qualify(directory, phase):
         assert Peer.settings[3604] == 1
         assert all(Peer.settings[i] == value for i, value in before_store.items())
         assert Peer.saves == before_solar + 4
+
+        pulse = entity("Solar_Losreissimpuls", "number")
+        assert pulse
+        before_pulse = Peer.saves
+        await hass.services.async_call(
+            "number", "set_value", {"entity_id": pulse, "value": 25}, blocking=True
+        )
+        await hass.async_block_till_done()
+        assert Peer.settings[3438] == 25 and Peer.saves == before_pulse + 1
+        assert float(hass.states.get(pulse).state) == 25
 
         circuit_activity = entity("Heizung_Heizkreis1_Aktiviert_Modus", "select")
         analog_manual = entity("Ausgang_Regler_A1_Handbetrieb", "select")

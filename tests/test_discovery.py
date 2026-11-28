@@ -1616,6 +1616,7 @@ class DiscoveryTests(unittest.TestCase):
                 pulse = descriptor("Solar_Losreissimpuls")[2] - base
                 remote = descriptor("Heizung_Heizkreis1_Fernzugriff_Modus")[2] - base
                 inspect_region("solar startup editor", pulse, pulse + 80)
+                inspect_region("solar integer editor", 0x4FEF6, 0x4FEF6 + 200)
                 inspect_region("remote mode editor", remote, remote + 100)
                 # Reference addresses point into the periodic translation.
                 inspect_region("remote storage translation", 0x34905, 0x34985)
@@ -2133,6 +2134,21 @@ class DiscoveryTests(unittest.TestCase):
                     )
                 if dependency.name.startswith("Solar_Kol"):
                     self.assertEqual(definitions[dependency.name].storage, "volatile")
+        pulse = next(
+            setting
+            for setting in bound
+            if setting.name == "Solar_Losreissimpuls"
+        )
+        self.assertEqual(pulse.index, 3438)
+        self.assertEqual(pulse.limits, ("10", "300", "1", "1"))
+        self.assertEqual(pulse.unit, "s")
+        self.assertEqual(pulse.encode(25), 25)
+        self.assertEqual(pulse.decode(300), 300)
+        self.assertEqual(definitions[pulse.name].metadata["rpt_storage"], "preferences")
+        self.assertIn(
+            {"mask": "UserLevel_EL2", "menu": "Solar_Experte", "menu_type": None},
+            definitions[pulse.name].metadata["menu_refs"],
+        )
         for setting in configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS:
             target = definitions[setting.name]
             self.assertTrue(target.metadata["menu_refs"])

@@ -2934,6 +2934,55 @@ class ParameterTests(unittest.TestCase):
         values["TemperatureHysteresisSelector"] = 1
         self.assertFalse(setting.accepts(values, 25))
 
+    def test_native_solar_startup_duration_save_and_assignment_recheck(self):
+        name = "Solar_Losreissimpuls"
+        self.session.read.return_value = 0x2734DABC
+        self.values.update(
+            {
+                name: (3438, 10),
+                "Solar_SystemId": (3416, 10101),
+                "Solar_Kol1_Sensor1_Nr": (3536, 1),
+                "Solar_Relais1_Nr": (3452, 1),
+                "Solar_Relais1_Funktion": (3453, 2),
+                "Solar_Sp1_Sensor1_Nr": (3576, 2),
+                "Solar_Sp1_Aktiviert_Modus": (3604, 1),
+                "Aktor1_Funktion": (2660, 2),
+                "Aktor1_RelaisNr": (2661, 1),
+                "Aktor1_AusgangNr": (2662, 0),
+                "Relais_Regler_R1_AktorFunktion": (1971, 2),
+            }
+        )
+        hints = {
+            "Solar_Kol1_Sensor1_Nr": parameters.ParameterObservation(3536, 1, "read")
+        }
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        cap = controls()[name]
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, value, save), (0x7112, 3438, 25, True))
+            self.values[name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 25).value, 25)
+        for invalid in (9, 301, 25.5):
+            with self.assertRaises((parameters.VBusError, ValueError)):
+                self.api.set_configuration(telemetry(), cap, invalid)
+        self.values["Relais_Regler_R1_AktorFunktion"] = (1971, 3)
+        self.assertNotIn(name, controls())
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, 30)
+        self.values["Relais_Regler_R1_AktorFunktion"] = (1971, 2)
+        self.values["Solar_Sp1_Aktiviert_Modus"] = (3604, 0)
+        self.assertNotIn(name, controls())
+        self.session.write_verified.assert_called_once()
+
     def test_solar_loading_logic_requires_live_sequence_and_enabled_options(self):
         self.session.read.return_value = 0x2734DABC
         self.values.update(
