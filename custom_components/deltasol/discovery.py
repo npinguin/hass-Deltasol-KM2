@@ -468,7 +468,8 @@ class ConfigurationCapture:
             and self.changeset == BX_PLUS_CHANGESET
             and 0 <= int(match[1]) < 51
             and definition.index
-            == 18406 + 13 * int(match[1])
+            == 18406
+            + 13 * int(match[1])
             + ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").index(match[2])
             and "Blob" in metadata.get("type_chain", ())
         ):
