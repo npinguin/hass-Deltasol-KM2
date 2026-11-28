@@ -164,6 +164,8 @@ CONFIG_SELECTORS = {
     "Anlage_Wf9_Parallelrelais_dtVerzoegerung": (8632, 10),
     "Heizung_Heizkreis1_System": (13697, 2),
     "Heizung_Heizkreis1_ONachheizung": (13705, 1),
+    "Heizung_Heizkreis1_OFernzugriff": (14044, 1),
+    "Heizung_Heizkreis1_Fernzugriff_Modus": (14045, 2),
     "Heizung_Heizkreis1_Nachheizung_Aktiviert_Modus": (13708, 1),
     "Heizung_Heizkreis1_Sensor4_Nr": (13804, 4),
     "Heizung_Heizkreis1_Sensor5_Nr": (13808, 5),
@@ -2267,6 +2269,50 @@ async def qualify(directory, phase):
         def entity(name, kind):
             return registry.async_get_entity_id(
                 kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
+            )
+
+        # Read-only native commissioning choices must remain visible in the
+        # actual discovery snapshot, with their exact reason and no write
+        # entity. Existing operational controls are exercised below.
+        for name, reason in (
+            (
+                "Heizung_Heizkreis1_Raumthermostat1_Option",
+                "native_registration_clears_assignment",
+            ),
+            (
+                "Heizung_Heizkreis1_ONachheizung",
+                "native_registration_clears_assignment",
+            ),
+            (
+                "Heizung_Wf2_ThBwErwaermung_OLadepumpe",
+                "native_registration_clears_assignment",
+            ),
+            (
+                "Heizung_Heizkreis1_OFernzugriff",
+                "native_input_source_configuration",
+            ),
+            (
+                "Heizung_Heizkreis1_Fernzugriff_Modus",
+                "native_input_source_configuration",
+            ),
+            (
+                "Heizung_RelaisAnforderung1_ORelais1",
+                "native_output_assignment_configuration",
+            ),
+            (
+                "Heizung_RelaisAnforderung1_Aktiviert_Modus",
+                "native_function_registry_membership",
+            ),
+            (
+                "Anlage_WTUmwaelzpumpe_Aktiviert_Modus",
+                "native_menu_permanently_hidden",
+            ),
+        ):
+            item = diagnostic["configuration_discovery"]["parameters"][name]
+            assert item["write_access"] != "profile_verified"
+            assert item["write_access_reason"] == reason
+            assert all(
+                entity(name, kind) is None for kind in ("number", "select", "switch")
             )
 
         async def number(name, value):
