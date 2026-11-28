@@ -109,9 +109,7 @@ class ParameterTests(unittest.TestCase):
         }
 
         def contract(name, observed):
-            (setting,) = [
-                s for s in settings if s.name == name and s.accepts(observed)
-            ]
+            (setting,) = [s for s in settings if s.name == name and s.accepts(observed)]
             return setting
 
         setting = contract(mode, values)
@@ -121,12 +119,8 @@ class ParameterTests(unittest.TestCase):
         values[root + "_Aktiviert_SensorSchalter_Nr"] = 4
         self.assertTrue(setting.accepts(values, 2))
         self.assertFalse(setting.accepts({**values, root + "_Relais2_Nr": 2}, 1))
-        self.assertFalse(
-            setting.accepts({**values, root + "_Mischer_TZiel_C": 510}, 1)
-        )
-        self.assertTrue(
-            setting.accepts({**values, root + "_Mischer_TZiel_C": 510}, 0)
-        )
+        self.assertFalse(setting.accepts({**values, root + "_Mischer_TZiel_C": 510}, 1))
+        self.assertTrue(setting.accepts({**values, root + "_Mischer_TZiel_C": 510}, 0))
         self.assertFalse(setting.accepts({**values, root + "_Type": 6}, 0))
         self.assertFalse(
             any(
@@ -185,7 +179,9 @@ class ParameterTests(unittest.TestCase):
             values[f"{root}_Sensor{sensor}_Nr"] = sensor
         setting = contract(mode, values)
         self.assertTrue(setting.accepts(values, 1))
-        self.assertFalse(setting.accepts({**values, root + "_OVolumenstromSensor": 0}, 1))
+        self.assertFalse(
+            setting.accepts({**values, root + "_OVolumenstromSensor": 0}, 1)
+        )
 
     def test_room_activation_preserves_required_sensor_and_timer(self):
         config = parameters_configuration
