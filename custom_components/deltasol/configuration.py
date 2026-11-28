@@ -4047,7 +4047,97 @@ def _installed_function_activity():
         secondary = RangeDependency(root + "_Sensor2_Nr", 6580 + ao, 1, 65)
         output = RangeDependency(root + "_Relais1_Nr", 6592 + ao, 1, 100)
         timer = _configured_timer(root, 6574 + ao, 6620 + ao)
+        parallel = root + "_Parallelrelais"
+        yield _activity_setting(
+            root,
+            6566 + ao,
+            Dependency(root + "_Type", 6559 + ao, (1,)),
+            (
+                ActorReferences(
+                    root + "_Relais1_Nr",
+                    6592 + ao,
+                    ((root + "_Bezugsrelais1_Nr", 6616 + ao),),
+                ),
+                *(
+                    AnyDependencies(
+                        (
+                            (Dependency(parallel + flag, index + ao, (0,)),),
+                            (
+                                Dependency(parallel + flag, index + ao, (1,)),
+                                RangeDependency(parallel + duration, index + 1 + ao, 1, 30),
+                            ),
+                        )
+                    )
+                    for flag, duration, index in (
+                        ("_ONachlauf", "_dtNachlauf", 6621),
+                        ("_OVerzoegerung", "_dtVerzoegerung", 6623),
+                    )
+                ),
+            ),
+        )
+        preheat = root + "_Ruecklaufanhebung"
+        mixing = root + "_RLBeimischung"
         for kind, extra in (
+            (
+                8,
+                (
+                    secondary,
+                    _activity_thermal(
+                        preheat,
+                        (
+                            ("dTEin", 6695 + ao, (20, 300, 5), (40, 600, 10), True),
+                            ("dTAus", 6698 + ao, (10, 290, 5), (20, 580, 10), True),
+                        ),
+                        (("dTEin", 6695 + ao, "dTAus", 6698 + ao),),
+                    ),
+                    AnyDependencies(
+                        (
+                            (Dependency(preheat + "_OSommerAus", 6694 + ao, (0,)),),
+                            (
+                                Dependency(preheat + "_OSommerAus", 6694 + ao, (1,)),
+                                RangeDependency(root + "_Sensor3_Nr", 6584 + ao, 1, 65),
+                                _activity_thermal(
+                                    preheat,
+                                    (("TSommerAus", 6701 + ao, (100, 600, 10), (500, 1400, 20), False),),
+                                ),
+                            ),
+                        )
+                    ),
+                ),
+            ),
+            (
+                11,
+                (
+                    secondary,
+                    RangeDependency(root + "_Sensor3_Nr", 6584 + ao, 1, 65),
+                    RangeDependency(root + "_Relais2_Nr", 6600 + ao, 1, 100),
+                    PeerComparison(root + "_Relais1_Nr", 6592 + ao, root + "_Relais2_Nr", 6600 + ao, "ne"),
+                    RangeDependency(mixing + "_Mischerstellzeit", 6772 + ao, 1, 20),
+                    _activity_thermal(
+                        mixing,
+                        (
+                            ("dTEin", 6759 + ao, (10, 250, 5), (20, 500, 10), True),
+                            ("dTAus", 6762 + ao, (5, 240, 5), (10, 480, 10), True),
+                            ("dTSoll", 6765 + ao, (-200, 250, 10), (-400, 500, 20), True),
+                            ("TMax_Kesselruecklauf", 6768 + ao, (100, 800, 10), (500, 1760, 20), False),
+                        ),
+                        (("dTEin", 6759 + ao, "dTAus", 6762 + ao),),
+                    ),
+                    AnyDependencies(
+                        (
+                            (
+                                Dependency(mixing + "_OHeizkreisIntern", 6782 + ao, (0,)),
+                                RangeDependency(mixing + "_Mischerlaufzeit", 6771 + ao, 10, 600),
+                                _raw_steps(mixing + "_Justierzeit", 6773 + ao, 0, 1380, 60),
+                            ),
+                            (
+                                Dependency(mixing + "_OHeizkreisIntern", 6782 + ao, (1,)),
+                                FunctionSelection(mixing + "_HeizkreisInternMaske", 6783 + ao, heating=True),
+                            ),
+                        )
+                    ),
+                ),
+            ),
             (
                 2,
                 (

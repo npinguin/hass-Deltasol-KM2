@@ -1279,6 +1279,39 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(flags, 7)
             pairs.add((first, second))
         self.assertEqual(len(pairs), 1)
+        registration_pairs = set()
+        registration_flags = {
+            f"Anlage_Wf{slot}_{suffix}": flags
+            for slot in range(1, 17)
+            for suffix, flags in (
+                ("Feststoffkessel_OMischer", 0xFFFA),
+                ("Funktionsblock_OVolumenstrom", 0xFFFB),
+            )
+        }
+        registration_flags.update(
+            {
+                f"Heizung_Wf{slot}_{suffix}": flags
+                for slot in range(1, 17)
+                for suffix, flags in (
+                    ("ThBwErwaermung_OLadepumpe", 0xFFFD),
+                    ("BwVorerwaermung_OVentil", 0xFFF9),
+                )
+            }
+        )
+        registration_flags.update(
+            {
+                f"Heizung_Heizkreis{circuit}_Raumthermostat{room}_Option": 0xFFFF
+                for circuit in range(1, 8)
+                for room in range(1, 6)
+            }
+        )
+        self.assertEqual(len(registration_flags), 99)
+        for name, flags in registration_flags.items():
+            native = descriptor(name)
+            # Upper word is the change-callback flag, not the menu editor.
+            self.assertEqual(native[1], flags)
+            registration_pairs.add(native[2:])
+        self.assertEqual(len(registration_pairs), 1)
         delay_pairs = set()
         for slot in range(1, 17):
             root = f"Anlage_Wf{slot}_Funktionsblock"
@@ -1695,7 +1728,7 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(definitions[name].index, index)
         activity = configuration.BX_PLUS_ACTIVITY_SETTINGS
         self.assertEqual(len({setting.name for setting in activity}), 63)
-        self.assertEqual(len(activity), 150)
+        self.assertEqual(len(activity), 198)
         for setting in activity:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)

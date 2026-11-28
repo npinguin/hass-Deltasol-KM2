@@ -568,6 +568,109 @@ class ParameterTests(unittest.TestCase):
             del missing[prefix + "_Bezugsrelais5_Nr"]
             self.assertFalse(mode.accepts(missing, 1))
 
+    def test_arrangement_activity_reference_and_return_contexts(self):
+        c = parameters_configuration
+        for slot in range(1, 17):
+            root = f"Anlage_Wf{slot}"
+            settings = {
+                s.installed_by.allowed[0]: s
+                for s in c.BX_PLUS_ACTIVITY_SETTINGS
+                if s.name == root + "_Aktiviert_Modus"
+            }
+            base = {
+                root + "_Aktiviert_Modus": 0,
+                root + "_Relais1_Nr": 71,
+                root + "_Relais2_Nr": 72,
+                root + "_Sensor1_Nr": 1,
+                root + "_Sensor2_Nr": 2,
+                root + "_Sensor3_Nr": 3,
+                "TemperatureHysteresisSelector": 0,
+            }
+            parallel = root + "_Parallelrelais"
+            values = {
+                **base,
+                root + "_Type": 1,
+                root + "_Relais1_Funktion": 275,
+                root + "_Bezugsrelais1_Nr": 257,
+                "Aktor71_Funktion": 275,
+                "Aktor71_RelaisNr": 2,
+                "Aktor71_AusgangNr": 0,
+                "Relais_Regler_R2_AktorFunktion": 275,
+                "Relais_Regler_R1_AktorFunktion": 2,
+                parallel + "_ONachlauf": 0,
+                parallel + "_OVerzoegerung": 1,
+                parallel + "_dtVerzoegerung": 1,
+            }
+            setting = settings[1]
+            self.assertTrue(setting.accepts(values, 1))
+            self.assertFalse(setting.accepts({**values, root + "_Bezugsrelais1_Nr": 258}, 1))
+            self.assertFalse(setting.accepts({**values, parallel + "_dtVerzoegerung": 31}, 1))
+            self.assertFalse(setting.accepts(values, 2))
+            self.assertTrue(setting.accepts({**values, root + "_Aktiviert_SensorSchalter_Nr": 4}, 2))
+            self.assertTrue(setting.accepts({**values, root + "_Bezugsrelais1_Nr": 0}, 0))
+            preheat = root + "_Ruecklaufanhebung"
+            mixing = root + "_RLBeimischung"
+            for unit, suffix, temp_suffix, high, low, target, maximum, summer in (
+                (0, "_K", "_C", 40, 20, 0, 600, 200),
+                (1, "_R", "_F", 80, 40, 0, 1400, 680),
+            ):
+                thermal = {
+                    **base,
+                    "TemperatureHysteresisSelector": unit,
+                    root + "_Type": 8,
+                    preheat + "_OSommerAus": 0,
+                    preheat + "_dTEin": high,
+                    preheat + "_dTEin" + suffix: high,
+                    preheat + "_dTAus": low,
+                    preheat + "_dTAus" + suffix: low,
+                }
+                setting = settings[8]
+                self.assertTrue(setting.accepts(thermal, 1))
+                self.assertFalse(setting.accepts({**thermal, preheat + "_OSommerAus": 1}, 1))
+                thermal.update({
+                    preheat + "_OSommerAus": 1,
+                    preheat + "_TSommerAus": summer,
+                    preheat + "_TSommerAus" + temp_suffix: summer,
+                })
+                self.assertTrue(setting.accepts(thermal, 1))
+                self.assertFalse(setting.accepts({**thermal, root + "_Sensor3_Nr": 0}, 1))
+                values = {
+                    **base,
+                    "TemperatureHysteresisSelector": unit,
+                    root + "_Type": 11,
+                    mixing + "_dTEin": high,
+                    mixing + "_dTEin" + suffix: high,
+                    mixing + "_dTAus": low,
+                    mixing + "_dTAus" + suffix: low,
+                    mixing + "_dTSoll": target,
+                    mixing + "_dTSoll" + suffix: target,
+                    mixing + "_TMax_Kesselruecklauf": maximum,
+                    mixing + "_TMax_Kesselruecklauf" + temp_suffix: maximum,
+                    mixing + "_Mischerstellzeit": 5,
+                    mixing + "_Mischerlaufzeit": 120,
+                    mixing + "_Justierzeit": 60,
+                    mixing + "_OHeizkreisIntern": 0,
+                }
+                setting = settings[11]
+                self.assertTrue(setting.accepts(values, 1))
+                self.assertFalse(setting.accepts({**values, root + "_Relais2_Nr": 71}, 1))
+                self.assertFalse(setting.accepts({**values, mixing + "_Justierzeit": 61}, 1))
+                self.assertFalse(setting.accepts({**values, mixing + "_OHeizkreisIntern": 1}, 1))
+                selection = next(setting.function_selections())
+                values.update({name: 0 for name in selection.expected})
+                values.update({
+                    mixing + "_OHeizkreisIntern": 1,
+                    selection.name: 2,
+                    "Heizung_Heizkreis2_Type": 1,
+                    "Heizung_Heizkreis2_Nr": 2,
+                    "Heizung_Heizkreis2_System": 0,
+                    "Heizung_Heizkreis2_Sensor1_Nr": 1,
+                    "Heizung_Heizkreis2_Relais1_Nr": 2,
+                })
+                self.assertTrue(setting.accepts(values, 1))
+                self.assertFalse(setting.accepts({**values, selection.name: 1}, 1))
+                self.assertTrue(setting.accepts({**values, selection.name: 0}, 0))
+
     def test_actor_reference_readback_rejects_stale_assignment(self):
         self.session.read.return_value = 0x2734DABC
         root = "Anlage_Wf1"
