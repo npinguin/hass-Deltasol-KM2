@@ -1,0 +1,129 @@
+"""Source-level dashboard authorization and native action contract regression."""
+
+import ast
+import unittest
+from math import isclose
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+PATH = (
+    Path(__file__).resolve().parents[1]
+    / "custom_components"
+    / "deltasol"
+    / "dashboard.py"
+)
+
+
+class DashboardTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Execute the actual pure policy functions without loading HA.
+        tree = ast.parse(PATH.read_text(encoding="utf-8"))
+        functions = {
+            "enabled",
+            "engineering_enabled",
+            "capability_access",
+            "capability_section",
+            "observed_result",
+            "scoped_control",
+            "service_request",
+        }
+        cls.ns = {
+            "ConfigEntryState": SimpleNamespace(LOADED="loaded"),
+            "DOMAIN": "deltasol",
+            "CONF_DASHBOARD": "enable_dashboard",
+            "CONF_ENGINEERING": "show_engineering",
+            "POLICY_CONTROL": "control",
+            "HomeAssistantError": ValueError,
+            "isclose": isclose,
+        }
+        tree.body = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.FunctionDef) and node.name in functions
+        ]
+        exec(compile(tree, str(PATH), "exec"), cls.ns)  # noqa: S102
+
+    def test_opt_in_and_admin_are_independent(self):
+        entry = SimpleNamespace(
+            domain="deltasol",
+            state="loaded",
+            options={"enable_dashboard": True, "show_engineering": True},
+            runtime_data=SimpleNamespace(closing=False),
+        )
+        admin = SimpleNamespace(is_admin=True)
+        resident = SimpleNamespace(is_admin=False)
+        self.assertTrue(self.ns["engineering_enabled"](entry, admin))
+        self.assertFalse(self.ns["engineering_enabled"](entry, resident))
+        entry.options["enable_dashboard"] = False
+        self.assertFalse(self.ns["enabled"](entry))
+        self.assertFalse(self.ns["engineering_enabled"](entry, admin))
+
+    def test_permitted_control_is_not_engineering_permission(self):
+        check = MagicMock(return_value=True)
+        user = SimpleNamespace(
+            is_admin=False, permissions=SimpleNamespace(check_entity=check)
+        )
+        row = SimpleNamespace(entity_id="select.heating")
+        setting = SimpleNamespace(
+            name="Heizung_Heizkreis1_Betriebsart", save=True, kind="select"
+        )
+        state = SimpleNamespace(state="Auto")
+        access = self.ns["capability_access"]
+        self.assertEqual(access(row, setting, state, user, False), ("controls", True))
+        check.return_value = False
+        self.assertEqual(access(row, setting, state, user, False), ("controls", False))
+        self.assertIsNone(access(row, None, state, user, False, relay=True))
+        state.state = "unavailable"
+        check.return_value = True
+        self.assertEqual(access(row, setting, state, user, False), ("controls", False))
+
+    def test_discovery_button_unknown_is_not_unavailable(self):
+        row = SimpleNamespace(entity_id="button.discovery")
+        user = SimpleNamespace(
+            is_admin=True,
+            permissions=SimpleNamespace(check_entity=lambda *_: True),
+        )
+        state = SimpleNamespace(state="unknown")
+        access = self.ns["capability_access"]
+        self.assertEqual(access(row, None, state, user, True), ("engineering", True))
+        self.assertIsNone(access(row, None, state, user, False))
+        self.assertEqual(self.ns["observed_result"]("button", state, None), "submitted")
+
+    def test_no_optimistic_readback(self):
+        observed = self.ns["observed_result"]
+        self.assertEqual(observed("number", SimpleNamespace(state="42"), 42), "observed")
+        self.assertEqual(
+            observed("number", SimpleNamespace(state="41"), 42), "not_confirmed"
+        )
+        self.assertEqual(
+            observed("number", SimpleNamespace(state="unavailable"), 42),
+            "unavailable",
+        )
+
+    def test_action_scope_rejects_other_entry_or_denied_entity(self):
+        allowed = {"entity_id": "number.allowed", "control": True}
+        denied = {"entity_id": "number.denied", "control": False}
+        self.ns["dashboard_objects"] = lambda *_: [
+            {"id": "one", "objects": [{"capabilities": [allowed, denied]}]}
+        ]
+        scope = self.ns["scoped_control"]
+        self.assertIs(scope(None, None, "one", "number.allowed"), allowed)
+        for entry, entity in (
+            ("two", "number.allowed"),
+            ("one", "number.denied"),
+            ("one", "light.other"),
+        ):
+            with self.assertRaises(ValueError):
+                scope(None, None, entry, entity)
+
+    def test_no_arbitrary_native_service_route(self):
+        service = self.ns["service_request"]
+        self.assertEqual(
+            service({"kind": "number"}, 42), ("number", "set_value", {"value": 42})
+        )
+        with self.assertRaises(ValueError):
+            service({"kind": "light"}, True)
+        with self.assertRaises(ValueError):
+            service({"kind": "number"}, True)
