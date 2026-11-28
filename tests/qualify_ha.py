@@ -589,7 +589,10 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     if value == 4:
                         assert 1 <= Peer.extra_values[19063] <= 200
                     if value == 0:
-                        assert not Peer.extra_values[14176 + offset] or not Peer.extra_values[19063]
+                        assert (
+                            not Peer.extra_values[14176 + offset]
+                            or not Peer.extra_values[19063]
+                        )
                 if index in (3840, 3841, 3842, 3843):
                     assert Peer.extra_values[3416] == 20201
                     assert Peer.extra_values[3834] == 1
