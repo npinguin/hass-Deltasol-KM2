@@ -1123,6 +1123,21 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(compiled.name, setting.name)
                 self.assertEqual(compiled.expected, setting.expected)
         self.assertEqual(len(bound), len(profile.settings))
+        for slot in range(1, 17):
+            prefix = f"Anlage_Wf{slot}"
+            self.assertEqual(
+                catalog.ordinal_options(definitions[prefix + "_Type"])[11],
+                "RLBeimischung",
+            )
+            for suffix in ("dTEin", "dTAus"):
+                target = definitions[f"{prefix}_RLBeimischung_{suffix}"]
+                self.assertTrue(
+                    any(
+                        ref.get("menu") == f"{prefix}_RLBeimischung"
+                        for ref in target.metadata["menu_refs"]
+                    )
+                )
+                self.assertEqual(target.storage, "abstract")
         self.assertEqual(
             catalog.ordinal_options(definitions["Solar_Beladungstyp"]),
             {0: "Pendelladung", 1: "SukzessiveLadung"},

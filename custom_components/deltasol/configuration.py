@@ -1126,6 +1126,37 @@ def _additional_operating_settings():
         arrangement = f"Anlage_Wf{slot}"
         heating = f"Heizung_Wf{slot}"
         active = Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (1, 2))
+        # BX Plus manual pp. 60-61: return mixing uses three temperature
+        # sensors and two mixer outputs. The operating thresholds are
+        # independent of automatic adjustment time and boiler maximum.
+        prefix = f"{arrangement}_RLBeimischung"
+        yield from _operating_pair(
+            f"{prefix}_dTEin",
+            6759 + ao,
+            f"{prefix}_dTAus",
+            6762 + ao,
+            f"Arrangement function {slot} return mixing differential",
+            Dependency(f"{arrangement}_Type", 6559 + ao, (11,)),
+            (
+                active,
+                RangeDependency(f"{arrangement}_Sensor1_Nr", 6576 + ao, 1, 65),
+                RangeDependency(f"{arrangement}_Sensor2_Nr", 6580 + ao, 1, 65),
+                RangeDependency(f"{arrangement}_Sensor3_Nr", 6584 + ao, 1, 65),
+                RangeDependency(f"{arrangement}_Relais1_Nr", 6592 + ao, 1, 100),
+                RangeDependency(f"{arrangement}_Relais2_Nr", 6600 + ao, 1, 100),
+            ),
+            (
+                (
+                    0,
+                    "_K",
+                    "K",
+                    ("1", "25", "0.5", "0.1"),
+                    ("0.5", "24", "0.5", "0.1"),
+                ),
+                (1, "_R", "°R", ("2", "50", "1", "0.1"), ("1", "48", "1", "0.1")),
+            ),
+            rising=True,
+        )
         prefix = f"{arrangement}_Funktionsblock"
         name = f"{prefix}_Anstieg"
         index = 6732 + ao

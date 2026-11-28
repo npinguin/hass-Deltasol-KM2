@@ -916,6 +916,89 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(names & controls().keys())
         self.session.write_verified.assert_called_once()
 
+    def test_return_mixing_requires_installed_sensors_outputs_and_order(self):
+        self.session.read.return_value = 0x2734DABC
+        prefix = "Anlage_Wf1"
+        name = prefix + "_RLBeimischung_dTEin"
+        setting = next(
+            s
+            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            if s.name == name and s.unit == "K"
+        )
+        self.values.update(
+            {
+                prefix + "_Type": (6559, 11),
+                prefix + "_Aktiviert_Modus": (6566, 1),
+                prefix + "_Sensor1_Nr": (6576, 1),
+                prefix + "_Sensor2_Nr": (6580, 2),
+                prefix + "_Sensor3_Nr": (6584, 3),
+                prefix + "_Relais1_Nr": (6592, 1),
+                prefix + "_Relais2_Nr": (6600, 2),
+                "TemperatureHysteresisSelector": (60, 0),
+                name: (6759, 50),
+                name + "_K": (6760, 50),
+                prefix + "_RLBeimischung_dTAus": (6762, 30),
+                prefix + "_RLBeimischung_dTAus_K": (6763, 30),
+            }
+        )
+        hints = {prefix + "_Type": parameters.ParameterObservation(6559, 11, "read")}
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        cap = controls()[name]
+        self.assertEqual(cap.value, 5)
+        self.assertEqual(cap.setting.native_slot, (prefix, "Anlage_Wf", 1))
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, value, save), (0x7112, 6759, 55, True))
+            self.values[name] = (index, value)
+            self.values[name + "_K"] = (index + 1, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.assertEqual(self.api.set_configuration(telemetry(), cap, 5.5).value, 5.5)
+        for invalid in (3, 5.25, 26):
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), cap, invalid)
+        for dependency, index in (
+            (prefix + "_Sensor3_Nr", 6584),
+            (prefix + "_Relais2_Nr", 6600),
+            (prefix + "_Aktiviert_Modus", 6566),
+            (prefix + "_Type", 6559),
+        ):
+            old = self.values[dependency]
+            self.values[dependency] = (index, 0)
+            self.assertNotIn(name, controls())
+            with self.assertRaises(parameters.VBusError):
+                self.api.set_configuration(telemetry(), cap, 6)
+            self.values[dependency] = old
+        self.session.write_verified.assert_called_once()
+        # The same semantic contract has the corresponding Fahrenheit variant.
+        fahrenheit = next(
+            s
+            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            if s.name == name and s.unit == "°R"
+        )
+        values = {key: raw for key, (_, raw) in self.values.items()}
+        values.update(
+            {
+                "TemperatureHysteresisSelector": 1,
+                name: 110,
+                name + "_R": 110,
+                prefix + "_RLBeimischung_dTAus": 60,
+                prefix + "_RLBeimischung_dTAus_R": 60,
+            }
+        )
+        self.assertTrue(fahrenheit.accepts(values, fahrenheit.encode(12)))
+        self.assertFalse(fahrenheit.accepts(values, fahrenheit.encode(6)))
+        values[name + "_R"] = 100
+        self.assertFalse(fahrenheit.accepts(values))
+        self.assertEqual(setting.name, fahrenheit.name)
+
     def test_circulation_temperature_requires_thermal_variant_and_order(self):
         setting = next(
             s

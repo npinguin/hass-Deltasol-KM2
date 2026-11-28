@@ -42,6 +42,13 @@ CONFIG_SELECTORS = {
     "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
     "Anlage_Wf2_Type": (6810, 6),
     "Anlage_Wf2_Aktiviert_Modus": (6817, 1),
+    "Anlage_Wf3_Type": (7061, 11),
+    "Anlage_Wf3_Aktiviert_Modus": (7068, 1),
+    "Anlage_Wf3_Sensor1_Nr": (7078, 1),
+    "Anlage_Wf3_Sensor2_Nr": (7082, 2),
+    "Anlage_Wf3_Sensor3_Nr": (7086, 3),
+    "Anlage_Wf3_Relais1_Nr": (7094, 1),
+    "Anlage_Wf3_Relais2_Nr": (7102, 2),
     "Heizung_Heizkreis1_Type": (13684, 1),
     "Heizung_Heizkreis1_Aktiviert_Modus": (13689, 1),
     "Heizung_Heizkreis1_Heizsystem": (13978, 1),
@@ -76,6 +83,8 @@ CONFIG_SETTINGS = {
     "Anlage_Wf2_Feststoffkessel_dTSoll": (6920, 100, 30, 400),
     "Anlage_Wf2_Feststoffkessel_TMax": (6923, 800, 40, 950),
     "Anlage_Wf2_Feststoffkessel_TMin": (6926, 600, 40, 950),
+    "Anlage_Wf3_RLBeimischung_dTEin": (7261, 50, 10, 250),
+    "Anlage_Wf3_RLBeimischung_dTAus": (7264, 30, 5, 240),
     "Solar_Sp1_dTein": (3579, 60, 10, 200),
     "Solar_Sp1_dTaus": (3582, 40, 5, 195),
     "Solar_Sp1_dTsoll": (3585, 100, 15, 300),
@@ -95,6 +104,8 @@ COMPOUND_NAMES = (
     "Solar_Sp1_dTein",
     "Solar_Sp1_dTaus",
     "Solar_Sp1_dTsoll",
+    "Anlage_Wf3_RLBeimischung_dTEin",
+    "Anlage_Wf3_RLBeimischung_dTAus",
 )
 COMPOUND_ALIASES = {
     name + suffix: (CONFIG_SETTINGS[name][0] + delta, CONFIG_SETTINGS[name][0], factor)
@@ -361,7 +372,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     factor = 1 + Peer.settings[60]
                     assert value % factor == 0
                     stored_value = value // factor
-                    step = 5 if index in (3579, 3582, 3585) else 10
+                    step = 5 if index in (3579, 3582, 3585, 7261, 7264) else 10
                     assert stored_value % step == 0
                     proposed = {
                         parent: stored_value
@@ -375,6 +386,14 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[3576] > 0
                         assert Peer.extra_values[3604] == 1
                         assert proposed[3582] < proposed[3579] < proposed[3585]
+                    elif index in (7261, 7264):
+                        assert Peer.extra_values[7061] == 11
+                        assert Peer.extra_values[7068] == 1
+                        assert all(
+                            Peer.extra_values[i] > 0
+                            for i in (7078, 7082, 7086, 7094, 7102)
+                        )
+                        assert proposed[7261] > proposed[7264]
                     else:
                         assert proposed[6917] < proposed[6914] < proposed[6920]
                 if index in TEMPERATURE_PARENTS:
@@ -927,6 +946,7 @@ async def qualify(directory, phase):
                     ("Solar_Umwaelzzeit", "number", 20),
                     ("Solar_Pausendrehzahl", "number", 40),
                     ("Solar_Pumpenverzoegerung", "number", 25),
+                    ("Anlage_Wf3_RLBeimischung_dTEin", "number", 11),
                 ):
                     entity = registry.async_get_entity_id(
                         kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
@@ -1503,6 +1523,27 @@ async def qualify(directory, phase):
         assert entity("Solar_Pendelpause", "number") == sequence
         assert float(hass.states.get(sequence).state) == 3
         assert Peer.saves == 27
+
+        # Return mixing uses the selected-unit parent and live assignments.
+        mixing = "Anlage_Wf3_RLBeimischung_dTEin"
+        target = entity(mixing, "number")
+        assert target and float(hass.states.get(target).state) == 10
+        await number(mixing, 11)
+        assert Peer.settings[7261] == 55 and Peer.saves == 28
+        try:
+            await number(mixing, 6)
+        except HomeAssistantError:
+            pass
+        else:
+            raise AssertionError("Invalid return mixing pair accepted")
+        Peer.extra_values[7102] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(target).state == "unavailable"
+        Peer.extra_values[7102] = 2
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert entity(mixing, "number") == target
+        assert float(hass.states.get(target).state) == 11
+        assert Peer.saves == 28
 
         # Stop the actual HA process with an incomplete active capture. The
         # following restart phase must restore the same committed checkpoint.
