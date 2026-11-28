@@ -64,6 +64,17 @@ CONFIG_SELECTORS = {
     "Solar_Beladungstyp": (3417, 0),
     "Solar_OPausendrehzahl": (3420, 1),
     "Solar_OPumpenverzoegerung": (3422, 1),
+    "Solar_Wf1_Bypass_Sensor1_Nr": (3896, 4),
+    "Solar_Wf1_Bypass_Relais1_Nr": (3900, 2),
+    "Solar_Wf1_Bypass_Aktiviert_Modus": (3888, 1),
+    "Solar_Wf1_Bypass_Variante": (3894, 0),
+    "Solar_Wf1_Bypass_KollektorMaske": (3893, 3),
+    "Solar_Kol2_Sensor1_Nr": (3550, 5),
+    "Solar_Wf1_CsBypass_SensorEinstrahlung_Nr": (3988, 6),
+    "Solar_Wf1_CsBypass_Aktiviert_Modus": (3981, 1),
+    "Solar_Wf1_CsBypass_KollektorMaske": (3986, 1),
+    "Solar_Wf1_Zieltemperatur_Sensor1_Nr": (4341, 7),
+    "Solar_Wf1_Zieltemperatur_Aktiviert_Modus": (4335, 1),
     "Heizung_Wf1_Type": (11266, 4),
     "Heizung_Wf1_Aktiviert_Modus": (11273, 1),
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
@@ -95,6 +106,12 @@ CONFIG_SETTINGS = {
     "Solar_Umwaelzzeit": (3419, 15, 1, 60),
     "Solar_Pausendrehzahl": (3421, 30, 20, 100),
     "Solar_Pumpenverzoegerung": (3423, 15, 5, 600),
+    "Solar_Wf1_Bypass_dTein": (3908, 60, 10, 200),
+    "Solar_Wf1_Bypass_dTaus": (3911, 40, 5, 195),
+    "Solar_Wf1_CsBypass_Einstrahlung": (3991, 200, 100, 500),
+    "Solar_Wf1_CsBypass_Verzoegerung": (3992, 120, 10, 300),
+    "Solar_Wf1_Zieltemperatur_Zieltemperatur": (4344, 650, 200, 1100),
+    "Solar_Wf1_Zieltemperatur_Anstieg": (4347, 20, 10, 200),
     "Heizung_Wf1_Zirkulation_TEin": (11408, 400, 100, 590),
     "Heizung_Wf1_Zirkulation_TAus": (11411, 600, 110, 600),
 }
@@ -110,6 +127,9 @@ COMPOUND_NAMES = (
     "Anlage_Wf3_RLBeimischung_dTEin",
     "Anlage_Wf3_RLBeimischung_dTAus",
     "Anlage_Wf3_RLBeimischung_dTSoll",
+    "Solar_Wf1_Bypass_dTein",
+    "Solar_Wf1_Bypass_dTaus",
+    "Solar_Wf1_Zieltemperatur_Anstieg",
 )
 COMPOUND_ALIASES = {
     name + suffix: (CONFIG_SETTINGS[name][0] + delta, CONFIG_SETTINGS[name][0], factor)
@@ -122,6 +142,7 @@ TEMPERATURE_NAMES = (
     "Anlage_Wf2_Feststoffkessel_TMin",
     "Heizung_Wf1_Zirkulation_TEin",
     "Heizung_Wf1_Zirkulation_TAus",
+    "Solar_Wf1_Zieltemperatur_Zieltemperatur",
 )
 TEMPERATURE_PARENTS = {CONFIG_SETTINGS[name][0] for name in TEMPERATURE_NAMES}
 TEMPERATURE_ALIASES = {
@@ -376,7 +397,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     factor = 1 + Peer.settings[60]
                     assert value % factor == 0
                     stored_value = value // factor
-                    step = 5 if index in (3579, 3582, 3585, 7261, 7264) else 10
+                    step = (
+                        5 if index in (3579, 3582, 3585, 7261, 7264, 3908, 3911, 4347) else 10
+                    )
                     assert stored_value % step == 0
                     proposed = {
                         parent: stored_value
@@ -398,6 +421,21 @@ class VBusHandler(socketserver.StreamRequestHandler):
                             for i in (7078, 7082, 7086, 7094, 7102)
                         )
                         assert proposed[7261] > proposed[7264]
+                    elif index in (3908, 3911):
+                        assert Peer.extra_values[3888] == 1
+                        assert Peer.extra_values[3894] in (0, 1)
+                        assert Peer.extra_values[3896] > 0
+                        assert Peer.extra_values[3900] > 0
+                        assert Peer.extra_values[3452] > 0
+                        assert Peer.extra_values[3893] == 3
+                        assert Peer.extra_values[3536] > 0 and Peer.extra_values[3550] > 0
+                        assert proposed[3908] > proposed[3911]
+                    elif index == 4347:
+                        assert Peer.extra_values[4335] == 1
+                        assert Peer.extra_values[4341] > 0
+                        assert Peer.extra_values[3452] > 0
+                        assert Peer.extra_values[3536] > 0
+                        assert Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
                     else:
                         assert proposed[6917] < proposed[6914] < proposed[6920]
                 if index in TEMPERATURE_PARENTS:
@@ -405,6 +443,12 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[11266] == 4
                         assert Peer.extra_values[11273] == 1
                         assert Peer.extra_values[11405] == 0
+                    elif index == 4344:
+                        assert Peer.extra_values[4335] == 1
+                        assert Peer.extra_values[4341] > 0
+                        assert Peer.extra_values[3452] > 0
+                        assert Peer.extra_values[3536] > 0
+                        assert Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
                     else:
                         assert Peer.extra_values[6810] == 6
                         assert Peer.extra_values[6817] == 1
@@ -418,6 +462,13 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index in (3991, 3992):
+                    assert Peer.extra_values[3981] == 1
+                    assert Peer.extra_values[3988] > 0
+                    assert Peer.extra_values[3986] == 1
+                    assert Peer.extra_values[3536] > 0 and Peer.extra_values[3452] > 0
+                    if index == 3991:
+                        assert value % 50 == 0
                 if index in (7273, 7274):
                     assert Peer.extra_values[7061] == 11
                     assert Peer.extra_values[7068] == 1
@@ -960,6 +1011,11 @@ async def qualify(directory, phase):
                     ("Anlage_Wf3_RLBeimischung_dTSoll", "number", -20),
                     ("Anlage_Wf3_RLBeimischung_Mischerlaufzeit", "number", 120),
                     ("Anlage_Wf3_RLBeimischung_Mischerstellzeit", "number", 5),
+                    ("Solar_Wf1_Bypass_dTein", "number", 14),
+                    ("Solar_Wf1_CsBypass_Einstrahlung", "number", 250),
+                    ("Solar_Wf1_CsBypass_Verzoegerung", "number", 150),
+                    ("Solar_Wf1_Zieltemperatur_Zieltemperatur", "number", 158),
+                    ("Solar_Wf1_Zieltemperatur_Anstieg", "number", 6),
                 ):
                     entity = registry.async_get_entity_id(
                         kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
@@ -1565,6 +1621,30 @@ async def qualify(directory, phase):
             await number(f"Anlage_Wf3_RLBeimischung_{suffix}", value)
         assert Peer.settings[7267] == -100 and Peer.settings[7273] == 120
         assert Peer.settings[7274] == 5 and Peer.saves == 31
+
+        # Dedicated solar functions have their own assignments, not the
+        # generic optional Type slot. All actions use native Number services.
+        bypass = "Solar_Wf1_Bypass_dTein"
+        target = entity(bypass, "number")
+        assert target and float(hass.states.get(target).state) == 12
+        await number(bypass, 14)
+        Peer.extra_values[3550] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(target).state == "unavailable"
+        Peer.extra_values[3550] = 5
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert entity(bypass, "number") == target
+        assert float(hass.states.get(target).state) == 14
+        for name, value in (
+            ("Solar_Wf1_CsBypass_Einstrahlung", 250),
+            ("Solar_Wf1_CsBypass_Verzoegerung", 150),
+            ("Solar_Wf1_Zieltemperatur_Zieltemperatur", 158),
+            ("Solar_Wf1_Zieltemperatur_Anstieg", 6),
+        ):
+            await number(name, value)
+        assert Peer.settings[3908] == 70 and Peer.settings[3991] == 250
+        assert Peer.settings[3992] == 150 and Peer.settings[4344] == 700
+        assert Peer.settings[4347] == 30 and Peer.saves == 36
 
         # Stop the actual HA process with an incomplete active capture. The
         # following restart phase must restore the same committed checkpoint.
