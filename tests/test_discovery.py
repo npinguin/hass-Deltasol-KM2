@@ -1266,6 +1266,33 @@ class DiscoveryTests(unittest.TestCase):
         # the descriptor layout, without copying vendor bytecode to the repo.
         _, text_rva, text_size, text_offset = sections[".text"]
         code = memoryview(binary)[text_offset : text_offset + text_size]
+        # Reuse the same native descriptor join for the shared activity
+        # contract. The independent build must agree on both the storage
+        # relationship and the actual normalized evaluator instructions.
+        configuration = importlib.import_module(f"{PACKAGE}.configuration")
+        activity = {setting.name for setting in configuration.BX_PLUS_ACTIVITY_SETTINGS}
+        pairs = set()
+        for name in activity:
+            pointer, flags, first, second = descriptor(name)
+            switch = name.removesuffix("_Modus") + "_SensorSchalter_Nr"
+            self.assertEqual(pointer, descriptor(switch)[0] + 1)
+            self.assertEqual(flags, 7)
+            pairs.add((first, second))
+        self.assertEqual(len(pairs), 1)
+        prefix = bytes.fromhex("5589e583ec388b450c8845e4807de400747a8b45")
+        matches = []
+        position = text_offset
+        while (position := binary.find(prefix, position, text_offset + text_size)) >= 0:
+            body = bytearray(binary[position : position + 150])
+            if body[0x5B] == 0xE8:
+                body[0x5C:0x60] = bytes(4)
+                if hashlib.sha256(body).hexdigest() == (
+                    "7abb4b99cbd75f3c497e17444b38044bfffa1bbd43399e0207b464c54ee43795"
+                ):
+                    matches.append(text_rva + position - text_offset)
+            position += 1
+        print("Native shared activity evaluator:", [hex(x) for x in matches])
+        self.assertEqual(len(matches), 1)
         fingerprints = (
             (
                 "VBus read Blob",
@@ -1617,6 +1644,18 @@ class DiscoveryTests(unittest.TestCase):
             else:
                 self.assertEqual(setting.kind, "number")
                 self.assertTrue(target.metadata["compound_parent_read_candidate"])
+            for name, index in setting.expected.items():
+                self.assertEqual(definitions[name].index, index)
+        activity = configuration.BX_PLUS_ACTIVITY_SETTINGS
+        self.assertEqual(len({setting.name for setting in activity}), 55)
+        self.assertEqual(len(activity), 142)
+        for setting in activity:
+            target = definitions[setting.name]
+            self.assertEqual(target.index, setting.index)
+            self.assertEqual(target.metadata["rpt_storage"], "preferences")
+            self.assertIn("ActivityMode", target.metadata["type_chain"])
+            self.assertEqual(set(catalog.ordinal_options(target)), {0, 1, 2})
+            self.assertTrue(target.metadata["menu_refs"])
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
         self.assertEqual(len(bound), len(profile.settings) + 350)
