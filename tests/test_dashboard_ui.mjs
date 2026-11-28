@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
+import {spawnSync} from "node:child_process";
 import test from "node:test";
 import vm from "node:vm";
 
@@ -299,4 +300,22 @@ test("native meter, solar and controller preferences localize without changing t
   assert.equal(p.capabilityLabel({native_label:"Controller-wide holiday remaining days"}),"Resterende vakantiedagen (hele regelaar)");
   p._hass.language="fr";
   assert.equal(p.capabilityLabel({native_label:"Heating demand 1 minimum runtime"}),"Demande de chauffage 1 · Durée minimale de fonctionnement");
+});
+
+test("all typed BX Plus profile labels and option families are enumerated for localization",()=>{
+  const code=`
+import importlib, json, pathlib, re, sys, types
+package = types.ModuleType("_resol_label_inventory")
+package.__path__ = [str(pathlib.Path("custom_components/deltasol").resolve())]
+sys.modules[package.__name__] = package
+profile = importlib.import_module(f"{package.__name__}.bx_plus")
+rows = sorted({re.sub(r"\\d+", "#", s.label.lower()) for s in profile.SETTINGS})
+options = sorted({name for s in profile.SETTINGS for name, _ in s.options})
+print(json.dumps({"labels": rows, "options": options}))
+`;
+  const result=spawnSync("python",["-c",code],{encoding:"utf8"});
+  assert.equal(result.status,0,result.stderr);
+  const inventory=JSON.parse(result.stdout);
+  assert.ok(inventory.labels.length>100);
+  console.log("RESOL_LABEL_INVENTORY "+JSON.stringify(inventory));
 });
