@@ -75,7 +75,7 @@ class ParameterTests(unittest.TestCase):
         }
 
     def test_cooling_priority_bounds(self):
-        from custom_components.deltasol.configuration import RelativeConstraint
+        RelativeConstraint = parameters_configuration.RelativeConstraint
 
         values = {"Solar_SystemId": 20201}
         self.assertTrue(RelativeConstraint("Solar_SystemId", 3416, "solar_cooling_priority").matches(0, values))
