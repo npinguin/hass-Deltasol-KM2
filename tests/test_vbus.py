@@ -165,10 +165,7 @@ class VBusTests(unittest.TestCase):
                 ),
                 response(0x1301, value=8),
                 response(0x1401, value=1),
-                *(
-                    response(0x1600 | sub, index, 2)
-                    for index, sub in wanted
-                ),
+                *(response(0x1600 | sub, index, 2) for index, sub in wanted),
                 response(0x0100, 0, changeset),
                 response(0x1403, value=3),
                 response(0x0100, 0, changeset),
@@ -186,8 +183,11 @@ class VBusTests(unittest.TestCase):
         )
         sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
         self.assertEqual(
-            [(p.index, p.command & 127, p.value) for p in sent
-             if p.command & 0xFF80 == 0x1500],
+            [
+                (p.index, p.command & 127, p.value)
+                for p in sent
+                if p.command & 0xFF80 == 0x1500
+            ],
             [(index, sub, value) for (index, sub), value in wanted.items()],
         )
         self.assertEqual(sum(p.command == 0x1402 for p in sent), 1)
@@ -644,9 +644,7 @@ class VBusTests(unittest.TestCase):
             )
             session = vbus.VBusSession(conn)
             self.assertEqual(
-                session.write_verified(
-                    ADDRESS, 1321, 17, 12345, save=save, subindex=5
-                ),
+                session.write_verified(ADDRESS, 1321, 17, 12345, save=save, subindex=5),
                 17,
             )
             sent = [
@@ -658,9 +656,7 @@ class VBusTests(unittest.TestCase):
             )
             for invalid in (-1, 128, True, 1.5):
                 with self.assertRaises(vbus.VBusError):
-                    session.write_verified(
-                        ADDRESS, 1321, 17, 12345, subindex=invalid
-                    )
+                    session.write_verified(ADDRESS, 1321, 17, 12345, subindex=invalid)
             self.assertEqual(conn.sendall.call_count, 3)
 
     def test_persistent_save_timeout_never_retries(self):
