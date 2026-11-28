@@ -186,6 +186,7 @@ class Peer:
     fail_bulk_subindex = None
     drop_discovery_response = False
     drop_relay_response = False
+    silence_relay_response = False
     drop_next_offer = False
     hold_next_offer = False
     offer_waiting = threading.Event()
@@ -332,6 +333,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
     def exchange(self):
         relay_changed = False
         bulk_active = False
+        resync_pending = False
         self.wfile.write(datagram(0, ADDRESS, 0x0500))
         while frame := self.rfile.read(16):
             assert len(frame) == 16 and frame[0] == 170
@@ -345,6 +347,10 @@ class VBusHandler(socketserver.StreamRequestHandler):
             if command == 0x1100:
                 if value == 613666522:
                     Peer.events.append("missing")
+                if value == 463603356 and Peer.silence_relay_response:
+                    Peer.silence_relay_response = False
+                    resync_pending = True
+                    continue
                 if value == 463603356 and Peer.drop_relay_response:
                     Peer.drop_relay_response = False
                     return
@@ -588,6 +594,13 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 temporary.replace(Peer.persistent_file)
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0600:
+                if resync_pending:
+                    resync_pending = False
+                    # Resume the native bus, then issue a new offer on this
+                    # same authenticated connection. No mutation occurred.
+                    self.wfile.write(live_packet(ADDRESS))
+                    self.wfile.write(datagram(0, ADDRESS, 0x0500))
+                    continue
                 if Peer.failed_release_sessions:
                     Peer.failed_release_sessions -= 1
                     return
@@ -1200,6 +1213,17 @@ async def qualify(directory, phase):
             assert float(hass.states.get(percent).state) == 100
             assert Peer.writes == 0
         if resilient:
+            health = entry.runtime_data.coordinator.api.parameter_transport_health()
+            before = health["read_resync_successes"]
+            sessions = Peer.sessions
+            Peer.silence_relay_response = True
+            await entry.runtime_data.relay_coordinator.async_refresh()
+            assert not Peer.silence_relay_response
+            assert entry.runtime_data.relay_coordinator.last_update_success
+            assert Peer.sessions == sessions + 1
+            health = entry.runtime_data.coordinator.api.parameter_transport_health()
+            assert health["read_resync_successes"] == before + 1
+            assert Peer.writes == 0
             Peer.drop_relay_response = True
             await entry.runtime_data.relay_coordinator.async_refresh()
             assert not Peer.drop_relay_response
