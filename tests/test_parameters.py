@@ -1625,6 +1625,147 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(names & controls().keys())
         self.session.write_verified.assert_called_once()
 
+    def test_installed_program_options_preserve_companions_and_context(self):
+        settings = parameters_configuration.BX_PLUS_PROGRAM_OPTIONS
+
+        def contracts(name, values):
+            return [s for s in settings if s.name == name and s.accepts(values)]
+
+        def check(name, values, invalid):
+            matches = contracts(name, values)
+            self.assertEqual(len(matches), 1, name)
+            setting = matches[0]
+            self.assertTrue(setting.accepts(values, setting.encode(True)), name)
+            for key, raw in invalid:
+                bad = {**values, key: raw}
+                self.assertFalse(setting.accepts(bad, 1), key)
+            return setting
+
+        root = "Anlage_Wf1"
+        flag = root + "_Ruecklaufanhebung_OSommerAus"
+        target = root + "_Ruecklaufanhebung_TSommerAus"
+        values = {
+            root + "_Type": 8,
+            root + "_Aktiviert_Modus": 1,
+            root + "_Relais1_Nr": 1,
+            root + "_Sensor1_Nr": 1,
+            root + "_Sensor2_Nr": 2,
+            root + "_Sensor3_Nr": 3,
+            "TemperatureHysteresisSelector": 0,
+            flag: 0,
+            target: 200,
+            target + "_C": 200,
+        }
+        setting = check(
+            flag,
+            values,
+            ((root + "_Type", 7), (root + "_Sensor3_Nr", 0), (target, 201)),
+        )
+        self.assertFalse(setting.accepts({**values, root + "_Aktiviert_Modus": 2}, 1))
+        self.assertTrue(
+            setting.accepts(
+                {**values, root + "_Aktiviert_Modus": 2, root + "_Aktiviert_SensorSchalter_Nr": 5},
+                1,
+            )
+        )
+
+        root = "Heizung_Heizkreis1"
+        flag = root + "_OHeizgrenze"
+        mode = root + "_Heizgrenze"
+        day = root + "_TSommerTag"
+        night = root + "_TSommerNacht"
+        values = {
+            root + "_Type": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_System": 0,
+            root + "_Relais1_Nr": 1,
+            root + "_Sensor1_Nr": 1,
+            root + "_Sensor2_Nr": 2,
+            "TemperatureHysteresisSelector": 0,
+            flag: 0,
+            mode: 0,
+            day: 180,
+            day + "_C": 180,
+            night: 140,
+            night + "_C": 140,
+            root + "_tSommerTagEin": 360,
+            root + "_tSommerTagAus": 1320,
+        }
+        check(flag, values, ((root + "_System", 1), (root + "_Sensor2_Nr", 0), (day, 181)))
+        self.assertFalse(contracts(mode, values))
+        values[flag] = 1
+        select, = contracts(mode, values)
+        self.assertTrue(select.accepts(values, select.encode("Day/Night")))
+        self.assertFalse(select.accepts({**values, root + "_tSommerTagEin": 361}, 1))
+        self.assertTrue(select.accepts({**values, root + "_tSommerTagEin": 361}, 0))
+        values[mode] = 1
+        check(flag, values, ((night, 141), (root + "_tSommerTagAus", 1321)))
+
+        flag = root + "_OEnergiesparbetrieb"
+        prefix = root + "_Energiesparbetrieb"
+        values.update(
+            {
+                flag: 0,
+                prefix + "_Sensor1_Nr": 3,
+                prefix + "_dTAus": 40,
+                prefix + "_dTAus_K": 40,
+                prefix + "_dtPause": 15,
+                prefix + "_dtLaufzeit": 2,
+            }
+        )
+        check(
+            flag,
+            values,
+            ((prefix + "_Sensor1_Nr", 0), (prefix + "_dtPause", 61), (prefix + "_dTAus", 45)),
+        )
+
+        flag = root + "_OUrlaub"
+        values.update(
+            {
+                flag: 0,
+                "InbetriebnahmeAbgeschlossen": 1,
+                "Urlaubsfunktion_Tage": 7,
+                root + "_Betriebsart": 0,
+            }
+        )
+        setting = check(flag, values, (("Urlaubsfunktion_Tage", 201),))
+        self.assertTrue(setting.accepts({**values, root + "_Betriebsart": 4}, 0))
+
+        root = "Solar_Wf1_ExtWT"
+        flag = root + "_OZieltemperatur"
+        target = root + "_ZieltemperaturSekundaer"
+        rise = root + "_dTAnstieg"
+        values = {
+            flag: 0,
+            "Solar_SystemId": 10201,
+            "Solar_Relais1_Nr": 1,
+            "Solar_Sp1_Sensor1_Nr": 2,
+            "Solar_Sp1_Aktiviert_Modus": 1,
+            root + "_Sensor1_Nr": 3,
+            root + "_Sensor2_Nr": 4,
+            root + "_Relais1_Nr": 2,
+            root + "_SpeicherMaske": 1,
+            "TemperatureHysteresisSelector": 0,
+            target: 500,
+            target + "_C": 500,
+            rise: 20,
+            rise + "_K": 20,
+        }
+        check(flag, values, ((root + "_Sensor2_Nr", 0), (rise, 21), (target, 501)))
+
+        root = "Anlage_WTUmwaelzpumpe"
+        flag = root + "_ORuhemodus"
+        values = {
+            flag: 0,
+            root + "_Relais_Nr": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_RuhemodusDauer": 20,
+        }
+        check(flag, values, ((root + "_Relais_Nr", 0), (root + "_RuhemodusDauer", 21)))
+        flag = root + "_ONachlauf"
+        values.update({flag: 0, root + "_Nachlaufzeit": 30})
+        check(flag, values, ((root + "_Nachlaufzeit", 61),))
+
     def test_dhw_overrun_option_rechecks_installed_pump_and_sensor_mode(self):
         self.session.read.return_value = 0x2734DABC
         root = "Heizung_Wf1"
