@@ -2468,18 +2468,25 @@ class ParameterTests(unittest.TestCase):
         for i in range(5):
             self.values[f"Type{i}"] = (300 + i, 0)
             self.values[f"Value{i}"] = (200 + i, 5)
-        with patch.object(parameters, "PROFILES", (profile,)):
+        with (
+            patch.object(parameters, "PROFILES", (profile,)),
+            patch.object(parameters, "INITIAL_SELECTORS_PER_REFRESH", 4),
+        ):
             first = self.api.discover(telemetry(), {}, vendor)
             self.assertEqual(len(first.selector_hints), 4)
+            self.assertEqual(first.selector_total, 5)
             self.assertFalse(first.configuration)
             self.values["Type4"] = (304, 1)
             second = self.api.discover(telemetry(), {}, vendor, first)
             self.assertEqual(len(second.selector_hints), 5)
+            self.assertEqual(second.selector_total, 5)
             capability = next(iter(second.configuration.values()))
             self.assertEqual(capability.setting.name, "Value4")
             self.assertEqual(capability.value, 5)
             self.values["Type4"] = (304, 0)
             third = self.api.discover(telemetry(), {}, vendor, second)
+            # Any previously selected setting is independently checked live,
+            # even when its selector is not in the next rotating batch.
             self.assertFalse(third.configuration)
             with self.assertRaises(parameters.VBusError):
                 self.api.set_configuration(telemetry(), capability, 6, vendor)

@@ -38,6 +38,7 @@ from homeassistant.helpers.update_coordinator import (
 )
 
 from .catalog import (
+    Catalog,
     CatalogError,
     CatalogMissing,
     download_catalog,
@@ -100,9 +101,10 @@ class RuntimeData:
     coordinator: DataUpdateCoordinator
     relay_coordinator: "DeltasolRelayCoordinator | None" = None
     # One verified catalogue, independent of historical capture compatibility.
-    catalogue_identity: tuple | None = None
+    catalogue_identity: tuple[object, int, Catalog] | None = None
     capture: ConfigurationCapture | None = None
     previous_capture: ConfigurationCapture | None = None
+    rejected_previous: dict | None = None
     capture_task: asyncio.Task | None = None
     capture_lock: asyncio.Lock = dataclass_field(default_factory=asyncio.Lock)
     stop_capture: bool = False
@@ -270,7 +272,7 @@ async def _async_save_capture(runtime):
                 "capture": runtime.capture.storage_checkpoint(),
                 "previous": runtime.previous_capture.storage_checkpoint()
                 if runtime.previous_capture
-                else None,
+                else runtime.rejected_previous,
                 "resume": runtime.capture.status not in ("complete", "incomplete")
                 and (
                     runtime.resume_on_load
@@ -299,14 +301,32 @@ def _catalog_identity(runtime):
     return controller, source_for(controller.address, relay.data.changeset)
 
 
-async def _async_catalog(hass, source, *, acquire=False):
+async def _async_catalog(hass, source, *, acquire=False, runtime=None):
+    if runtime and runtime.catalogue_identity:
+        _, changeset, catalog = runtime.catalogue_identity
+        if changeset == source.changeset and catalog.matches(
+            source.address, source.changeset
+        ):
+            return catalog
     path = hass.config.path("deltasol", source.filename)
-    try:
-        return await hass.async_add_executor_job(load_catalog, path, source)
-    except CatalogMissing:
-        if not acquire:
-            raise
-        return await hass.async_add_executor_job(download_catalog, path, source)
+    def load():
+        try:
+            catalog = load_catalog(path, source)
+        except CatalogMissing:
+            if not acquire:
+                raise
+            catalog = download_catalog(path, source)
+        # Static binding can take seconds. Compile on the existing executor,
+        # not on HA's event loop during the next entity refresh.
+        if catalog.matches(source.address, source.changeset):
+            from .parameters import PROFILES
+
+            for profile in PROFILES:
+                if profile.address == source.address:
+                    profile.settings_for(source.changeset, catalog)
+        return catalog
+
+    return await hass.async_add_executor_job(load)
 
 
 def _remember_catalogue(runtime, controller, source, catalog):
@@ -326,19 +346,23 @@ async def _async_restore_capture(hass, runtime, *, catalog=None):
             return False
         controller, source = _catalog_identity(runtime)
         if catalog is None:
-            catalog = await _async_catalog(hass, source)
+            catalog = await _async_catalog(hass, source, runtime=runtime)
         _remember_catalogue(runtime, controller, source, catalog)
         capture = ConfigurationCapture.restore(
             stored["capture"], catalog, controller, source.changeset
         )
         previous = stored.get("previous")
-        runtime.previous_capture = (
-            ConfigurationCapture.restore(
-                previous, catalog, controller, source.changeset
-            )
-            if previous
-            else None
-        )
+        runtime.previous_capture = None
+        if previous:
+            try:
+                runtime.previous_capture = ConfigurationCapture.restore(
+                    previous, catalog, controller, source.changeset
+                )
+            except (CatalogError, ValueError, TypeError, KeyError):
+                # A rejected comparison baseline must not discard the valid
+                # current capture. Preserve the stored baseline until an
+                # explicit new capture is requested.
+                runtime.rejected_previous = previous
         runtime.capture = capture
         runtime.resume_on_load = (
             stored.get("resume") is True or capture.extension_pending
@@ -403,7 +427,7 @@ async def _async_start_initial_capture(hass, entry, runtime):
             runtime.notify_capture()
             return
         try:
-            catalog = await _async_catalog(hass, source, acquire=True)
+            catalog = await _async_catalog(hass, source, acquire=True, runtime=runtime)
         except (CatalogError, OSError, ValueError):
             runtime.checkpoint_error = "discovery_catalogue_unavailable"
             runtime.notify_capture()
@@ -461,7 +485,7 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
         raise HomeAssistantError("Controller parameter access is unavailable")
     try:
         controller, source = _catalog_identity(runtime)
-        catalog = await _async_catalog(hass, source, acquire=True)
+        catalog = await _async_catalog(hass, source, acquire=True, runtime=runtime)
     except (CatalogError, VBusError) as err:
         raise HomeAssistantError(str(err)) from err
     _remember_catalogue(runtime, controller, source, catalog)
@@ -475,6 +499,7 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
         or capture.catalog.digest != catalog.digest
         or capture.changeset != source.changeset
     ):
+        runtime.rejected_previous = None
         runtime.previous_capture = (
             capture
             if capture
@@ -651,7 +676,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         if self.data and self._configuration_catalog() is None:
             try:
                 controller, source = _catalog_identity(self.runtime)
-                catalog = await _async_catalog(self.hass, source)
+                catalog = await _async_catalog(self.hass, source, runtime=self.runtime)
                 _remember_catalogue(self.runtime, controller, source, catalog)
             except (CatalogError, VBusError, OSError, ValueError):
                 pass
@@ -671,8 +696,10 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             self.update_interval = timedelta(seconds=30)
             raise UpdateFailed(str(error)) from error
         else:
-            self.update_interval = max(
-                self.telemetry.update_interval, timedelta(seconds=60)
+            self.update_interval = (
+                timedelta(seconds=30)
+                if result.selector_total > len(result.selector_hints)
+                else max(self.telemetry.update_interval, timedelta(seconds=60))
             )
             return result
         finally:

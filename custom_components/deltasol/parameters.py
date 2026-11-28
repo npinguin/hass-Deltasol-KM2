@@ -345,9 +345,11 @@ class RelayDiscovery:
     # authorization and not changes to the historical Discovery capture.
     selector_hints: dict[str, ParameterObservation] = field(default_factory=dict)
     selector_cursor: int = 0
+    selector_total: int = 0
 
 
 SELECTORS_PER_REFRESH = 4
+INITIAL_SELECTORS_PER_REFRESH = 16
 
 
 def _checked_parameters(session, profile, changeset, expected):
@@ -1156,6 +1158,7 @@ class RelayParameters:
             contracts = profile.settings_for(changeset, catalog)
             selector_hints = {}
             cursor = 0
+            selectors = []
             # A completed capture is historical. Rotate a small number of
             # exact, authorized selectors through normal polling so a native
             # installer change is discovered without a new 12,812-item scan.
@@ -1176,22 +1179,34 @@ class RelayParameters:
                     selector_hints.update(previous.selector_hints)
                     cursor = previous.selector_cursor
                 if any(setting.weekly_slot is not None for setting in contracts):
-                    selectors = sorted(
-                        {
-                            *selectors,
-                            *(
+                    # Discover installed functions before the potentially much
+                    # larger weekly-owner reference set. Both remain bounded.
+                    known = set(selectors)
+                    selectors.extend(
+                        sorted(
+                            {
                                 (owner.name, owner.index)
                                 for owner in profile.weekly_owners
-                            ),
-                        },
-                        key=lambda item: item[1],
+                            } - known,
+                            key=lambda item: item[1],
+                        )
                     )
                 if selectors:
-                    cursor %= len(selectors)
-                    count = min(SELECTORS_PER_REFRESH, len(selectors))
-                    batch = dict(
-                        selectors[(cursor + i) % len(selectors)] for i in range(count)
-                    )
+                    missing = [
+                        (name, index)
+                        for name, index in selectors
+                        if name not in selector_hints
+                    ]
+                    if missing:
+                        batch = dict(missing[:INITIAL_SELECTORS_PER_REFRESH])
+                        count = len(batch)
+                    else:
+                        cursor %= len(selectors)
+                        count = min(SELECTORS_PER_REFRESH, len(selectors))
+                        batch = dict(
+                            selectors[(cursor + i) % len(selectors)]
+                            for i in range(count)
+                        )
                     selector_hints.update(
                         session.read_parameter_observations(
                             profile.address,
@@ -1257,6 +1272,7 @@ class RelayParameters:
                 configuration,
                 selector_hints,
                 cursor,
+                len(selectors),
             )
 
         return self._read_only_session(profile.address, read)

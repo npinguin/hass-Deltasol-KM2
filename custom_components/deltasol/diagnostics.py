@@ -289,6 +289,16 @@ async def async_get_config_entry_diagnostics(hass, entry):
             "reference_profile": profile.name if profile else None,
             "devices": devices,
             "last_error": last_error,
+            "operational_catalogue": (
+                "verified"
+                if relay and relay._configuration_catalog() is not None
+                else "not_confirmed"
+            ),
+            "live_selector_coverage": {
+                "observed": len(discovery.selector_hints) if discovery else 0,
+                "total": discovery.selector_total if discovery else 0,
+            },
+            "comparison_checkpoint_rejected": runtime.rejected_previous is not None,
             "transport": api.parameter_transport_health(),
             "relays": relays,
             "module_flags": module_flags,
