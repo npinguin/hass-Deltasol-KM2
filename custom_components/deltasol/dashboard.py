@@ -383,6 +383,11 @@ def dashboard_objects(hass, user):
                             ),
                         }
                         if engineering and setting
+                        else {
+                            "parameter": relays[row.unique_id].name,
+                            "reference_index": relays[row.unique_id].index,
+                        }
+                        if engineering and row.unique_id in relays
                         else {}
                     ),
                     "control": control,

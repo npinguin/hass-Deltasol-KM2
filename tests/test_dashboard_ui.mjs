@@ -176,3 +176,9 @@ test("engineering separates live relay controls from captured values and referen
   const html=p.inventoryEvidence(rows.get("Schema"));assert.ok(html.includes("Hardware- of topologietoewijzing"));assert.ok(html.includes("Historische snapshot: 42"));assert.ok(!html.includes("Actueel: 42"));
   p.filter="readonly";assert.ok(!new Map(p.inventoryEntries()).has("Relais_Regler_R1_Handbetrieb"));
 });
+
+test("engineering details navigate only to the existing scoped entity and show typed limits",()=>{
+  const p=model(true,true),asset=p.current().objects[0],row=p.row("select.heating");asset.name="Heating";row.parameter="Mode";p.query="";p.filter="all";p.report={configuration_controls:{Mode:{status:"supported",write_access:"profile_verified",value:"Auto"}},operational_contracts:{Mode:{variants:[{kind:"number",storage_action:"save",limits:["5","90","1"],unit:"°C",prerequisites:[{parameter:"Type",reference_index:10}],relative_constraints:[]}]}}};
+  const item=new Map(p.inventoryEntries()).get("Mode");const html=p.inventoryDetails(item);assert.ok(html.includes('data-parameter-entity="select.heating"'));assert.ok(html.includes("5 – 90"));assert.ok(html.includes("Type · 10"));assert.ok(html.includes("live validatie vereist"));
+  row.control=false;assert.ok(p.inventoryDetails(item).includes("Alleen lezen of geen toestemming"));
+});
