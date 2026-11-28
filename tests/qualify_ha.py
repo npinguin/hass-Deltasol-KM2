@@ -1337,6 +1337,11 @@ async def qualify(directory, phase):
                 for name, kind, value in (
                     ("Anlage_Wf1_Mischer_dtIntervall", "number", 5),
                     ("Heizung_Heizkreis1_Heizkurve", "number", 1.5),
+                    ("Heizung_Heizkreis1_MischerIntervall", "number", 6),
+                    ("Heizung_Heizkreis1_Mischer_dTEin", "number", 4),
+                    ("Heizung_Heizkreis1_Mischer_dTAus", "number", 2.4),
+                    ("Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin", "number", 15),
+                    ("Anlage_Wf5_Funktionsblock_dtMindestausschaltzeit", "number", 75),
                     ("Heizung_Heizkreis1_Betriebsart", "select", "Day"),
                     ("Heizung_Heizkreis1_Nachheizung_dTEin", "number", -9),
                     ("Heizung_Heizkreis1_Nachheizung_dTAus", "number", 12),
@@ -1402,6 +1407,38 @@ async def qualify(directory, phase):
                     assert entity
                     observed = hass.states.get(entity).state
                     assert (float(observed) if kind == "number" else observed) == value
+                for mode, expected in (
+                    (
+                        3,
+                        (
+                            ("Gerade_TAussen1", "number", 32),
+                            ("Gerade_TAussen2", "number", 32),
+                            ("Gerade_TVorlauf1", "number", 122),
+                            ("Gerade_TVorlauf2", "number", 158),
+                        ),
+                    ),
+                    (
+                        4,
+                        (
+                            ("Raum_TStart", "number", 122),
+                            ("Raumeinfluss_Abweichung", "select", "Maximum"),
+                        ),
+                    ),
+                    (5, (("Raumeinfluss_Faktor", "number", 7),)),
+                ):
+                    Peer.extra_values[13978] = mode
+                    await entry.runtime_data.relay_coordinator.async_refresh()
+                    await hass.async_block_till_done()
+                    for suffix, kind, value in expected:
+                        name = "Heizung_Heizkreis1_Heizsystem_" + suffix
+                        entity = registry.async_get_entity_id(
+                            kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
+                        )
+                        assert entity
+                        observed = hass.states.get(entity).state
+                        assert (float(observed) if kind == "number" else observed) == value
+                Peer.extra_values[13978] = 1
+                assert Peer.saves == 0
                 assert hass.states.get(display).state == "°F"
                 assert hass.states.get(daylight).state == "off"
                 assert em == json.loads(
