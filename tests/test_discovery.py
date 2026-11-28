@@ -1661,7 +1661,13 @@ class DiscoveryTests(unittest.TestCase):
         for slot in range(1, 17):
             root = f"Heizung_Wf{slot}"
             variant = definitions[root + "_Zirkulation_Variante"]
-            self.assertEqual(set(catalog.ordinal_options(variant)), set(range(5)))
+            self.assertEqual(
+                [item.get("id") for item in variant.metadata["value_text"]],
+                ["Thermisch", "Schaltuhr", "ThermischUndUhr", "Anforderung", "AnforderungUndUhr"],
+            )
+            self.assertTrue(
+                all(item.get("value") is None for item in variant.metadata["value_text"])
+            )
             self.assertEqual(variant.index, 11405 + (slot - 1) * 151)
             setting = next(
                 s
