@@ -384,9 +384,11 @@ class VBusTests(unittest.TestCase):
                 conn = Mock()
                 conn.recv.side_effect = [*chunks, TimeoutError()]
                 session = vbus.VBusSession(conn)
-                with self.assertRaisesRegex(vbus.VBusTransientError, "acquisition"):
-                    with session.bus(ADDRESS):
-                        self.fail("Unexpected bus ownership")
+                with (
+                    self.assertRaisesRegex(vbus.VBusTransientError, "acquisition"),
+                    session.bus(ADDRESS),
+                ):
+                    self.fail("Unexpected bus ownership")
                 self.assertEqual(
                     session.acquisition_stats,
                     {
