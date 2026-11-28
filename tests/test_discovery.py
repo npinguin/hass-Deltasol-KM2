@@ -522,7 +522,8 @@ class DiscoveryTests(unittest.TestCase):
             ('size=""/>', None),
             ('size="12"><size>12</size></type>', 12),
             ('size="12"><size>16</size></type>', None),
-            ('><size>16</size></type>', 16),
+            ("><size>16</size></type>", 16),
+            ("><size>12</size><size>16</size></type>", None),
         ):
             with self.subTest(declaration=declaration):
                 xml = (
