@@ -454,6 +454,26 @@ Independent HA fixture coverage is prepared for all five option families, save/d
 
 Reference: [BX Plus firmware 2.07 manual p.59](https://www.manualslib.com/manual/2406566/Resol-Deltasol-Bx-Plus.html?page=59) and [earlier manual p.53](https://www.manualslib.com/manual/1625333/Resol-Deltasol-Bx-Plus.html?page=53); exact firmware layout and encoding remain grounded in the supplied DLL/XML.
 
+### 4.28 Existing weekly programs and heating/solar coordination
+
+The supplied BX Plus 2.08 ZIP was verified locally against Appendix A. Joining all native descriptor IDs to the XML and menu references confirms the 74 existing timer flags (16 arrangement, 16 DHW, 7 heating circuits and 35 room thermostats). Each has the Boolean callback pair 0x4f2e8/0x4f3aa; each corresponding program reference has 0x549ae/0x54a34. The menu extraRef links the flag and reference. The 50 program layouts remain the ones established in §4.12. Native TTL refresh 0x378f4 is called from arrangement, heating function and heating circuit/room reference processing; this does not guarantee indefinite retention of an unused program.
+
+Enable only an existing positively identified, allocated, initialized program, with all seven native day values decoded successfully. Read the current reference again around the packed reads. Reject a changed reference, expired allocation or invalid day; persist the flag alone through the existing writer. Disable preserves the day values and reference. Weekly editor availability is reconciled after the change; a valid enabled timer is now a corroborated alternative function-block predicate, closing that part of §4.27. Allocation, assignment, copying, TTL manipulation, reference-output/flow predicates, genuine all-off behavior and room thermostat activation/option semantics remain separate unresolved review items. No physical retention or actual HA lifecycle evidence is claimed.
+
+The same XML/native join confirms 99 further preferences with the same Boolean callback pair. Native first indices and strides are:
+
+| Option | First index / stride | Count |
+| --- | --- | ---: |
+| Heating start optimization | 13714 / 495 | 7 |
+| Heating stop optimization | 13716 / 495 | 7 |
+| Cooling daily timer | 14098 / 495 | 7 |
+| DHW holiday off | 11281 / 151 | 16 |
+| DHW solar off and Tset condition | 11282, 11284 / 151 | 32 |
+| Heating supplementary solar off and Tset condition | 14141, 14143 / 495 | 14 |
+| Solar backup suppression Tset condition | 4462 / 120 | 16 |
+
+The existing assigned input/output and function mode guards remain authoritative. Enable start/stop optimization only with a valid 0–300 minute companion; cooling uses the existing quarter-hour daily clocks. Solar off uses a positive native store mask within the configured system topology. The Tset condition additionally requires the selected store target/maximum values to match their selected-unit aliases, with target <= maximum and the existing 4–95°C or 40–204°F bounds/steps. Disabling a parent preserves the subordinate preference and hides its control until applicable again. This adds no wiring, sensor assignment, safety override, second writer or raw service. Source tests verify exact layouts and guard behavior; actual HA fixture journeys are prepared but not yet executed.
+
 ## 5. Architecture: a single native Home Assistant integration
 
 The proposed implementation direction builds on the existing Python components instead of importing RPT into Home Assistant. The native controller remains the authority for actual configuration, telemetry and physical control. RPT and other verified sources provide evidence for how to interpret those capabilities.
