@@ -1514,7 +1514,7 @@ class DiscoveryTests(unittest.TestCase):
             and not row.metadata.get("compound_ref")
         }
         unbound = menu_preferences - bound_names
-        families = Counter(re.sub(r"(?<=\\D)\\d+", "X", name) for name in unbound)
+        families = Counter(re.sub(r"(?<=\D)\d+", "X", name) for name in unbound)
         print(
             "Exact menu review surface:",
             len(menu_preferences),
@@ -2053,7 +2053,6 @@ class DiscoveryTests(unittest.TestCase):
             # contains relevant named symbols. No execution, decompilation
             # or vendor binary contents in the release or CI artifacts.
             binary = archive.read("BXPLUS_2.08/DeltaSol_BXPlus_208.dll")
-            import re
 
             identifiers = set(re.findall(rb"[A-Za-z_][A-Za-z0-9_]{3,100}", binary))
             keywords = (
