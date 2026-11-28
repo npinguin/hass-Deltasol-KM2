@@ -536,12 +536,13 @@ def _read_weekly_settings(
     if not links:
         return {}
     conditions = {
-        dep.name: dep.index
+        name: index
         for owner in (
             *(owner for owners in links.values() for owner in owners),
             *(unknown if complete else ()),
         )
-        for dep in owner.conditions
+        for name, index in owner.expected.items()
+        if name != owner.name
     }
     observations = read(conditions)
     values = {

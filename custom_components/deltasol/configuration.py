@@ -856,18 +856,30 @@ class WeeklyOwner:
     name: str
     index: int
     conditions: tuple[Dependency | RangeDependency, ...]
+    alternate_conditions: tuple[Dependency | RangeDependency, ...] = ()
 
     @property
     def expected(self):
-        return {self.name: self.index, **{d.name: d.index for d in self.conditions}}
+        return {
+            self.name: self.index,
+            **{d.name: d.index for d in self.conditions + self.alternate_conditions},
+        }
 
     def active(self, values):
-        return all(d.matches(values) for d in self.conditions)
+        return all(d.matches(values) for d in self.conditions) or (
+            bool(self.alternate_conditions)
+            and all(d.matches(values) for d in self.alternate_conditions)
+        )
 
     def inactive(self, values):
-        return any(
-            type(values.get(d.name)) is int and not d.matches(values)
-            for d in self.conditions
+        def disproved(conditions):
+            return any(
+                type(values.get(d.name)) is int and not d.matches(values)
+                for d in conditions
+            )
+
+        return disproved(self.conditions) and (
+            not self.alternate_conditions or disproved(self.alternate_conditions)
         )
 
 
@@ -887,6 +899,13 @@ def _weekly_owners():
                     Dependency(root + "_Aktiviert_Modus", index + 7, (1, 2)),
                     Dependency(root + "_OSchaltuhr", index + timer, (1,)),
                 ),
+                (
+                    Dependency(root + "_Type", index, (4,)),
+                    Dependency(root + "_Aktiviert_Modus", index + 7, (1, 2)),
+                    Dependency(root + "_Zirkulation_Variante", index + 139, (1, 2, 4)),
+                )
+                if prefix == "Heizung_Wf"
+                else (),
             )
     for slot in range(1, 8):
         root = f"Heizung_Heizkreis{slot}"

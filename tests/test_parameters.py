@@ -676,6 +676,8 @@ class ParameterTests(unittest.TestCase):
         # A positive reference with a definite disabled timer is different
         # from an unknown function: the unchanged day is a valid no-op.
         timer = other.conditions[-1]
+        installed = other.conditions[0]
+        self.values[installed.name] = (installed.index, installed.allowed[0])
         self.values[timer.name] = (timer.index, 0)
         verified = self.api.set_configuration(
             telemetry(), shared, shared.value, catalogue
@@ -684,6 +686,44 @@ class ParameterTests(unittest.TestCase):
         self.assertEqual(verified.active_owners, shared.active_owners)
         self.values[other.name] = (other.index, 0)
         hints.pop(other.name)
+        self.session.write_packed_verified.assert_called_once()
+
+        circulation = next(
+            o for o in config.WEEKLY_OWNERS if o.name == "Heizung_Wf1_SchaltuhrNr"
+        )
+        self.values[circulation.name] = (circulation.index, 1)
+        hints[circulation.name] = parameters.ParameterObservation(
+            circulation.index, 1, "read"
+        )
+        for name, value in (
+            ("Heizung_Wf1_Type", 4),
+            ("Heizung_Wf1_Aktiviert_Modus", 1),
+            ("Heizung_Wf1_OSchaltuhr", 0),
+        ):
+            self.values[name] = (circulation.expected[name], value)
+        variant = "Heizung_Wf1_Zirkulation_Variante"
+        self.values.pop(variant, None)
+        shared = capability()
+        self.assertNotIn(circulation.name, shared.active_owners)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), shared, shared.value, catalogue)
+        for value in range(5):
+            with self.subTest(variant=value):
+                self.values[variant] = (circulation.expected[variant], value)
+                current = capability()
+                self.assertIn(circulation.name, current.owners)
+                self.assertEqual(
+                    circulation.name in current.active_owners, value in (1, 2, 4)
+                )
+                self.api.set_configuration(
+                    telemetry(), current, current.value, catalogue
+                )
+                self.assertEqual(current.unique_id, updated.unique_id)
+        self.values[variant] = (circulation.expected[variant], 3)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), current, "", catalogue)
+        self.values[circulation.name] = (circulation.index, 0)
+        hints.pop(circulation.name)
         self.session.write_packed_verified.assert_called_once()
 
         def partial(address, index, before, wanted, changeset):
