@@ -259,7 +259,9 @@ def _dependency_layout(dependencies):
 class AnyDependencies:
     """At least one complete positively verified native assignment group."""
 
-    groups: tuple[tuple[Dependency | RangeDependency | PeerComparison | WeeklyProgram, ...], ...]
+    groups: tuple[
+        tuple[Dependency | RangeDependency | PeerComparison | WeeklyProgram, ...], ...
+    ]
 
     @property
     def expected(self):
@@ -313,7 +315,9 @@ class SolarSelection:
             _raw_steps(target, ti, lo, hi, step),
             _raw_steps(maximum, mi, lo, hi, step),
             PeerComparison(target, ti, target + alias, ti + self.target_unit + 1, "eq"),
-            PeerComparison(maximum, mi, maximum + alias, mi + self.target_unit + 1, "eq"),
+            PeerComparison(
+                maximum, mi, maximum + alias, mi + self.target_unit + 1, "eq"
+            ),
             PeerComparison(target, ti, maximum, mi, "le"),
         )
 
@@ -348,7 +352,13 @@ class RequestedCondition:
 
     raw: int
     alternatives: tuple[
-        Dependency | RangeDependency | PeerComparison | WeeklyProgram | AnyDependencies, ...
+        Dependency
+        | RangeDependency
+        | PeerComparison
+        | WeeklyProgram
+        | AnyDependencies
+        | SolarSelection,
+        ...,
     ]
 
     def matches(self, raw, values):
@@ -410,7 +420,8 @@ class Setting:
     limits: tuple[str, str, str, str] | None = None  # min, max, step, factor
     unit: str | None = None
     dependencies: tuple[
-        Dependency | RangeDependency | SolarSelection | AnyDependencies | WeeklyProgram, ...
+        Dependency | RangeDependency | SolarSelection | AnyDependencies | WeeklyProgram,
+        ...,
     ] = ()
     owner_address: int | None = None
     relative_constraints: tuple[RelativeConstraint, ...] = ()
@@ -2527,7 +2538,9 @@ def _thermal_option_settings():
                         *remaining.groups,
                         (
                             Dependency(arrangement + "_OSchaltuhr", 6574 + ao, (1,)),
-                            WeeklyProgram(arrangement + "_SchaltuhrNr", 6620 + ao, True),
+                            WeeklyProgram(
+                                arrangement + "_SchaltuhrNr", 6620 + ao, True
+                            ),
                         ),
                     )
                 )
@@ -2681,7 +2694,9 @@ def _weekly_timer_options():
                                 groups.extend(
                                     group
                                     for group in dep.groups
-                                    if not any(isinstance(d, WeeklyProgram) for d in group)
+                                    if not any(
+                                        isinstance(d, WeeklyProgram) for d in group
+                                    )
                                 )
                 yield Setting(
                     flag.name,
@@ -2718,10 +2733,16 @@ def _weekly_timer_options():
                     RangeDependency(root + "_Sensor1_Nr", 11290 + ho, 1, 65),
                     AnyDependencies(
                         (
-                            (Dependency(root + "_ThBwErwaermung_Modus", 11378 + ho, (0,)),),
                             (
-                                Dependency(root + "_ThBwErwaermung_Modus", 11378 + ho, (1,)),
-                                RangeDependency(root + "_Sensor2_Nr", 11294 + ho, 1, 65),
+                                Dependency(root + "_ThBwErwaermung_Modus", 11378 + ho, (0,)),
+                            ),
+                            (
+                                Dependency(
+                                    root + "_ThBwErwaermung_Modus", 11378 + ho, (1,)
+                                ),
+                                RangeDependency(
+                                    root + "_Sensor2_Nr", 11294 + ho, 1, 65
+                                ),
                             ),
                         )
                     ),
@@ -2755,11 +2776,10 @@ BX_PLUS_WEEKLY_TIMER_OPTIONS = tuple(_weekly_timer_options())
 
 def _coordination_options():
     """Existing operational heating, cooling and solar suppression preferences."""
+
     def solar_options(installed, common, flag, target_flag, mask, label):
         selection = SolarSelection(mask[0], mask[1], stores=True)
-        targets = tuple(
-            replace(selection, target_unit=unit) for unit in (0, 1)
-        )
+        targets = tuple(replace(selection, target_unit=unit) for unit in (0, 1))
         solar = (
             RangeDependency("Solar_Kol1_Sensor1_Nr", 3536, 1, 65),
             RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
@@ -2782,7 +2802,10 @@ def _coordination_options():
                         Dependency(target_flag[0], target_flag[1], (0,)),
                         AnyDependencies(
                             tuple(
-                                (Dependency(target_flag[0], target_flag[1], (1,)), target)
+                                (
+                                    Dependency(target_flag[0], target_flag[1], (1,)),
+                                    target,
+                                )
                                 for target in targets
                             )
                         ),
@@ -2837,7 +2860,8 @@ def _coordination_options():
             ),
         )
         yield from solar_options(
-            installed, common,
+            installed,
+            common,
             (root + "_OSolarAus", 11282 + ho),
             (root + "_SolarAus_OTSoll", 11284 + ho),
             (root + "_SolarAus_SpeicherMaske", 11283 + ho),
@@ -2910,15 +2934,25 @@ def _coordination_options():
                 requested_conditions=(
                     RequestedCondition(
                         1,
-                        (RangeDependency(prefix + "_" + companion, companion_index + offset, 0, 300),),
+                        (
+                            RangeDependency(
+                                prefix + "_" + companion, companion_index + offset, 0, 300
+                            ),
+                        ),
                     ),
                 ),
             )
         yield from solar_options(
             installed,
-            (*common, AnyDependencies((*thermal.groups, (
-                Dependency(prefix + "_Modus", 13706 + offset, (2,)),
-            )))),
+            (
+                *common,
+                AnyDependencies(
+                    (
+                        *thermal.groups,
+                        (Dependency(prefix + "_Modus", 13706 + offset, (2,)),),
+                    )
+                ),
+            ),
             (prefix + "_OSolarAus", 14141 + offset),
             (prefix + "_SolarAus_OTSoll", 14143 + offset),
             (prefix + "_SolarAus_SpeicherMaske", 14142 + offset),
@@ -2940,7 +2974,11 @@ def _coordination_options():
             requested_conditions=tuple(
                 RequestedCondition(
                     1,
-                    (_raw_steps(cooling + "_Timer_" + suffix, index + offset, 0, 1425, 15),),
+                    (
+                        _raw_steps(
+                            cooling + "_Timer_" + suffix, index + offset, 0, 1425, 15
+                        ),
+                    ),
                 )
                 for suffix, index in (("tEin", 14099), ("tAus", 14100))
             ),
