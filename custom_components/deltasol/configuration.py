@@ -1525,6 +1525,61 @@ def _timing_settings():
                 RangeDependency(f"{arrangement}_Relais1_Nr", 6592 + ao, 1, 100),
             ),
         )
+        # The optional overrun is a separate Boolean preference of the
+        # installed DHW function, not a command to start the loading pump.
+        yield Setting(
+            f"{heating}_ThBwErwaermung_ONachlaufzeit",
+            11376 + ho,
+            f"Heating function {slot} DHW loading pump overrun enabled",
+            "switch",
+            True,
+            installed_by=Dependency(f"{heating}_Type", 11266 + ho, (2,)),
+            dependencies=(
+                Dependency(f"{heating}_ThBwErwaermung_OLadepumpe", 11375 + ho, (1,)),
+                RangeDependency(f"{heating}_Relais2_Nr", 11329 + ho, 1, 100),
+                RangeDependency(f"{heating}_NhRelais1_Nr", 11337 + ho, 1, 100),
+                RangeDependency(f"{heating}_Sensor1_Nr", 11290 + ho, 1, 65),
+                AnyDependencies(
+                    (
+                        (Dependency(f"{heating}_Aktiviert_Modus", 11273 + ho, (1,)),),
+                        (
+                            Dependency(f"{heating}_Aktiviert_Modus", 11273 + ho, (2,)),
+                            RangeDependency(
+                                f"{heating}_Aktiviert_SensorSchalter_Nr",
+                                11275 + ho,
+                                1,
+                                65,
+                            ),
+                        ),
+                    )
+                ),
+                AnyDependencies(
+                    (
+                        (
+                            Dependency(
+                                f"{heating}_ThBwErwaermung_Modus", 11378 + ho, (0,)
+                            ),
+                        ),
+                        (
+                            Dependency(
+                                f"{heating}_ThBwErwaermung_Modus", 11378 + ho, (1,)
+                            ),
+                            RangeDependency(f"{heating}_Sensor2_Nr", 11294 + ho, 1, 65),
+                        ),
+                    )
+                ),
+            ),
+            requested_conditions=(
+                RequestedCondition(
+                    1,
+                    (
+                        RangeDependency(
+                            f"{heating}_ThBwErwaermung_Nachlaufzeit", 11377 + ho, 1, 10
+                        ),
+                    ),
+                ),
+            ),
+        )
         yield Setting(
             f"{heating}_ThBwErwaermung_Nachlaufzeit",
             11377 + ho,
