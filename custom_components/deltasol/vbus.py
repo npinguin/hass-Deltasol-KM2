@@ -155,6 +155,8 @@ class VBusSession:
         self.phase_seconds = {}
         self.release_attempts = 0
         self.other_live_packets = 0
+        self.other_release_offers = 0
+        self.release_confirmation = None
         self.release_failed = False
         self.acquisition_stats = None
         self._acquiring = False
@@ -317,7 +319,7 @@ class VBusSession:
         return reply.value
 
     def _wait_for_master(self, address, timeout):
-        """Confirm a valid live-data packet from the controller after release."""
+        """Observe the expected master return via live data or a fresh offer."""
         deadline = monotonic() + timeout
         while True:
             if monotonic() >= deadline:
@@ -327,6 +329,28 @@ class VBusSession:
                 self.buffer.clear()
             elif start:
                 del self.buffer[:start]
+            if len(self.buffer) >= 6 and self.buffer[5] == 0x20:
+                if len(self.buffer) < 16:
+                    self.buffer.extend(self._receive(deadline))
+                    continue
+                try:
+                    packet = Datagram.decode(self.buffer[:16])
+                except VBusError:
+                    del self.buffer[0]
+                    continue
+                del self.buffer[:16]
+                # A new bus offer is also positive evidence that the master
+                # has resumed scheduling. RPT resynchronizes on 0x0500.
+                # Never consume another master's offer as our own authority.
+                if packet.command == 0x0500:
+                    if (
+                        packet.source == address
+                        and packet.destination in (0, SELF_ADDRESS)
+                    ):
+                        self.release_confirmation = "controller_offer"
+                        return
+                    self.other_release_offers += 1
+                continue
             if len(self.buffer) >= 10:
                 header = self.buffer[:10]
                 if (
@@ -350,6 +374,7 @@ class VBusSession:
                         for i in range(10, size, 6)
                     ):
                         if int.from_bytes(header[3:5], "little") == address:
+                            self.release_confirmation = "controller_live_packet"
                             return
                         self.other_live_packets += 1
                 else:
@@ -412,14 +437,20 @@ class VBusSession:
     def _release(self, address):
         """Retry release only on silence, never repeat a parameter write.
 
-        Other live traffic is not proof of the expected master's return.
-        If observed, wait rather than sending another release on an active bus.
+        Other live traffic or offers are not proof of the expected master's
+        return. If observed, wait rather than sending another release on an
+        active bus.
         """
         started = monotonic()
         self.release_failed = True
+        self.release_confirmation = None
+        self.other_live_packets = 0
+        self.other_release_offers = 0
         try:
             for attempt, timeout in enumerate((1.5, 4.5)):
-                if attempt == 0 or not self.other_live_packets:
+                if attempt == 0 or not (
+                    self.other_live_packets or self.other_release_offers
+                ):
                     self.connection.settimeout(2)
                     self.connection.sendall(
                         Datagram(address, SELF_ADDRESS, 0x0600).encode()

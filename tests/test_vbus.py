@@ -342,6 +342,62 @@ class VBusTests(unittest.TestCase):
         self.assertEqual(session.release_attempts, 1)
         self.assertEqual(session.other_live_packets, 1)
 
+    def test_release_accepts_correlated_offer_without_second_release(self):
+        for destination in (0, vbus.SELF_ADDRESS):
+            with self.subTest(destination=destination):
+                conn = Mock()
+                offer = vbus.Datagram(destination, ADDRESS, 0x0500).encode()
+                conn.recv.side_effect = [response(0x0500), offer[:9], offer[9:]]
+                session = vbus.VBusSession(conn)
+                with session.bus(ADDRESS):
+                    pass
+                self.assertEqual(session.release_attempts, 1)
+                self.assertEqual(session.release_confirmation, "controller_offer")
+                self.assertFalse(session.release_failed)
+
+    def test_release_other_offer_prevents_retry_but_does_not_confirm(self):
+        for offer in (
+            response(0x0500, source=0x7111),
+            vbus.Datagram(0x21, ADDRESS, 0x0500).encode(),
+        ):
+            with self.subTest(offer=offer):
+                conn = Mock()
+                conn.recv.side_effect = [
+                    response(0x0500),
+                    offer,
+                    TimeoutError(),
+                    TimeoutError(),
+                ]
+                session = vbus.VBusSession(conn)
+                with self.assertRaises(vbus.VBusTransientError), session.bus(ADDRESS):
+                    pass
+                self.assertEqual(session.release_attempts, 1)
+                self.assertEqual(session.other_release_offers, 1)
+                self.assertIsNone(session.release_confirmation)
+                self.assertTrue(session.release_failed)
+
+    def test_changed_relay_and_return_to_auto_with_release_offer(self):
+        for wanted in (1, 2):
+            conn = Mock()
+            conn.recv.side_effect = [
+                response(0x0500),
+                response(0x0100, 1321, wanted),
+                response(0x0100, 0, 12345),
+                response(0x0100, 1321, wanted),
+                response(0x0500),
+            ]
+            session = vbus.VBusSession(conn)
+            with session.bus(ADDRESS):
+                self.assertEqual(
+                    session.write_verified(ADDRESS, 1321, wanted, 12345), wanted
+                )
+            sent = [vbus.Datagram.decode(c.args[0]) for c in conn.sendall.call_args_list]
+            self.assertEqual(
+                [p.command for p in sent], [0x0200, 0x0300, 0x0300, 0x0600]
+            )
+            self.assertEqual(sent[0].value, wanted)
+            self.assertEqual(session.release_confirmation, "controller_offer")
+
     def test_release_retry_does_not_repeat_verified_write(self):
         conn = Mock()
         conn.recv.side_effect = [

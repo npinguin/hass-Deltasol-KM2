@@ -538,6 +538,8 @@ class RelayParameters:
             "release_attempts": 0,
             "release_failures": 0,
             "other_live_packets": 0,
+            "other_release_offers": 0,
+            "last_release_confirmation": None,
             "failure_counts": {},
             "phase_timings": {},
             "last_failure": None,
@@ -605,6 +607,13 @@ class RelayParameters:
             + (int(session.release_failed) if real_session else 0),
             "other_live_packets": previous["other_live_packets"]
             + (session.other_live_packets if real_session else 0),
+            "other_release_offers": previous["other_release_offers"]
+            + (session.other_release_offers if real_session else 0),
+            "last_release_confirmation": (
+                session.release_confirmation
+                if real_session and "release" in phases
+                else previous["last_release_confirmation"]
+            ),
             "failure_counts": counts,
             "phase_timings": timings,
             "last_failure": failure,
