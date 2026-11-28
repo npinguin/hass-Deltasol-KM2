@@ -1339,24 +1339,24 @@ class DiscoveryTests(unittest.TestCase):
         # This is not a write allowlist: a generic editor and a value-change
         # callback are distinct, and neither proves registration preservation.
         review_families = {
-            "Anlage_WTUmwaelzpumpe_Aktiviert_Modus": 1,
-            "Anlage_WfX_Feststoffkessel_OMischer": 16,
-            "Anlage_WfX_Funktionsblock_OVolumenstrom": 16,
-            "Heizung_HeizkreisX_Fernzugriff_Modus": 7,
-            "Heizung_HeizkreisX_OFernzugriff": 7,
-            "Heizung_HeizkreisX_ONachheizung": 7,
-            "Heizung_HeizkreisX_RaumthermostatX_Option": 35,
-            "Heizung_RelaisAnforderungX_Aktiviert_Modus": 2,
-            "Heizung_RelaisAnforderungX_OAusgangX": 2,
-            "Heizung_RelaisAnforderungX_ORelaisX": 2,
-            "Heizung_RelaisPumpeX_Aktiviert_Modus": 2,
-            "Heizung_RelaisVentilX_Aktiviert_Modus": 2,
-            "Heizung_WfX_BwVorerwaermung_OVentil": 16,
-            "Heizung_WfX_ThBwErwaermung_OLadepumpe": 16,
-            "Solar_Losreissimpuls": 1,
-            "Solar_ORuecklaufSensor": 1,
-            "Solar_OVorlaufSensor": 1,
-            "Solar_WfX_DrainBack_OBooster": 1,
+            "Anlage_WTUmwaelzpumpe_Aktiviert_Modus": (1, 0x7),
+            "Anlage_WfX_Feststoffkessel_OMischer": (16, 0xfffa),
+            "Anlage_WfX_Funktionsblock_OVolumenstrom": (16, 0xfffb),
+            "Heizung_HeizkreisX_Fernzugriff_Modus": (7, 0x7),
+            "Heizung_HeizkreisX_OFernzugriff": (7, 0xffff),
+            "Heizung_HeizkreisX_ONachheizung": (7, 0xfffb),
+            "Heizung_HeizkreisX_RaumthermostatX_Option": (35, 0xffff),
+            "Heizung_RelaisAnforderungX_Aktiviert_Modus": (2, 0x10007),
+            "Heizung_RelaisAnforderungX_OAusgangX": (2, 0xfffe),
+            "Heizung_RelaisAnforderungX_ORelaisX": (2, 0xffff),
+            "Heizung_RelaisPumpeX_Aktiviert_Modus": (2, 0x10007),
+            "Heizung_RelaisVentilX_Aktiviert_Modus": (2, 0x10007),
+            "Heizung_WfX_BwVorerwaermung_OVentil": (16, 0xfff9),
+            "Heizung_WfX_ThBwErwaermung_OLadepumpe": (16, 0xfffd),
+            "Solar_Losreissimpuls": (1, 0xf),
+            "Solar_ORuecklaufSensor": (1, 0xfffa),
+            "Solar_OVorlaufSensor": (1, 0xfffb),
+            "Solar_WfX_DrainBack_OBooster": (1, 0xffff),
         }
         review = {family: [] for family in review_families}
         for row in catalog.load_catalog(archive_path).definitions:
@@ -1371,7 +1371,8 @@ class DiscoveryTests(unittest.TestCase):
                 review[family].append(row.name)
         for family, names in review.items():
             with self.subTest(native_review_family=family):
-                self.assertEqual(len(names), review_families[family])
+                count, expected_flag = review_families[family]
+                self.assertEqual(len(names), count)
                 flags = Counter()
                 editor_pairs = set()
                 for name in names:
@@ -1379,6 +1380,7 @@ class DiscoveryTests(unittest.TestCase):
                     flags[hex(flag)] += 1
                     editor_pairs.add((hex(editor - base), hex(reader - base)))
                     self.assertNotEqual(pointer, 0)
+                self.assertEqual(flags, {hex(expected_flag): count})
                 print(
                     "Native remaining family:",
                     family,
@@ -1907,6 +1909,8 @@ class DiscoveryTests(unittest.TestCase):
             if configuration.native_menu_review_reason(name)
             in (
                 "program_option_review_required",
+                "native_registration_transition_unverified",
+                "native_deallocation_preservation_unverified",
                 "native_operating_contract_unverified",
                 "hydraulic_applicability_review_required",
                 "manual_override_contract_unverified",

@@ -2517,6 +2517,38 @@ class ParameterTests(unittest.TestCase):
                 "Solar_Wf1_DrainBack_Befuellzeit",
                 "hydraulic_applicability_review_required",
             ),
+            (
+                "Anlage_Wf16_Feststoffkessel_OMischer",
+                "native_registration_transition_unverified",
+            ),
+            (
+                "Anlage_Wf1_Funktionsblock_OVolumenstrom",
+                "native_registration_transition_unverified",
+            ),
+            (
+                "Heizung_Heizkreis7_Raumthermostat5_Option",
+                "native_registration_transition_unverified",
+            ),
+            (
+                "Heizung_Wf16_BwVorerwaermung_OVentil",
+                "native_registration_transition_unverified",
+            ),
+            (
+                "Heizung_Wf1_ThBwErwaermung_OLadepumpe",
+                "native_registration_transition_unverified",
+            ),
+            (
+                "Heizung_RelaisAnforderung2_Aktiviert_Modus",
+                "native_deallocation_preservation_unverified",
+            ),
+            (
+                "Heizung_RelaisPumpe1_Aktiviert_Modus",
+                "native_deallocation_preservation_unverified",
+            ),
+            (
+                "Heizung_RelaisVentil2_Aktiviert_Modus",
+                "native_deallocation_preservation_unverified",
+            ),
             ("Heizung_Heizkreis1_OSchaltuhr", "program_option_review_required"),
             ("Solar_Spreizladung_dTDifferenz", "native_operating_contract_unverified"),
         ):

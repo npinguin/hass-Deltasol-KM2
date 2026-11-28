@@ -1038,6 +1038,22 @@ def native_menu_review_reason(name):
         name,
     ):
         return "unsupported_native_topology_slot"
+    # Exact BX Plus native lifecycle evidence (research sections 4.38/4.40).
+    # These are unresolved operational contracts, not a scope exclusion.
+    if family in (
+        "Anlage_WfX_Feststoffkessel_OMischer",
+        "Anlage_WfX_Funktionsblock_OVolumenstrom",
+        "Heizung_HeizkreisX_RaumthermostatX_Option",
+        "Heizung_WfX_BwVorerwaermung_OVentil",
+        "Heizung_WfX_ThBwErwaermung_OLadepumpe",
+    ):
+        return "native_registration_transition_unverified"
+    if family in (
+        "Heizung_RelaisAnforderungX_Aktiviert_Modus",
+        "Heizung_RelaisPumpeX_Aktiviert_Modus",
+        "Heizung_RelaisVentilX_Aktiviert_Modus",
+    ):
+        return "native_deallocation_preservation_unverified"
     if family.endswith("_Handbetrieb"):
         return "manual_override_contract_unverified"
     if "_DrainBack_" in family:
