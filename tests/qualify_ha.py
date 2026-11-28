@@ -78,6 +78,7 @@ CONFIG_SELECTORS = {
     "Heizung_Heizkreis1_Aktiviert_Modus": (13689, 1),
     "Heizung_Heizkreis1_Heizsystem": (13978, 1),
     "Heizung_Heizkreis1_Sensor1_Nr": (13796, 1),
+    "Heizung_Heizkreis1_Relais1_Nr": (13764, 1),
     "Heizung_Heizkreis1_Relais2_Nr": (13772, 2),
     "Heizung_Heizkreis1_Relais3_Nr": (13780, 3),
     "Heizung_RelaisAnforderung1_Type": (10724, 1),
