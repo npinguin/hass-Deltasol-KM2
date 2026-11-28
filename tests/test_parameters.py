@@ -1085,20 +1085,20 @@ class ParameterTests(unittest.TestCase):
         self.assertTrue(early.accepts(values, early.encode(90)))
         values[prefix + "_Modus"] = 1
         zone = next(
-            s
-            for s in settings
-            if s.name == on.name and s.unit == "K" and s != on
+            s for s in settings if s.name == on.name and s.unit == "K" and s != on
         )
         self.assertFalse(on.accepts(values))
         self.assertFalse(zone.accepts(values))
         values[root + "_Sensor5_Nr"] = 5
         self.assertTrue(zone.accepts(values, zone.encode(-4.5)))
         clock = next(s for s in settings if s.name == root + "_Kuehlung_Timer_tEin")
-        values.update({
-            clock.name: 540,
-            root + "_Kuehlung_OTimer": 1,
-            root + "_Kuehlung_Relais1_Nr": 3,
-        })
+        values.update(
+            {
+                clock.name: 540,
+                root + "_Kuehlung_OTimer": 1,
+                root + "_Kuehlung_Relais1_Nr": 3,
+            }
+        )
         self.assertFalse(clock.accepts(values))
         values[root + "_System"] = 2
         self.assertTrue(clock.accepts(values, clock.encode(555)))
@@ -1106,7 +1106,8 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(clock.accepts(values))
         pump = "Anlage_WTUmwaelzpumpe"
         duration = next(
-            s for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            s
+            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
             if s.name == pump + "_RuhemodusDauer"
         )
         values = {
