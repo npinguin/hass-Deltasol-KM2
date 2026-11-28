@@ -107,9 +107,7 @@ class QualificationFixtureTests(unittest.TestCase):
             if name in compound:
                 continue
             matching = [
-                setting
-                for setting in contracts.get(name, ())
-                if setting.index == index
+                setting for setting in contracts.get(name, ()) if setting.index == index
             ]
             if not matching or not any(
                 setting.decode(initial) is not None for setting in matching
