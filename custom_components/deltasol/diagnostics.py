@@ -226,7 +226,9 @@ async def async_get_config_entry_diagnostics(hass, entry):
         elif (
             capture
             and capture.catalog.matches(0x7112, 0x2734DABC)
-            and re.fullmatch(r"Wsu0_Schaltuhr_Woche_Tag(?:Mo|Di|Mi|Do|Fr|Sa|So)_Daten", name)
+            and re.fullmatch(
+                r"Wsu0_Schaltuhr_Woche_Tag(?:Mo|Di|Mi|Do|Fr|Sa|So)_Daten", name
+            )
         ):
             item["write_access_reason"] = "reserved_native_weekly_slot"
         if name in reference_contracts:
