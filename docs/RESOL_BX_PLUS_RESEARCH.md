@@ -494,6 +494,21 @@ The earlier reference-output investigation is narrowed by native callback helper
 
 The exact firmware and developer source tests corroborate the 65 bindings; actual HA lifecycle and physical behavior are not yet qualified. The larger numerical target is not an acceptance criterion that permits speculative writes.
 
+## 4.30 Installed room thermostat activation and thermal operating modes
+
+The 2.08 exact catalogue and native callbacks distinguish a configured room thermostat Option, its activity byte, and its sensor type. The activity callback pair (0x4e2cc/0x4e3a2) uses the generic ActivityMode enumeration 0/1/2. The room structure has separate temperature/switch sensor references (first room indices 13834/13838), but no distinct activity-switch input. The documented temporary activation journey has two states and retains settings (RESOL DeltaSol BX Plus manual, room thermostat section). The installed heating/combined circuit contract exposes Deactivated/Activated only; observed mode 2 is not normalized to either state and remains unresolved. The Option flag and sensor/output allocation are unchanged. The cooling-only case still requires specific runtime evidence. Room-controlled flow modes must retain at least one active valid sensor room. An active room timer requires an allocated, initialized week with valid packed days; a changed activity invalidates affected shared weekly editors before refresh.
+
+Added contracts (85 distinct parameters, 117 selected-unit variants):
+
+- 35 room activation selectors and seven HC-off preferences.
+- Seven supplementary-heating modes (thermostat/zone/on-off; native callbacks 0x656b7/0x6578d). Temperature-based modes require the assigned sensors and ordered differential thresholds; on/off does not require an unused temperature threshold.
+- Four shared pump start/run-on mode selectors (none/temperature/time; native callbacks 0x503b5/0x5048b). Validate only requested-mode dependencies.
+- 32 DHW preheating target and hysteresis settings (16 installed slots each, TMax 20–90 °C or 68–194 °F; dTMax 0.5–10 K or 1–20 R). The manual's DHW preheat section describes these as pump speed regulation, not a potable-water safety limit. Require flow/temperature/pump assignment and validate configured optional valve/differential references.
+
+Reference-output research: 0x258fc decodes the reference kind and number; 0x231f9 and its table distinguish local relay and extension-module ranges, and 0x23474 resolves analog outputs. The separate actor registry (0x10f72/0xb8113) resolves an AktorNr to a dynamic record; 0x12101 uses record relay/analog fields for labels. It is therefore not correct to compare a raw AktorNr to a reference relay number to detect self-reference or dependencies. The function-block reference-mode catalogue has OR/AND/NOR/NAND; actual reference status and ordering/ownership still need proof before enabling the reference-dependent writes. No broad actor ID alias or raw write fallback has been added.
+
+Exact archive and targeted source regression tests corroborate the bindings. Independent HA peer cases have been extended; actual HA lifecycle and physical acceptance remain NOT_RUN. General activation, RTH mode 2/Option, cooling-only room applicability, reference-output/flow predicates, weekly allocation and remaining hydraulic/override semantics stay in the full 1.2.17 scope.
+
 ## 5. Architecture: a single native Home Assistant integration
 
 The proposed implementation direction builds on the existing Python components instead of importing RPT into Home Assistant. The native controller remains the authority for actual configuration, telemetry and physical control. RPT and other verified sources provide evidence for how to interpret those capabilities.
