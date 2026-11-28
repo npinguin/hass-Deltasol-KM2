@@ -124,7 +124,6 @@ CONFIG_SELECTORS = {
     "Relais_Modul1_R1_AktorFunktion": (2167, 2),
     "Solar_SystemId": (3416, 20201),
     "Solar_ParallelbeladungMoeglich": (3439, 1),
-    "Solar_OSpreizladung": (3424, 1),
     "Solar_Wf1_Roehrenkollektor_Aktiviert_Modus": (3834, 1),
     "Solar_Wf1_Roehrenkollektor_KollektorMaske": (3839, 3),
     "Solar_Wf1_ExtWT_SpeicherMaske": (4089, 3),
@@ -139,8 +138,6 @@ CONFIG_SELECTORS = {
     "Solar_Sp2_Sensor1_Nr": (3612, 3),
     "Solar_Sp2_Aktiviert_Modus": (3640, 1),
     "Solar_Beladungstyp": (3417, 0),
-    "Solar_OPausendrehzahl": (3420, 1),
-    "Solar_OPumpenverzoegerung": (3422, 1),
     "Solar_Wf1_Bypass_Sensor1_Nr": (3896, 4),
     "Solar_Wf1_Bypass_Relais1_Nr": (3900, 2),
     "Solar_Wf1_Bypass_Aktiviert_Modus": (3888, 1),
@@ -157,6 +154,9 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
+    "Solar_OSpreizladung": (3424, 1, 0, 1),
+    "Solar_OPumpenverzoegerung": (3422, 1, 0, 1),
+    "Solar_OPausendrehzahl": (3420, 1, 0, 1),
     "Display_Invertiert": (18260, 0, 0, 1),
     "SDKarte_Logging_Intervall": (18234, 60, 1, 1200),
     "SDKarte_Logging_Methode": (18235, 0, 0, 1),
@@ -1509,6 +1509,9 @@ async def qualify(directory, phase):
                     ("Solar_Umwaelzzeit", "number", 20),
                     ("Solar_Pausendrehzahl", "number", 40),
                     ("Solar_Pumpenverzoegerung", "number", 25),
+                    ("Solar_OPausendrehzahl", "switch", "on"),
+                    ("Solar_OPumpenverzoegerung", "switch", "on"),
+                    ("Solar_OSpreizladung", "switch", "on"),
                     ("Anlage_Wf3_RLBeimischung_dTEin", "number", 11),
                     ("Anlage_Wf3_RLBeimischung_dTSoll", "number", -20),
                     ("Anlage_Wf3_RLBeimischung_Mischerlaufzeit", "number", 120),
@@ -2514,6 +2517,32 @@ async def qualify(directory, phase):
         Peer.extra_values[3439] = 1
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert float(hass.states.get(spread).state) == 70
+
+        # Native flags use the same persistent owner as their companion Numbers.
+        for flag, index, companion in (
+            ("Solar_OPausendrehzahl", 3420, "Solar_Pausendrehzahl"),
+            ("Solar_OPumpenverzoegerung", 3422, "Solar_Pumpenverzoegerung"),
+            ("Solar_OSpreizladung", 3424, "Solar_Spreizladung_dTDifferenz"),
+        ):
+            target = entity(flag, "switch")
+            number_id = entity(companion, "number")
+            assert target and number_id
+            original = hass.states.get(number_id).state
+            before = Peer.saves
+            await hass.services.async_call(
+                "switch", "turn_off", {"entity_id": target}, blocking=True
+            )
+            await hass.async_block_till_done()
+            assert Peer.settings[index] == 0 and Peer.saves == before + 1
+            assert hass.states.get(target).state == "off"
+            assert hass.states.get(number_id).state == "unavailable"
+            await hass.services.async_call(
+                "switch", "turn_on", {"entity_id": target}, blocking=True
+            )
+            await hass.async_block_till_done()
+            assert Peer.settings[index] == 1 and Peer.saves == before + 2
+            assert hass.states.get(target).state == "on"
+            assert hass.states.get(number_id).state == original
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"
