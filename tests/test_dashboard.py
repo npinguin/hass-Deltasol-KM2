@@ -209,6 +209,4 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("parameter", rows[0])
         self.assertEqual(rows[1]["resolution"], "native_reference_only")
         self.assertIsNone(rows[1]["source_object"])
-        self.assertEqual(
-            project(observations, {}, True)[0]["parameter"], "actor"
-        )
+        self.assertEqual(project(observations, {}, True)[0]["parameter"], "actor")

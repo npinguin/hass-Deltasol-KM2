@@ -409,7 +409,9 @@ def dashboard_objects(hass, user):
             )
         output_sources = (
             relay_output_sources(
-                relays, entry.runtime_data.coordinator.observed_inventory, visible_devices
+                relays,
+                entry.runtime_data.coordinator.observed_inventory,
+                visible_devices,
             )
             if telemetry_current and parameter_current and assignments
             else {}
