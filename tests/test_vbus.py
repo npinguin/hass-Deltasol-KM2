@@ -212,9 +212,7 @@ class VBusTests(unittest.TestCase):
                 session.write_packed_verified(ADDRESS, index, before, wanted, changeset)
         for invalid in (0, -1, 65536, True, []):
             with self.assertRaises(vbus.VBusError):
-                session.write_packed_verified(
-                    ADDRESS, invalid, words, words, changeset
-                )
+                session.write_packed_verified(ADDRESS, invalid, words, words, changeset)
         self.assertEqual(conn.sendall.call_count, 6)
 
     def test_bulk_packed_stage_failure_stops_without_rollback_or_commit(self):

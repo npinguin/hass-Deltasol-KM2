@@ -2356,7 +2356,10 @@ class ParameterTests(unittest.TestCase):
         source = catalogue.source_for(base.address, base.configuration_changeset)
         definitions = (
             catalogue.Definition(
-                setting.name, setting.index, "unspecified", "Boolean",
+                setting.name,
+                setting.index,
+                "unspecified",
+                "Boolean",
                 {"type_chain": ["Boolean"]},
             ),
             catalogue.Definition(

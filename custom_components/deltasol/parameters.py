@@ -1140,7 +1140,10 @@ class RelayParameters:
                     selectors = sorted(
                         {
                             *selectors,
-                            *((owner.name, owner.index) for owner in profile.weekly_owners),
+                            *(
+                                (owner.name, owner.index)
+                                for owner in profile.weekly_owners
+                            ),
                         },
                         key=lambda item: item[1],
                     )
