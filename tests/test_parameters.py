@@ -937,9 +937,7 @@ class ParameterTests(unittest.TestCase):
                 root + "_dTaus_K": (3912, 40),
             }
         )
-        hints = {
-            root + "_Sensor1_Nr": parameters.ParameterObservation(3896, 3, "read")
-        }
+        hints = {root + "_Sensor1_Nr": parameters.ParameterObservation(3896, 3, "read")}
 
         def controls():
             return {
@@ -975,7 +973,8 @@ class ParameterTests(unittest.TestCase):
     def test_dedicated_solar_target_and_cs_bypass_require_live_references(self):
         settings = parameters_configuration.BX_PLUS_SOLAR_DEDICATED_SETTINGS
         target = next(
-            s for s in settings
+            s
+            for s in settings
             if s.name == "Solar_Wf1_Zieltemperatur_Zieltemperatur" and s.unit == "°C"
         )
         values = {
@@ -992,9 +991,7 @@ class ParameterTests(unittest.TestCase):
         self.assertTrue(target.accepts(values, target.encode(70)))
         values["Solar_Wf1_Zieltemperatur_Sensor1_Nr"] = 0
         self.assertFalse(target.accepts(values))
-        cs = next(
-            s for s in settings if s.name == "Solar_Wf1_CsBypass_Einstrahlung"
-        )
+        cs = next(s for s in settings if s.name == "Solar_Wf1_CsBypass_Einstrahlung")
         values.update(
             {
                 cs.name: 200,

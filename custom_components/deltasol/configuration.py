@@ -1704,7 +1704,9 @@ def _solar_dedicated_settings():
             output,
             Dependency(name, index, (mask,)),
             *(
-                RangeDependency(f"Solar_Kol{slot}_Sensor1_Nr", 3536 + 14 * (slot - 1), 1, 65)
+                RangeDependency(
+                    f"Solar_Kol{slot}_Sensor1_Nr", 3536 + 14 * (slot - 1), 1, 65
+                )
                 for slot in range(1, 4)
                 if mask & (1 << (slot - 1))
             ),
@@ -1728,10 +1730,18 @@ def _solar_dedicated_settings():
                     Dependency(f"{root}_Aktiviert_Modus", 3888 + offset, (1, 2)),
                     Dependency(f"{root}_Variante", 3894 + offset, (0, 1)),
                     RangeDependency(f"{root}_Relais1_Nr", 3900 + offset, 1, 100),
-                    *collector_conditions(f"{root}_KollektorMaske", 3893 + offset, mask),
+                    *collector_conditions(
+                        f"{root}_KollektorMaske", 3893 + offset, mask
+                    ),
                 ),
                 (
-                    (0, "_K", "K", ("1", "20", "0.5", "0.1"), ("0.5", "19.5", "0.5", "0.1")),
+                    (
+                        0,
+                        "_K",
+                        "K",
+                        ("1", "20", "0.5", "0.1"),
+                        ("0.5", "19.5", "0.5", "0.1"),
+                    ),
                     (1, "_R", "°R", ("2", "40", "1", "0.1"), ("1", "39", "1", "0.1")),
                 ),
                 rising=True,
@@ -1768,14 +1778,18 @@ def _solar_dedicated_settings():
     )
     for suffix, index, label, variants in (
         (
-            "Zieltemperatur", 4344, "target temperature",
+            "Zieltemperatur",
+            4344,
+            "target temperature",
             (
                 (0, "_C", "°C", ("20", "110", "1", "0.1")),
                 (1, "_F", "°F", ("68", "230", "2", "0.1")),
             ),
         ),
         (
-            "Anstieg", 4347, "rise",
+            "Anstieg",
+            4347,
+            "rise",
             (
                 (0, "_K", "K", ("1", "20", "0.5", "0.1")),
                 (1, "_R", "°R", ("2", "40", "1", "0.1")),
@@ -1785,7 +1799,11 @@ def _solar_dedicated_settings():
         name = f"{root}_{suffix}"
         for selector, alias, unit, limits in variants:
             yield Setting(
-                name, index, f"Solar {label}", "number", True,
+                name,
+                index,
+                f"Solar {label}",
+                "number",
+                True,
                 limits=limits,
                 unit=unit,
                 installed_by=installed,

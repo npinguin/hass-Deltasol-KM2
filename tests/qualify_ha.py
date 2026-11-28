@@ -398,7 +398,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert value % factor == 0
                     stored_value = value // factor
                     step = (
-                        5 if index in (3579, 3582, 3585, 7261, 7264, 3908, 3911, 4347) else 10
+                        5
+                        if index in (3579, 3582, 3585, 7261, 7264, 3908, 3911, 4347)
+                        else 10
                     )
                     assert stored_value % step == 0
                     proposed = {
@@ -428,14 +430,18 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[3900] > 0
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3893] == 3
-                        assert Peer.extra_values[3536] > 0 and Peer.extra_values[3550] > 0
+                        assert (
+                            Peer.extra_values[3536] > 0 and Peer.extra_values[3550] > 0
+                        )
                         assert proposed[3908] > proposed[3911]
                     elif index == 4347:
                         assert Peer.extra_values[4335] == 1
                         assert Peer.extra_values[4341] > 0
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
-                        assert Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
+                        assert (
+                            Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
+                        )
                     else:
                         assert proposed[6917] < proposed[6914] < proposed[6920]
                 if index in TEMPERATURE_PARENTS:
@@ -448,7 +454,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[4341] > 0
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
-                        assert Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
+                        assert (
+                            Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
+                        )
                     else:
                         assert Peer.extra_values[6810] == 6
                         assert Peer.extra_values[6817] == 1
