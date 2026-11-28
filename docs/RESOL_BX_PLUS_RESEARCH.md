@@ -363,6 +363,12 @@ The room thermostat menu contains setback differential dTAbsenkung, with the nat
 
 This adds 63 logical settings (112 selected-unit/static contracts), extending the existing heating comfort family from 176 to 288 contracts. Exact source run [46138999781](https://github.com/npinguin/hass-Deltasol-KM2/actions/runs/46138999781) passed both Python regressions (142 tests, 2 archive-only skips), all 36 exact archive tests, Ruff, Hassfest and HACS. The independent HA peer has corresponding actions and restart checks, not yet executed. The existing exact archive test also reports normalized unbound native menu families as a coverage review surface. That inventory is not a list of verified writable values or a new authorization source.
 
+### 4.19 Remaining operating menu coverage
+
+The exact menu coverage report at ff23340 identified 3,163 menu preferences/proxies, 363 bound and 2,800 unbound in 321 normalized families. These are counts of menu references, not of safe writable controls. Remaining families include commissioning and assignment options, relay override settings already owned by relay capability discovery, historical counters, safety/diagnostic settings and additional operating controls.
+
+The supplementary-heating menu exposes signed on/off differentials for non-On/Off modes. Supplied-build callbacks at RVAs 0xadc13/0xadd51 and 0xadc8d/0xaddcb establish reciprocal separation of 5/10 raw units (0.5 K/1 °R). Early-start and blocking callbacks 0x657a8/0x65840 establish the 300-minute maximum. Cooling clock callbacks 0x67acf/0x67b49 establish the 1425-minute maximum and 15-minute increment. The circulation pump callbacks 0x5f9a7/0x5f9e4/0x5fb14 corroborate minimum speed 20%, overrun up to 60 seconds, and idle duration 5–240 raw tenths of hours in steps of five. The existing contracts use positive option and assigned-sensor/output gates; no activation, topology or protective thresholds are changed. Exact archive test passed on run 46140044434 (36 tests); that source run failed formatting only. The subsequent targeted tests and final source gate are pending; actual HA action/restart evidence and complete operational menu reconciliation remain open.
+
 ## 5. Architecture: a single native Home Assistant integration
 
 The proposed implementation direction builds on the existing Python components instead of importing RPT into Home Assistant. The native controller remains the authority for actual configuration, telemetry and physical control. RPT and other verified sources provide evidence for how to interpret those capabilities.
