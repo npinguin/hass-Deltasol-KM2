@@ -883,7 +883,7 @@ class RelayParameters:
                     {
                         (setting.installed_by.name, setting.installed_by.index)
                         for setting in contracts
-                        if setting.installed_by
+                        if setting.installed_by and setting.weekly_slot is None
                     },
                     key=lambda item: item[1],
                 )
@@ -927,7 +927,8 @@ class RelayParameters:
             settings = tuple(
                 setting
                 for setting in contracts
-                if setting.installed_by is None
+                if setting.weekly_slot is not None
+                or setting.installed_by is None
                 or (
                     (observation := effective_hints.get(setting.installed_by.name))
                     is not None
