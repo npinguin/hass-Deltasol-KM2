@@ -74,9 +74,13 @@ class ResolDashboard extends HTMLElement {
     try{
       this.installations=await this._hass.callWS({type:"deltasol/dashboard/list"});
       if(!this.current()){this.context=this.installations[0]?.id||"";this.object="";this.report=null;}
+      if(!this.current()?.objects.some(asset=>asset.id===this.object))this.object="";
+      if(!this.current()?.engineering){this.report=null;this.query="";this.filter="all";this.page=0;}
       if(!this.tabs().includes(this.tab))this.tab="overview";
+      if(this.editor&&!this.row(this.editor.id)?.control)this.editor=null;
+      if(this.history&&!this.row(this.history.id))this.history=null;
       this.loaded=true;
-    }catch{this.notice=this.t("error");this.loaded=true;}
+    }catch{this.installations=[];this.context="";this.object="";this.report=null;this.editor=null;this.history=null;this.tab="overview";this.notice=this.t("error");this.loaded=true;}
     finally{this.loading=false;if(!this.editor&&!this.pending&&!this.shadowRoot.activeElement?.matches("input,select,textarea"))this.render();}
   }
   tabs(){
@@ -85,6 +89,21 @@ class ResolDashboard extends HTMLElement {
     return SECTIONS.filter(tab=>tab==="overview"||tab==="energy"||groups.has(tab)||tab==="settings"&&installation?.settings||tab==="engineering"&&installation?.engineering);
   }
   state(row){return this._hass?.states?.[row.entity_id];}
+  capabilityLabel(row){
+    if(row.renamed)return row.name;
+    const lang=(this._hass?.language||"en").slice(0,2);
+    const names={
+      nl:{"configured mode":"Bedrijfsmodus","configured mode (including coupled circuits)":"Bedrijfsmodus (inclusief gekoppelde circuits)","day correction":"Dagcorrectie","night correction":"Nachtcorrectie","heating curve":"Stooklijn","thermostat 1 on":"Thermostaat 1 inschakeltemperatuur","thermostat 1 off":"Thermostaat 1 uitschakeltemperatuur","thermostat 2 on":"Thermostaat 2 inschakeltemperatuur","thermostat 2 off":"Thermostaat 2 uitschakeltemperatuur","automatic daylight saving time":"Automatische zomertijd","power":"Vermogen","temperature":"Temperatuur","energy":"Energie"},
+      fr:{"configured mode":"Mode configuré","configured mode (including coupled circuits)":"Mode configuré (circuits couplés inclus)","day correction":"Correction de jour","night correction":"Correction de nuit","heating curve":"Courbe de chauffe","thermostat 1 on":"Thermostat 1 température d’enclenchement","thermostat 1 off":"Thermostat 1 température d’arrêt","thermostat 2 on":"Thermostat 2 température d’enclenchement","thermostat 2 off":"Thermostat 2 température d’arrêt","automatic daylight saving time":"Heure d’été automatique","power":"Puissance","temperature":"Température","energy":"Énergie"}
+    };
+    const label=row.native_label||row.name||"RESOL";
+    const match=label.match(/^(Heating circuit|Function block|Arrangement function|Solar store|Solar collector|Heating function) (\d+) (.+)$/i);
+    if(match){
+      const type={"heating circuit":"circuit","function block":"function","arrangement function":"function","solar store":"store","solar collector":"collector","heating function":"heating_function"}[match[1].toLowerCase()];
+      return this.t(type)+" "+match[2]+" · "+(names[lang]?.[match[3].toLowerCase()]||match[3]);
+    }
+    return names[lang]?.[label.toLowerCase()]||label;
+  }
   optionLabel(value){
     const lang=(this._hass?.language||"en").slice(0,2);
     const modes={nl:{Auto:"Auto",Day:"Dag",Night:"Nacht",Summer:"Zomer",Holiday:"Vakantie",Off:"Uit",On:"Aan",Min:"Minimum",Max:"Maximum"},fr:{Auto:"Auto",Day:"Jour",Night:"Nuit",Summer:"Été",Holiday:"Vacances",Off:"Arrêt",On:"Marche",Min:"Minimum",Max:"Maximum"}};
@@ -104,17 +123,17 @@ class ResolDashboard extends HTMLElement {
     if(row.schedule)return '<button data-edit="'+id+'" '+disabled+'>'+escape(this.t("preview"))+'</button>';
     if(row.kind==="switch")return '<button data-action="'+id+'" data-value="'+(state?.state!=="on")+'" '+disabled+'>'+escape(this.t(state?.state==="on"?"off":"on"))+'</button>';
     if(row.kind==="button")return '<button data-action="'+id+'" data-value="null" '+disabled+'>'+escape(this.t("apply"))+'</button>';
-    if(row.kind==="select")return '<select aria-label="'+escape(row.name)+'" data-input="'+id+'" '+disabled+'>'+ (attrs.options||[]).map(v=>'<option value="'+escape(v)+'" '+(state?.state===v?"selected":"")+'>'+escape(this.optionLabel(v))+'</option>').join("")+'</select><button data-apply="'+id+'" '+disabled+'>'+escape(this.t("apply"))+'</button>';
+    if(row.kind==="select")return '<select aria-label="'+escape(this.capabilityLabel(row))+'" data-input="'+id+'" '+disabled+'>'+ (attrs.options||[]).map(v=>'<option value="'+escape(v)+'" '+(state?.state===v?"selected":"")+'>'+escape(this.optionLabel(v))+'</option>').join("")+'</select><button data-apply="'+id+'" '+disabled+'>'+escape(this.t("apply"))+'</button>';
     if(row.kind==="number"||row.kind==="text"){
       const type=row.kind==="number"?"number":"text";
       const limits=type==="number"?["min","max","step"].map(k=>attrs[k]===undefined?"":" "+k+'="'+escape(attrs[k])+'"').join(""):"";
-      return '<input aria-label="'+escape(row.name)+'" data-input="'+id+'" type="'+type+'" value="'+escape(state?.state||"")+'" '+limits+' '+disabled+'><button data-apply="'+id+'" '+disabled+'>'+escape(this.t("apply"))+'</button>';
+      return '<input aria-label="'+escape(this.capabilityLabel(row))+'" data-input="'+id+'" type="'+type+'" value="'+escape(state?.state||"")+'" '+limits+' '+disabled+'><button data-apply="'+id+'" '+disabled+'>'+escape(this.t("apply"))+'</button>';
     }
     return "";
   }
   detail(row,control){
     const state=this.state(row),updated=state?.last_updated?new Date(state.last_updated).toLocaleString(this._hass?.language):"";
-    return '<div class="line"><div class="grow"><div>'+escape(row.name)+'</div><div class="value'+(this.valid(row)?"":" warning")+'">'+escape(this.value(row))+'</div>'+(updated?'<small title="'+escape(this.t("time"))+'">'+escape(updated)+'</small>':"")+'</div><div class="actions">'+(control?this.control(row):"")+'<button data-history="'+escape(row.entity_id)+'" aria-label="'+escape(this.t("history")+' '+row.name)+'">'+escape(this.t("history"))+'</button></div></div>';
+    return '<div class="line"><div class="grow"><div>'+escape(this.capabilityLabel(row))+'</div><div class="value'+(this.valid(row)?"":" warning")+'">'+escape(this.value(row))+'</div>'+(updated?'<small title="'+escape(this.t("time"))+'">'+escape(updated)+'</small>':"")+'</div><div class="actions">'+(control?this.control(row):"")+'<button data-history="'+escape(row.entity_id)+'" aria-label="'+escape(this.t("history")+' '+this.capabilityLabel(row))+'">'+escape(this.t("history"))+'</button></div></div>';
   }
   visibleRows(asset){
     const rows=asset.capabilities;
@@ -167,7 +186,7 @@ class ResolDashboard extends HTMLElement {
     const id=this.context;
     try{
       const report=await this._hass.callWS({type:"deltasol/dashboard/engineering",entry_id:id});
-      if(this.context===id&&this.tab==="engineering")this.report=report;
+      if(this.context===id&&this.tab==="engineering"&&this.current()?.engineering)this.report=report;
     }catch{this.notice=this.t("error");}
     this.render();
   }
@@ -213,7 +232,7 @@ class ResolDashboard extends HTMLElement {
   editorView(){
     const editor=this.editor,row=this.row(editor.id);
     if(!row)return "";
-    return '<section class="card"><h2>'+escape(row.name)+'</h2><p>'+escape(this.t("confirm_schedule"))+'</p>'+editor.windows.map((pair,i)=>'<div class="interval"><label>'+escape(this.t("start"))+' <input type="time" step="900" data-window="'+i+'" data-edge="0" value="'+escape(pair[0])+'"></label><label>'+escape(this.t("end"))+' <input type="time" step="900" data-window="'+i+'" data-edge="1" value="'+escape(pair[1])+'"></label><button data-remove="'+i+'">'+escape(this.t("remove"))+'</button></div>').join("")+'<p>'+escape(this.t("shared"))+': '+escape((editor.review?.references||row.shared_references||[]).join(", ")||this.t("no_refs"))+'</p>'+(editor.review?'<p class="value">'+escape(editor.review.value)+'</p>':"")+'<div class="actions"><button data-add '+(editor.windows.length>=6?"disabled":"")+'>'+escape(this.t("add"))+'</button><button data-preview '+(this.pending?"disabled":"")+'>'+escape(this.t("preview"))+'</button><button data-save class="primary" '+(!editor.review||this.pending?"disabled":"")+'>'+escape(this.t("apply"))+'</button><button data-cancel>'+escape(this.t("cancel"))+'</button></div></section>';
+    return '<section class="card"><h2>'+escape(this.capabilityLabel(row))+'</h2><p>'+escape(this.t("confirm_schedule"))+'</p>'+editor.windows.map((pair,i)=>'<div class="interval"><label>'+escape(this.t("start"))+' <input type="time" step="900" data-window="'+i+'" data-edge="0" value="'+escape(pair[0])+'"></label><label>'+escape(this.t("end"))+' <input type="time" step="900" data-window="'+i+'" data-edge="1" value="'+escape(pair[1])+'"></label><button data-remove="'+i+'">'+escape(this.t("remove"))+'</button></div>').join("")+'<p>'+escape(this.t("shared"))+': '+escape((editor.review?.references||row.shared_references||[]).join(", ")||this.t("no_refs"))+'</p>'+(editor.review?'<p class="value">'+escape(editor.review.value)+'</p>':"")+'<div class="actions"><button data-add '+(editor.windows.length>=6?"disabled":"")+'>'+escape(this.t("add"))+'</button><button data-preview '+(this.pending?"disabled":"")+'>'+escape(this.t("preview"))+'</button><button data-save class="primary" '+(!editor.review||this.pending?"disabled":"")+'>'+escape(this.t("apply"))+'</button><button data-cancel>'+escape(this.t("cancel"))+'</button></div></section>';
   }
   async action(row,value,preview=false){
     if(!row||!this.allowed(row))return;
@@ -230,13 +249,14 @@ class ResolDashboard extends HTMLElement {
   }
   async openHistory(row){
     if(!row)return;
-    this.history={name:row.name,items:null};
+    const history={id:row.entity_id,name:row.name,items:null};
+    this.history=history;
     this.render();
     try{
       const end=new Date(), start=new Date(end.getTime()-86400000);
       const result=await this._hass.callWS({type:"history/history_during_period",start_time:start.toISOString(),end_time:end.toISOString(),entity_ids:[row.entity_id],minimal_response:true,no_attributes:true,significant_changes_only:false});
-      if(this.history?.name===row.name)this.history.items=result[row.entity_id]||[];
-    }catch{this.notice=this.t("error");if(this.history)this.history.items=[];}
+      if(this.history===history)history.items=result[row.entity_id]||[];
+    }catch{if(this.history===history){this.notice=this.t("error");history.items=[];}}
     this.render();
   }
   historyView(){
@@ -245,13 +265,14 @@ class ResolDashboard extends HTMLElement {
   }
   change(event){
     const target=event.target;
+    if(this.pending){this.render();return;}
     if(target.id==="installation"){this.context=target.value;this.object="";this.editor=null;this.history=null;this.report=null;if(!this.tabs().includes(this.tab))this.tab="overview";this.render();if(this.tab==="engineering")this.engineering();}
     if(target.id==="object"){this.object=target.value;this.page=0;this.render();}
     if(target.id==="technical-filter"){this.filter=target.value;this.page=0;this.renderInventory();}
     if(target.dataset.window!==undefined&&this.editor){this.editor.windows[Number(target.dataset.window)][Number(target.dataset.edge)]=target.value;this.editor.review=null;this.render();}
   }
   click(event){
-    const button=event.target.closest("button");if(!button||button.disabled)return;
+    const button=event.target.closest("button");if(!button||button.disabled||this.pending)return;
     const d=button.dataset;
     if(d.refresh!==undefined){this.load();if(this.tab==="engineering")this.engineering();}
     else if(d.tab){this.tab=d.tab;this.editor=null;this.history=null;this.notice="";this.render();if(this.tab==="engineering")this.engineering();}
@@ -260,7 +281,7 @@ class ResolDashboard extends HTMLElement {
     else if(d.closeHistory!==undefined){this.history=null;this.render();}
     else if(d.edit){this.edit(this.row(d.edit));}
     else if(d.action){this.action(this.row(d.action),JSON.parse(d.value));}
-    else if(d.apply){const input=Array.from(this.shadowRoot.querySelectorAll("[data-input]")).find(node=>node.dataset.input===d.apply);const row=this.row(d.apply);if(input&&row&&input.reportValidity())this.action(row,row.kind==="number"?Number(input.value):input.value);}
+    else if(d.apply){const input=Array.from(this.shadowRoot.querySelectorAll("[data-input]")).find(node=>node.dataset.input===d.apply);const row=this.row(d.apply);if(input&&row&&input.value!==""&&input.reportValidity())this.action(row,row.kind==="number"?Number(input.value):input.value);}
     else if(d.add!==undefined&&this.editor){this.editor.windows.push(["08:00","09:00"]);this.editor.review=null;this.render();}
     else if(d.remove!==undefined&&this.editor){this.editor.windows.splice(Number(d.remove),1);this.editor.review=null;this.render();}
     else if(d.cancel!==undefined){this.editor=null;this.render();}

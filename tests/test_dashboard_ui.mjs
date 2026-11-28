@@ -84,3 +84,11 @@ test("reference inventory remains searchable without a historical capture",()=>{
   assert.equal(p.inventoryEntries()[0][1].reference.write_access,"not_confirmed");
   p.filter="live";assert.equal(p.inventoryEntries().length,0);
 });
+
+test("native labels retain custom names and localize known capability semantics",()=>{
+  const p=model(true,true);
+  assert.equal(p.capabilityLabel({name:"Heating circuit 1 configured mode"}),"Verwarmingscircuit 1 · Bedrijfsmodus");
+  assert.equal(p.capabilityLabel({name:"Hoxter target",renamed:true,native_label:"Heating circuit 1 configured mode"}),"Hoxter target");
+  p._hass.language="fr";
+  assert.equal(p.capabilityLabel({name:"Heating circuit 1 heating curve"}),"Circuit de chauffage 1 · Courbe de chauffe");
+});

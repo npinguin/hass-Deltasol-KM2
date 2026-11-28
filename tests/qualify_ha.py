@@ -3254,7 +3254,25 @@ async def qualify(directory, phase):
         before = Peer.saves
         await reject_mode(heating_mode, "Holiday")
         assert Peer.saves == before
-        await set_mode(heating_mode, "Day")
+        denied = await dashboard_request(
+            readonly,
+            "deltasol/dashboard/action",
+            entry_id=entry.entry_id,
+            entity_id=heating_mode,
+            value="Day",
+        )
+        assert not denied["success"] and Peer.saves == before
+        changed = await dashboard_request(
+            resident,
+            "deltasol/dashboard/action",
+            entry_id=entry.entry_id,
+            entity_id=heating_mode,
+            value="Day",
+        )
+        assert changed["success"] and changed["result"] == {
+            "outcome": "observed",
+            "value": "Day",
+        }
         await set_mode(heating_mode, "Day")
         assert Peer.saves == before + 1 and Peer.settings[14014] == 1
         await number("Urlaubsfunktion_Tage", 7)
