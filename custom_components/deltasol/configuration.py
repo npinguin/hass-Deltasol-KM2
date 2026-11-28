@@ -1130,21 +1130,23 @@ def _additional_operating_settings():
         # sensors and two mixer outputs. The operating thresholds are
         # independent of automatic adjustment time and boiler maximum.
         prefix = f"{arrangement}_RLBeimischung"
+        installed = Dependency(f"{arrangement}_Type", 6559 + ao, (11,))
+        mixing_deps = (
+            active,
+            RangeDependency(f"{arrangement}_Sensor1_Nr", 6576 + ao, 1, 65),
+            RangeDependency(f"{arrangement}_Sensor2_Nr", 6580 + ao, 1, 65),
+            RangeDependency(f"{arrangement}_Sensor3_Nr", 6584 + ao, 1, 65),
+            RangeDependency(f"{arrangement}_Relais1_Nr", 6592 + ao, 1, 100),
+            RangeDependency(f"{arrangement}_Relais2_Nr", 6600 + ao, 1, 100),
+        )
         yield from _operating_pair(
             f"{prefix}_dTEin",
             6759 + ao,
             f"{prefix}_dTAus",
             6762 + ao,
             f"Arrangement function {slot} return mixing differential",
-            Dependency(f"{arrangement}_Type", 6559 + ao, (11,)),
-            (
-                active,
-                RangeDependency(f"{arrangement}_Sensor1_Nr", 6576 + ao, 1, 65),
-                RangeDependency(f"{arrangement}_Sensor2_Nr", 6580 + ao, 1, 65),
-                RangeDependency(f"{arrangement}_Sensor3_Nr", 6584 + ao, 1, 65),
-                RangeDependency(f"{arrangement}_Relais1_Nr", 6592 + ao, 1, 100),
-                RangeDependency(f"{arrangement}_Relais2_Nr", 6600 + ao, 1, 100),
-            ),
+            installed,
+            mixing_deps,
             (
                 (
                     0,
@@ -1157,6 +1159,42 @@ def _additional_operating_settings():
             ),
             rising=True,
         )
+        name = f"{prefix}_dTSoll"
+        index = 6765 + ao
+        for selector, alias, unit, limits in (
+            (0, "_K", "K", ("-20", "25", "1", "0.1")),
+            (1, "_R", "°R", ("-40", "50", "2", "0.1")),
+        ):
+            yield Setting(
+                name,
+                index,
+                f"Arrangement function {slot} return mixing target differential",
+                "number",
+                True,
+                limits=limits,
+                unit=unit,
+                installed_by=installed,
+                dependencies=(
+                    *mixing_deps,
+                    Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                ),
+                compound_mirrors=((name, index, name + alias, index + selector + 1),),
+            )
+        for suffix, index, limits, label in (
+            ("Mischerlaufzeit", 6771, ("10", "600", "1", "1"), "mixer runtime"),
+            ("Mischerstellzeit", 6772, ("1", "20", "1", "1"), "mixer interval"),
+        ):
+            yield Setting(
+                f"{prefix}_{suffix}",
+                index + ao,
+                f"Arrangement function {slot} return mixing {label}",
+                "number",
+                True,
+                limits=limits,
+                unit="s",
+                installed_by=installed,
+                dependencies=mixing_deps,
+            )
         prefix = f"{arrangement}_Funktionsblock"
         name = f"{prefix}_Anstieg"
         index = 6732 + ao

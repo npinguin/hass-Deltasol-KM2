@@ -999,6 +999,46 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(fahrenheit.accepts(values))
         self.assertEqual(setting.name, fahrenheit.name)
 
+    def test_return_mixing_target_and_timing_require_live_assignment(self):
+        prefix = "Anlage_Wf1_RLBeimischung"
+        values = {
+            "Anlage_Wf1_Type": 11,
+            "Anlage_Wf1_Aktiviert_Modus": 1,
+            "Anlage_Wf1_Sensor1_Nr": 1,
+            "Anlage_Wf1_Sensor2_Nr": 2,
+            "Anlage_Wf1_Sensor3_Nr": 3,
+            "Anlage_Wf1_Relais1_Nr": 1,
+            "Anlage_Wf1_Relais2_Nr": 2,
+            "TemperatureHysteresisSelector": 0,
+            prefix + "_dTSoll": 70,
+            prefix + "_dTSoll_K": 70,
+            prefix + "_Mischerlaufzeit": 105,
+            prefix + "_Mischerstellzeit": 2,
+        }
+        settings = {
+            (s.name, s.unit): s
+            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+        }
+        for suffix, unit, wanted, invalid in (
+            ("dTSoll", "K", -10, 26),
+            ("Mischerlaufzeit", "s", 120, 601),
+            ("Mischerstellzeit", "s", 5, 21),
+        ):
+            setting = settings[(prefix + "_" + suffix, unit)]
+            self.assertTrue(setting.accepts(values, setting.encode(wanted)))
+            with self.assertRaises(ValueError):
+                setting.encode(invalid)
+            values["Anlage_Wf1_Relais2_Nr"] = 0
+            self.assertFalse(setting.accepts(values))
+            values["Anlage_Wf1_Relais2_Nr"] = 2
+        fahrenheit = settings[(prefix + "_dTSoll", "°R")]
+        values["TemperatureHysteresisSelector"] = 1
+        values[prefix + "_dTSoll"] = 140
+        values[prefix + "_dTSoll_R"] = 140
+        self.assertTrue(fahrenheit.accepts(values, fahrenheit.encode(-20)))
+        values[prefix + "_dTSoll_R"] = 120
+        self.assertFalse(fahrenheit.accepts(values))
+
     def test_circulation_temperature_requires_thermal_variant_and_order(self):
         setting = next(
             s

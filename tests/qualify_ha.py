@@ -85,6 +85,9 @@ CONFIG_SETTINGS = {
     "Anlage_Wf2_Feststoffkessel_TMin": (6926, 600, 40, 950),
     "Anlage_Wf3_RLBeimischung_dTEin": (7261, 50, 10, 250),
     "Anlage_Wf3_RLBeimischung_dTAus": (7264, 30, 5, 240),
+    "Anlage_Wf3_RLBeimischung_dTSoll": (7267, 70, -200, 250),
+    "Anlage_Wf3_RLBeimischung_Mischerlaufzeit": (7273, 105, 10, 600),
+    "Anlage_Wf3_RLBeimischung_Mischerstellzeit": (7274, 2, 1, 20),
     "Solar_Sp1_dTein": (3579, 60, 10, 200),
     "Solar_Sp1_dTaus": (3582, 40, 5, 195),
     "Solar_Sp1_dTsoll": (3585, 100, 15, 300),
@@ -106,6 +109,7 @@ COMPOUND_NAMES = (
     "Solar_Sp1_dTsoll",
     "Anlage_Wf3_RLBeimischung_dTEin",
     "Anlage_Wf3_RLBeimischung_dTAus",
+    "Anlage_Wf3_RLBeimischung_dTSoll",
 )
 COMPOUND_ALIASES = {
     name + suffix: (CONFIG_SETTINGS[name][0] + delta, CONFIG_SETTINGS[name][0], factor)
@@ -386,7 +390,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[3576] > 0
                         assert Peer.extra_values[3604] == 1
                         assert proposed[3582] < proposed[3579] < proposed[3585]
-                    elif index in (7261, 7264):
+                    elif index in (7261, 7264, 7267):
                         assert Peer.extra_values[7061] == 11
                         assert Peer.extra_values[7068] == 1
                         assert all(
@@ -414,6 +418,13 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index in (7273, 7274):
+                    assert Peer.extra_values[7061] == 11
+                    assert Peer.extra_values[7068] == 1
+                    assert all(
+                        Peer.extra_values[i] > 0
+                        for i in (7078, 7082, 7086, 7094, 7102)
+                    )
                 if index in (1974, 1975):
                     assert Peer.extra_values[1977] == 2
                     assert Peer.extra_values[1973] == 1
@@ -947,6 +958,9 @@ async def qualify(directory, phase):
                     ("Solar_Pausendrehzahl", "number", 40),
                     ("Solar_Pumpenverzoegerung", "number", 25),
                     ("Anlage_Wf3_RLBeimischung_dTEin", "number", 11),
+                    ("Anlage_Wf3_RLBeimischung_dTSoll", "number", -20),
+                    ("Anlage_Wf3_RLBeimischung_Mischerlaufzeit", "number", 120),
+                    ("Anlage_Wf3_RLBeimischung_Mischerstellzeit", "number", 5),
                 ):
                     entity = registry.async_get_entity_id(
                         kind, "deltasol", f"isolated-gateway_7112_{name}_configuration"
@@ -1544,6 +1558,14 @@ async def qualify(directory, phase):
         assert entity(mixing, "number") == target
         assert float(hass.states.get(target).state) == 11
         assert Peer.saves == 28
+        for suffix, value in (
+            ("dTSoll", -20),
+            ("Mischerlaufzeit", 120),
+            ("Mischerstellzeit", 5),
+        ):
+            await number(f"Anlage_Wf3_RLBeimischung_{suffix}", value)
+        assert Peer.settings[7267] == -100 and Peer.settings[7273] == 120
+        assert Peer.settings[7274] == 5 and Peer.saves == 31
 
         # Stop the actual HA process with an incomplete active capture. The
         # following restart phase must restore the same committed checkpoint.

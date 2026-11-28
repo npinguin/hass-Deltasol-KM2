@@ -1408,7 +1408,7 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
-        self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 336)
+        self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 400)
         self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 42)
         for setting in configuration.BX_PLUS_HEATING_OPERATING_SETTINGS:
             for name, index in setting.expected.items():
