@@ -3529,6 +3529,281 @@ def _room_thermal_controls():
 BX_PLUS_ROOM_THERMAL_CONTROLS = tuple(_room_thermal_controls())
 
 
+def _activity_setting(root, index, installed, requirements):
+    """Ordinary native activity, never allocation or direct actor control."""
+    ready = AnyDependencies((requirements,))
+    return Setting(
+        root + "_Aktiviert_Modus",
+        index,
+        root.replace("_", " ") + " activity",
+        "select",
+        True,
+        options=(("Deactivated", 0), ("Activated", 1), ("External switch", 2)),
+        installed_by=installed,
+        requested_conditions=(
+            RequestedCondition(1, (ready,)),
+            RequestedCondition(2, (ready,)),
+            RequestedCondition(
+                2, (RangeDependency(root + "_Aktiviert_SensorSchalter_Nr", index + 2, 1, 65),)
+            ),
+        ),
+    )
+
+
+def _configured_timer(root, flag, reference):
+    return AnyDependencies(
+        (
+            (Dependency(root + "_OSchaltuhr", flag, (0,)),),
+            (
+                Dependency(root + "_OSchaltuhr", flag, (1,)),
+                WeeklyProgram(root + "_SchaltuhrNr", reference, True),
+            ),
+        )
+    )
+
+
+def _activity_thermal(root, rows, ordered=()):
+    """Validate the already configured native selected-unit companions."""
+    return AnyDependencies(
+        tuple(
+            (
+                Dependency("TemperatureHysteresisSelector", 60, (unit,)),
+                *(
+                    dep
+                    for suffix, index, c, f, delta in rows
+                    for dep in _unit_value(
+                        root + "_" + suffix,
+                        index,
+                        unit,
+                        ("_K", "_R")[unit] if delta else ("_C", "_F")[unit],
+                        *(c if unit == 0 else f),
+                    )
+                ),
+                *(
+                    PeerComparison(root + "_" + high, hi, root + "_" + low, lo, "gt")
+                    for high, hi, low, lo in ordered
+                ),
+            )
+            for unit in (0, 1)
+        )
+    )
+
+
+def _installed_function_activity():
+    """Expand the shared native activity evaluator across evidenced contexts."""
+    for slot in range(1, 17):
+        ao = (slot - 1) * 251
+        root = f"Anlage_Wf{slot}"
+        sensor = RangeDependency(root + "_Sensor1_Nr", 6576 + ao, 1, 65)
+        secondary = RangeDependency(root + "_Sensor2_Nr", 6580 + ao, 1, 65)
+        output = RangeDependency(root + "_Relais1_Nr", 6592 + ao, 1, 100)
+        timer = _configured_timer(root, 6574 + ao, 6620 + ao)
+        for kind, extra in (
+            (
+                2,
+                (
+                    RangeDependency(root + "_Relais2_Nr", 6600 + ao, 1, 100),
+                    PeerComparison(
+                        root + "_Relais1_Nr", 6592 + ao,
+                        root + "_Relais2_Nr", 6600 + ao, "ne"
+                    ),
+                    RangeDependency(root + "_Mischer_dtIntervall", 6625 + ao, 1, 20),
+                    _activity_thermal(
+                        root + "_Mischer",
+                        (("TZiel", 6629 + ao, (0, 1300, 10), (320, 2660, 20), False),),
+                    ),
+                ),
+            ),
+            (
+                3,
+                (
+                    secondary,
+                    timer,
+                    _activity_thermal(
+                        root + "_Boilerladung",
+                        (
+                            ("TBoilerEin", 6632 + ao, (0, 940, 10), (320, 2020, 20), False),
+                            ("TBoilerAus", 6635 + ao, (10, 950, 10), (340, 2040, 20), False),
+                        ),
+                        (("TBoilerAus", 6635 + ao, "TBoilerEin", 6632 + ao),),
+                    ),
+                ),
+            ),
+            (
+                5,
+                (
+                    secondary,
+                    timer,
+                    _activity_thermal(
+                        root + "_Waermeaustausch",
+                        (
+                            ("dTEin", 6639 + ao, (10, 300, 5), (20, 600, 10), True),
+                            ("dTAus", 6642 + ao, (5, 295, 5), (10, 590, 10), True),
+                            ("dTSoll", 6645 + ao, (15, 400, 5), (30, 800, 10), True),
+                            ("TMax", 6651 + ao, (100, 950, 10), (500, 2040, 20), False),
+                            ("TMin", 6654 + ao, (100, 950, 10), (500, 2040, 20), False),
+                            ("HMinMax", 6657 + ao, (5, 100, 5), (10, 200, 10), True),
+                        ),
+                        (
+                            ("dTEin", 6639 + ao, "dTAus", 6642 + ao),
+                            ("dTSoll", 6645 + ao, "dTEin", 6639 + ao),
+                        ),
+                    ),
+                ),
+            ),
+        ):
+            yield _activity_setting(
+                root, 6566 + ao,
+                Dependency(root + "_Type", 6559 + ao, (kind,)),
+                (sensor, output, *extra),
+            )
+
+        ho = (slot - 1) * 151
+        root = f"Heizung_Wf{slot}"
+        sensor = RangeDependency(root + "_Sensor1_Nr", 11290 + ho, 1, 65)
+        secondary = RangeDependency(root + "_Sensor2_Nr", 11294 + ho, 1, 65)
+        output = RangeDependency(root + "_Relais1_Nr", 11321 + ho, 1, 100)
+        optional_output = RangeDependency(root + "_Relais2_Nr", 11329 + ho, 1, 100)
+        prefix = root + "_ThBwErwaermung"
+        yield _activity_setting(
+            root, 11273 + ho,
+            Dependency(root + "_Type", 11266 + ho, (2,)),
+            (
+                sensor,
+                RangeDependency(root + "_NhRelais1_Nr", 11337 + ho, 1, 100),
+                AnyDependencies(
+                    (
+                        (Dependency(prefix + "_Modus", 11378 + ho, (0,)),),
+                        (Dependency(prefix + "_Modus", 11378 + ho, (1,)), secondary),
+                    )
+                ),
+                AnyDependencies(
+                    (
+                        (Dependency(prefix + "_OLadepumpe", 11375 + ho, (0,)),),
+                        (Dependency(prefix + "_OLadepumpe", 11375 + ho, (1,)), optional_output),
+                    )
+                ),
+                _configured_timer(root, 11288 + ho, 11346 + ho),
+                _activity_thermal(
+                    prefix,
+                    (
+                        ("TEin", 11379 + ho, (0, 940, 10), (320, 2020, 20), False),
+                        ("TAus", 11382 + ho, (10, 950, 10), (340, 2040, 20), False),
+                    ),
+                    (("TAus", 11382 + ho, "TEin", 11379 + ho),),
+                ),
+            ),
+        )
+        prefix = root + "_BwVorerwaermung"
+        yield _activity_setting(
+            root, 11273 + ho,
+            Dependency(root + "_Type", 11266 + ho, (3,)),
+            (
+                sensor,
+                output,
+                RangeDependency(root + "_SensorDurchfluss1_Nr", 11315 + ho, 1, 65),
+                AnyDependencies(
+                    (
+                        (Dependency(prefix + "_OVentil", 11388 + ho, (0,)),),
+                        (Dependency(prefix + "_OVentil", 11388 + ho, (1,)), optional_output),
+                    )
+                ),
+                AnyDependencies(
+                    (
+                        (Dependency(prefix + "_ODifferenz", 11398 + ho, (0,)),),
+                        (
+                            Dependency(prefix + "_ODifferenz", 11398 + ho, (1,)),
+                            secondary,
+                            RangeDependency(root + "_Sensor3_Nr", 11298 + ho, 1, 65),
+                            _activity_thermal(
+                                prefix,
+                                (
+                                    ("dTEin", 11399 + ho, (10, 500, 5), (20, 1000, 10), True),
+                                    ("dTAus", 11402 + ho, (5, 495, 5), (10, 990, 10), True),
+                                ),
+                                (("dTEin", 11399 + ho, "dTAus", 11402 + ho),),
+                            ),
+                        ),
+                    )
+                ),
+                _activity_thermal(
+                    prefix,
+                    (
+                        ("TMax", 11389 + ho, (200, 900, 10), (680, 1940, 20), False),
+                        ("dTMax", 11394 + ho, (5, 100, 5), (10, 200, 10), True),
+                    ),
+                ),
+            ),
+        )
+        prefix = root + "_Zirkulation"
+        thermal_circulation = _activity_setting(
+            root, 11273 + ho,
+            Dependency(root + "_Type", 11266 + ho, (4,)),
+            (
+                sensor,
+                output,
+                _activity_thermal(
+                    prefix,
+                    (
+                        ("TEin", 11408 + ho, (100, 590, 10), (500, 1380, 20), False),
+                        ("TAus", 11411 + ho, (110, 600, 10), (520, 1400, 20), False),
+                    ),
+                    (("TAus", 11411 + ho, "TEin", 11408 + ho),),
+                ),
+            ),
+        )
+        yield replace(
+            thermal_circulation,
+            dependencies=(Dependency(prefix + "_Variante", 11405 + ho, (0,)),),
+        )
+
+        so = (slot - 1) * 120
+        root = f"Solar_Wf{slot}"
+        for kind, name, index in (
+            (6, "NhUnterdrueckung", 4461),
+            (7, "Parallelrelais", 4464),
+        ):
+            yield _activity_setting(
+                root, 4415 + so,
+                Dependency(root + "_Type", 4409 + so, (kind,)),
+                (
+                    RangeDependency(root + "_Relais1_Nr", 4436 + so, 1, 100),
+                    RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
+                    RangeDependency("Solar_Kol1_Sensor1_Nr", 3536, 1, 65),
+                    SolarSelection(root + "_" + name + "_SpeicherMaske", index + so, stores=True),
+                ),
+            )
+
+    for slot in range(1, 8):
+        offset = (slot - 1) * 133
+        root = f"Wmz{slot}"
+        # The controller owns activity even when the telemetry meter vanishes.
+        measured = _activity_setting(
+            root, 17263 + offset,
+            Dependency(root + "_Type", 17260 + offset, (1,)),
+            (
+                RangeDependency(root + "_Sensor1_Nr", 17359 + offset, 1, 65),
+                RangeDependency(root + "_Sensor2_Nr", 17363 + offset, 1, 65),
+                RangeDependency(root + "_Sensor3_Nr", 17367 + offset, 1, 65),
+            ),
+        )
+        yield replace(
+            measured,
+            dependencies=(
+                Dependency(root + "_OVolumenstromSensor", 17270 + offset, (1,)),
+                Dependency(root + "_OBezugsrelais1", 17371 + offset, (0,)),
+            ),
+        )
+        yield _activity_setting(
+            root, 17263 + offset,
+            Dependency(root + "_Type", 17260 + offset, (2,)),
+            (RangeDependency(root + "_Impulszaehler_Sensor1_Nr", 17379 + offset, 1, 65),),
+        )
+
+
+BX_PLUS_ACTIVITY_SETTINGS = tuple(_installed_function_activity())
+
+
 def _heating_operating_settings():
     """Documented operating controls; existing flow protection is read-only.
 
