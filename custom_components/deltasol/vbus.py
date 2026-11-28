@@ -26,6 +26,10 @@ ERROR_CODES = {
     "VBus command send failed": "command_send",
     "VBus parameter response failed": "parameter_response",
     "VBus write outcome uncertain": "write_outcome_uncertain",
+    **{
+        f"VBus write outcome uncertain: {outcome}": f"write_outcome_{outcome}"
+        for outcome in ("previous", "requested", "partial", "unavailable")
+    },
     "VBus response timed out": "timeout",
     "VBus connection closed": "connection_closed",
     "VBus release not confirmed": "release_unconfirmed",
