@@ -8,6 +8,7 @@ indices. No site-specific settings or proprietary catalogue are bundled.
 """
 
 import re
+import struct
 from dataclasses import dataclass, replace
 from decimal import Decimal
 from operator import ge, gt, le, lt, ne
@@ -22,6 +23,98 @@ from .catalog import (
     ordinal_options,
 )
 from .vbus import VBusError
+
+
+def decode_native_day(payload):
+    """Decode the day layout corroborated by BX Plus 2.08 native SET exports.
+
+    Six ordered start/end quarter-hour pairs, unused pairs FF FF.
+    RESOL BX Plus manual 11202383 documents the native 00:00-23:45
+    quarter-hour range for weekly timer channels. Reject malformed and
+    overlapping windows; do not invent a 24:00 sentinel or cross-day format.
+    This codec alone never establishes the VBus subindex mapping or write access.
+    """
+    if not isinstance(payload, bytes) or len(payload) != 12:
+        return None
+    windows = []
+    previous_end = 0
+    unused = False
+    for start, end in zip(payload[::2], payload[1::2], strict=True):
+        if (start, end) == (255, 255):
+            unused = True
+            continue
+        if unused or not previous_end <= start < end <= 95:
+            return None
+        windows.append({"start_minute": start * 15, "end_minute": end * 15})
+        previous_end = end
+    return windows
+
+
+def encode_native_day(windows):
+    """Encode only the established native SET representation, not a VBus write.
+
+    Preserve the six-window limit and the documented native 00:00-23:45
+    quarter-hour grid. Reject 24:00 instead of silently rounding.
+    """
+    if not isinstance(windows, (list, tuple)) or len(windows) > 6:
+        raise ValueError("Invalid native day windows")
+    payload = bytearray([255] * 12)
+    for index, window in enumerate(windows):
+        if not isinstance(window, dict) or set(window) != {
+            "start_minute",
+            "end_minute",
+        }:
+            raise ValueError("Invalid native day windows")
+        start, end = window["start_minute"], window["end_minute"]
+        if any(
+            type(value) is not int or not 0 <= value <= 1425 or value % 15
+            for value in (start, end)
+        ):
+            raise ValueError("Invalid native day windows")
+        payload[2 * index : 2 * index + 2] = bytes((start // 15, end // 15))
+    result = bytes(payload)
+    if decode_native_day(result) is None:
+        raise ValueError("Invalid native day windows")
+    return result
+
+
+def parse_weekly_day(value):
+    """Parse a native daily schedule, never raw bytes or register values."""
+    if not isinstance(value, str) or len(value) > 76:
+        raise CatalogError("Invalid weekly schedule")
+    windows = []
+    for interval in value.split(",") if value.strip() else ():
+        match = re.fullmatch(r"\s*(\d{2}):(\d{2})-(\d{2}):(\d{2})\s*", interval)
+        if match is None:
+            raise CatalogError("Invalid weekly schedule")
+        h1, m1, h2, m2 = map(int, match.groups())
+        if max(h1, h2) > 23 or max(m1, m2) > 59:
+            raise CatalogError("Invalid weekly schedule")
+        windows.append({"start_minute": h1 * 60 + m1, "end_minute": h2 * 60 + m2})
+    try:
+        return struct.unpack("<iii", encode_native_day(windows))
+    except ValueError as error:
+        raise CatalogError("Invalid weekly schedule") from error
+
+
+def format_weekly_day(words):
+    if (
+        not isinstance(words, tuple)
+        or len(words) != 3
+        or any(type(word) is not int or not -(2**31) <= word < 2**31 for word in words)
+    ):
+        return None
+    windows = decode_native_day(struct.pack("<iii", *words))
+    if windows is None:
+        return None
+
+    def clock(minutes):
+        return f"{minutes // 60:02d}:{minutes % 60:02d}"
+
+    return ", ".join(
+        f"{clock(window['start_minute'])}-{clock(window['end_minute'])}"
+        for window in windows
+    )
 
 
 @dataclass(frozen=True)
@@ -204,6 +297,7 @@ class Setting:
     peer_limits: tuple[tuple[str, tuple[str, str, str, str]], ...] = ()
     # Runtime metadata derived only from an authorized, exact catalogue.
     value_definition: Definition | None = None
+    weekly_slot: int | None = None
 
     @property
     def native_slot(self):
@@ -254,6 +348,8 @@ class Setting:
         )
 
     def encode(self, value):
+        if self.kind == "text" and self.weekly_slot is not None:
+            return parse_weekly_day(value)
         if self.kind == "switch":
             if type(value) is not bool:
                 raise CatalogError("Boolean value required")
@@ -267,6 +363,8 @@ class Setting:
         raise CatalogError("Unsupported configuration type")
 
     def decode(self, raw):
+        if self.kind == "text" and self.weekly_slot is not None:
+            return format_weekly_day(raw)
         if type(raw) is not int:
             return None
         if self.kind == "switch":
@@ -418,7 +516,16 @@ def bind_setting(setting, definitions):
     if setting.kind == "number":
         normalized = _normalized_numeric(alias, setting.limits)
         return replace(setting, value_definition=normalized)
-    if setting.kind == "switch":
+    if setting.kind == "text" and setting.weekly_slot is not None:
+        if (
+            "Blob" not in target.metadata.get("type_chain", ())
+            or target.metadata.get("size_bytes") != 12
+            or target.metadata.get("size_unverified")
+            or target.metadata.get("unresolved_base")
+            or target.metadata.get("rpt_storage") != "preferences"
+        ):
+            raise CatalogError("Catalogue weekly day contract differs")
+    elif setting.kind == "switch":
         if "Boolean" not in target.metadata.get("type_chain", ()):
             raise CatalogError("Catalogue boolean contract differs")
     elif setting.kind == "select":
@@ -438,7 +545,9 @@ class ConfigurationCapability:
     controller: object
     device: object
     changeset: int
-    raw: int
+    raw: int | tuple[int, int, int]
+    owners: tuple[str, ...] = ()
+    active_owners: tuple[str, ...] = ()
 
     @property
     def unique_id(self):
@@ -450,6 +559,110 @@ class ConfigurationCapability:
     @property
     def value(self):
         return self.setting.decode(self.raw)
+
+
+@dataclass(frozen=True)
+class WeeklyOwner:
+    """Native function reference and positive active timer conditions."""
+
+    name: str
+    index: int
+    conditions: tuple[Dependency, ...]
+
+    @property
+    def expected(self):
+        return {self.name: self.index, **{d.name: d.index for d in self.conditions}}
+
+    def active(self, values):
+        return all(d.matches(values) for d in self.conditions)
+
+    def inactive(self, values):
+        return any(type(values.get(d.name)) is int and not d.matches(values) for d in self.conditions)
+
+
+def _weekly_owners():
+    for slot in range(1, 17):
+        for prefix, base, stride, timer, ref, types in (
+            ("Anlage_Wf", 6559, 251, 15, 61, tuple(range(1, 13))),
+            ("Heizung_Wf", 11266, 151, 22, 80, tuple(range(1, 5))),
+        ):
+            root = f"{prefix}{slot}"
+            index = base + stride * (slot - 1)
+            yield WeeklyOwner(
+                root + "_SchaltuhrNr",
+                index + ref,
+                (
+                    Dependency(root + "_Type", index, types),
+                    Dependency(root + "_Aktiviert_Modus", index + 7, (1, 2)),
+                    Dependency(root + "_OSchaltuhr", index + timer, (1,)),
+                ),
+            )
+    for slot in range(1, 8):
+        root = f"Heizung_Heizkreis{slot}"
+        index = 13684 + 495 * (slot - 1)
+        conditions = (
+            Dependency(root + "_Type", index, (1,)),
+            Dependency(root + "_Aktiviert_Modus", index + 5, (1, 2)),
+        )
+        yield WeeklyOwner(
+            root + "_SchaltuhrNr",
+            index + 133,
+            (*conditions, Dependency(root + "_OSchaltuhr", index + 19, (1,))),
+        )
+        for room in range(1, 6):
+            room_root = f"{root}_Raumthermostat{room}"
+            offset = index + 136 + 32 * (room - 1)
+            yield WeeklyOwner(
+                room_root + "_SchaltuhrNr",
+                offset + 29,
+                (
+                    *conditions,
+                    Dependency(room_root + "_Aktiviert", offset, (1, 2)),
+                    Dependency(room_root + "_OSchaltuhr", offset + 1, (1,)),
+                ),
+            )
+
+
+WEEKLY_OWNERS = tuple(_weekly_owners())
+
+
+def weekly_settings_for(definitions):
+    """Only bind schedules against the full exact native ownership layout."""
+    for owner in WEEKLY_OWNERS:
+        for name, index in owner.expected.items():
+            definition = definitions.get(name)
+            if (
+                definition is None
+                or definition.index != index
+                or definition.excluded
+                or is_sensitive(definition)
+            ):
+                return ()
+        if "WochenschaltuhrNr" not in definitions[owner.name].metadata.get("type_chain", ()):
+            return ()
+    result = []
+    for slot in range(1, 51):
+        root = f"Wsu{slot}"
+        index = 18401 + 13 * slot
+        for offset, (day, label) in enumerate((
+            ("Mo", "Monday"), ("Di", "Tuesday"), ("Mi", "Wednesday"),
+            ("Do", "Thursday"), ("Fr", "Friday"), ("Sa", "Saturday"), ("So", "Sunday"),
+        )):
+            setting = Setting(
+                f"{root}_Schaltuhr_Woche_Tag{day}_Daten",
+                index + 5 + offset,
+                f"Weekly program {slot} {label}",
+                "text",
+                True,
+                installed_by=Dependency(root + "_Belegt", index, (1,)),
+                dependencies=(Dependency(root + "_Schaltuhr_Woche_Initialisiert", index + 4, (1,)),),
+                weekly_slot=slot,
+            )
+            try:
+                result.append(bind_setting(setting, definitions))
+            except CatalogError:
+                continue
+    return tuple(result)
 
 
 # All currently independently corroborated basic-menu settings that resolve
