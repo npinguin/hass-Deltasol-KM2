@@ -1851,7 +1851,9 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(len(configuration.BX_PLUS_SOLAR_COLLECTOR_SETTINGS), 6)
         for setting in configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS:
             if setting.name.startswith("Anlage_WTUmwaelzpumpe_"):
-                self.assertEqual(setting.installed_by.name, "Anlage_WTUmwaelzpumpe_Relais_Nr")
+                self.assertEqual(
+                    setting.installed_by.name, "Anlage_WTUmwaelzpumpe_Relais_Nr"
+                )
                 continue
             selector = definitions[setting.installed_by.name]
             self.assertEqual(
