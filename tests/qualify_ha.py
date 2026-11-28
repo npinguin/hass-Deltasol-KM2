@@ -1726,7 +1726,9 @@ async def qualify(directory, phase):
         assert Peer.settings[4347] == 30 and Peer.saves == 36
 
         schedule = entity("Wsu1_Schaltuhr_Woche_TagMo_Daten", "text")
-        assert schedule and hass.states.get(schedule).state == "08:00-10:00, 18:00-20:00"
+        assert (
+            schedule and hass.states.get(schedule).state == "08:00-10:00, 18:00-20:00"
+        )
         assert set(hass.states.get(schedule).attributes["observed_references"]) == {
             "Anlage_Wf1_SchaltuhrNr",
             "Anlage_Wf4_SchaltuhrNr",
