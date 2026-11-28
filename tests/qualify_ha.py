@@ -77,7 +77,9 @@ CONFIG_SELECTORS = {
     "Heizung_Wf2_Relais2_Nr": (11480, 2),
     "Heizung_Wf2_NhRelais1_Nr": (11488, 3),
     "Heizung_Wf2_Sensor1_Nr": (11441, 4),
-    "Heizung_Wf2_ThBwErwaermung_Modus": (11529, 0),
+    "Heizung_Wf2_Sensor2_Nr": (11445, 5),
+    "Heizung_Wf2_SensorBetriebsartenschalter1_Nr": (11458, 6),
+    "Heizung_Wf2_SensorSchalter1_Nr": (11462, 7),
     "SDKarte_Status_KarteVorhanden": (18227, 1),
     "SDKarte_Status_Schreibfehler": (18228, 0),
     "SDKarte_Status_KarteUnbekannt": (18229, 0),
@@ -87,7 +89,7 @@ CONFIG_SELECTORS = {
     "Anlage_Wf1_Sensor1_Nr": (6576, 1),
     "Anlage_Wf1_Relais1_Nr": (6592, 2),
     "Anlage_Wf1_Relais2_Nr": (6600, 3),
-    "Heizung_Heizkreis1_Kuehlung_Modus": (14066, 0),
+    "Heizung_Heizkreis1_Kuehlung_ExtSchalter_Sensor1_Nr": (14068, 8),
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem": (14075, 0),
     "Anlage_Wf1_Type": (6559, 2),
     "Anlage_Wf1_Aktiviert_Modus": (6566, 1),
@@ -185,6 +187,14 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
+    "Heizung_Wf2_ThBwErwaermung_Modus": (11529, 0, 0, 1),
+    "Heizung_Wf2_OBetriebsartenschalterAus": (11438, 0, 0, 1),
+    "Heizung_Wf2_ThBwErwaermung_OManuelleAufheizung": (11538, 0, 0, 1),
+    "Heizung_Wf2_ThBwErwaermung_TEin": (11530, 450, 0, 940),
+    "Heizung_Wf2_ThBwErwaermung_TAus": (11533, 550, 10, 950),
+    "Heizung_Heizkreis1_Kuehlung_Modus": (14066, 0, 0, 2),
+    "Solar_Kol1_Omin": (3533, 0, 0, 1),
+    "Solar_Kol1_Tmin": (3539, 200, 100, 900),
     "Heizung_Heizkreis1_Nachheizung_OFruehstart": (13714, 1, 0, 1),
     "Heizung_Heizkreis1_Nachheizung_OBlockierung": (13716, 1, 0, 1),
     "Heizung_Heizkreis1_Kuehlung_OTimer": (14098, 1, 0, 1),
@@ -395,6 +405,9 @@ TEMPERATURE_NAMES = (
     "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf2",
     "Solar_Sp1_Tsoll",
     "Solar_Sp1_Tmax",
+    "Heizung_Wf2_ThBwErwaermung_TEin",
+    "Heizung_Wf2_ThBwErwaermung_TAus",
+    "Solar_Kol1_Tmin",
 )
 TEMPERATURE_PARENTS = {CONFIG_SETTINGS[name][0] for name in TEMPERATURE_NAMES}
 TEMPERATURE_ALIASES = {
@@ -871,7 +884,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[13697] in (1, 2)
                         assert Peer.extra_values[14059] > 0
                         if index == 14072:
-                            assert Peer.extra_values[14066] in (0, 2)
+                            assert Peer.settings[14066] in (0, 2)
                             assert Peer.extra_values[13800] > 0
                         else:
                             assert Peer.extra_values[13796] > 0
@@ -2820,6 +2833,34 @@ async def qualify(directory, phase):
             await hass.async_block_till_done()
             assert Peer.settings[index] == 1
             assert Peer.saves == before_coordination + 1
+
+        dhw_mode = entity("Heizung_Wf2_ThBwErwaermung_Modus", "select")
+        cooling_mode = entity("Heizung_Heizkreis1_Kuehlung_Modus", "select")
+        assert dhw_mode and cooling_mode
+        before_modes = Peer.saves
+        await set_mode(dhw_mode, "Zone")
+        assert Peer.settings[11529] == 1
+        await set_mode(dhw_mode, "Zone")
+        assert Peer.saves == before_modes + 1
+        await set_mode(dhw_mode, "Thermostat")
+        await set_mode(cooling_mode, "Both")
+        assert Peer.settings[14066] == 2
+        await set_mode(cooling_mode, "Outdoor")
+        assert Peer.saves == before_modes + 4
+        for name, index in (
+            ("Heizung_Wf2_OBetriebsartenschalterAus", 11438),
+            ("Heizung_Wf2_ThBwErwaermung_OManuelleAufheizung", 11538),
+            ("Solar_Kol1_Omin", 3533),
+        ):
+            option = entity(name, "switch")
+            assert option and hass.states.get(option).state == "off"
+            before_option = Peer.saves
+            await hass.services.async_call(
+                "switch", "turn_on", {"entity_id": option}, blocking=True
+            )
+            await hass.async_block_till_done()
+            assert Peer.settings[index] == 1
+            assert Peer.saves == before_option + 1
 
         timer = entity("Anlage_Wf8_OSchaltuhr", "switch")
         assert timer and hass.states.get(timer).state == "off"
