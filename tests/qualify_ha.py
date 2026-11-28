@@ -922,9 +922,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[4341] > 0
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
-                        assert (
-                            Peer.extra_values[3576] > 0 and Peer.settings[3604] == 1
-                        )
+                        assert Peer.extra_values[3576] > 0 and Peer.settings[3604] == 1
                     else:
                         assert proposed[6917] < proposed[6914] < proposed[6920]
                 if index in TEMPERATURE_PARENTS:
@@ -952,9 +950,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[4341] > 0
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
-                        assert (
-                            Peer.extra_values[3576] > 0 and Peer.settings[3604] == 1
-                        )
+                        assert Peer.extra_values[3576] > 0 and Peer.settings[3604] == 1
                     elif index == 6629:
                         assert Peer.extra_values[6559] == 2
                         assert Peer.settings[6566] == 1
@@ -3141,7 +3137,9 @@ async def qualify(directory, phase):
         before_store = {i: Peer.settings[i] for i in (3579, 3582, 3585, 3588, 3591)}
         await set_mode(store_activity, "Deactivated")
         assert Peer.settings[3604] == 0
-        assert hass.states.get(entity("Solar_Sp1_dTein", "number")).state == "unavailable"
+        assert (
+            hass.states.get(entity("Solar_Sp1_dTein", "number")).state == "unavailable"
+        )
         await set_mode(store_activity, "Activated")
         assert Peer.settings[3604] == 1
         assert all(Peer.settings[i] == value for i, value in before_store.items())
