@@ -191,3 +191,10 @@ test("one locale dictionary covers all shell keys and preserves native numeric i
 test("navigation does not keep a selected object outside the target domain",()=>{
   const p=model(true,true);p.render=()=>{};p.object="device";p.current().objects.push({id:"solar",capabilities:[{section:"solar",depth:"status"}]});p.editor={id:"text.week"};p.selectTab("solar");assert.equal(p.object,"");assert.equal(p.editor,null);assert.equal(p.objectsForTab().length,1);p.selectObject("device");assert.equal(p.object,"");p.selectObject("solar");assert.equal(p.object,"solar");p.current().settings=false;p.selectTab("settings");assert.equal(p.tab,"solar");
 });
+
+test("linked native schedule remains reachable from the same function context in Settings",()=>{
+  const p=model(true,true);p.render=()=>{};const asset=p.current().objects[0],row=p.row("text.week");row.program=3;row.day="Mo";asset.capabilities=[{entity_id:"sensor.temperature",depth:"status",section:"overview",linked_program:3}];p.current().objects.push({id:"program-owner",capabilities:[row]});p.object=asset.id;p.selectTab("settings");assert.equal(p.object,asset.id);assert.equal(p.weekPrograms().length,1);
+});
+test("stale engineering response cannot replace a newer authorized request",async()=>{
+  const p=model(true,true);p.tab="engineering";p.render=()=>{};const requests=[];p._hass.callWS=()=>new Promise(resolve=>requests.push(resolve));const first=p.engineering(),second=p.engineering();requests[1]({newer:true});await second;requests[0]({older:true});await first;assert.equal(p.report.newer,true);assert.equal(p.report.older,undefined);
+});

@@ -90,18 +90,22 @@ class ResolDashboard extends HTMLElement {
   async load(){
     if(!this._hass||this.loading)return;
     this.loading=true;
+    const before=this.current(),oldContext=this.context;
+    let scopeChanged=false;
     try{
       this.installations=await this._hass.callWS({type:"deltasol/dashboard/list"});
       if(!this.current()){this.context=this.installations[0]?.id||"";this.object="";this.report=null;}
       if(!this.current()?.objects.some(asset=>asset.id===this.object))this.object="";
-      if(!this.current()?.engineering){this.report=null;this.query="";this.filter="all";this.page=0;}
+      const current=this.current();
+      scopeChanged=oldContext!==this.context||before?.engineering!==current?.engineering||before?.settings!==current?.settings||Boolean(before&&this.rows().length!==before.objects.flatMap(asset=>asset.capabilities).length);
+      if(!current?.engineering){this.report=null;this.engineeringRequest=null;this.query="";this.filter="all";this.page=0;}
       if(!this.tabs().includes(this.tab))this.tab="overview";
       if(this.object&&!this.objectsForTab().some(asset=>asset.id===this.object))this.object="";
       if(this.editor&&!this.row(this.editor.id)?.control)this.editor=null;
       if(this.history&&!this.row(this.history.id))this.history=null;
       this.loaded=true;
-    }catch{this.installations=[];this.context="";this.object="";this.report=null;this.editor=null;this.history=null;this.tab="overview";this.notice=this.t("error");this.loaded=true;}
-    finally{this.loading=false;if(!this.editor&&!this.pending&&!this.shadowRoot.activeElement?.matches("input,select,textarea"))this.render();}
+    }catch{scopeChanged=true;this.installations=[];this.context="";this.object="";this.report=null;this.engineeringRequest=null;this.editor=null;this.history=null;this.tab="overview";this.notice=this.t("error");this.loaded=true;}
+    finally{this.loading=false;if(scopeChanged||!this.editor&&!this.pending&&!this.shadowRoot.activeElement?.matches("input,select,textarea"))this.render();}
   }
   tabs(){
     const installation=this.current();
@@ -111,11 +115,13 @@ class ResolDashboard extends HTMLElement {
   objectsForTab(tab=this.tab){
     const objects=this.current()?.objects||[];
     if(tab==="overview"||tab==="engineering")return objects;
-    return objects.filter(asset=>asset.capabilities.some(row=>tab==="settings"?row.depth==="settings"||row.depth==="controls":row.section===tab&&row.depth!=="engineering"));
+    const programs=new Set(objects.flatMap(asset=>asset.capabilities.filter(row=>row.schedule&&row.program).map(row=>row.program)));
+    return objects.filter(asset=>asset.capabilities.some(row=>tab==="settings"?row.depth==="settings"||row.depth==="controls"||programs.has(row.linked_program):row.section===tab&&row.depth!=="engineering"));
   }
   selectTab(tab){
     if(!this.tabs().includes(tab))return;
     this.tab=tab;
+    if(tab!=="engineering"){this.report=null;this.engineeringRequest=null;}
     if(this.object&&!this.objectsForTab(tab).some(asset=>asset.id===this.object))this.object="";
     this.editor=null;this.history=null;this.notice="";this.page=0;
     this.render();if(tab==="engineering")this.engineering();
@@ -327,14 +333,17 @@ class ResolDashboard extends HTMLElement {
     }
   }
   async engineering(){
+    if(!this.current()?.engineering)return;
     this.report=null;
+    const request={id:this.context};
+    this.engineeringRequest=request;
     this.render();
-    const id=this.context;
+    const active=()=>this.engineeringRequest===request&&this.context===request.id&&this.tab==="engineering"&&this.current()?.engineering;
     try{
-      const report=await this._hass.callWS({type:"deltasol/dashboard/engineering",entry_id:id});
-      if(this.context===id&&this.tab==="engineering"&&this.current()?.engineering)this.report=report;
-    }catch{this.notice=this.t("error");}
-    this.render();
+      const report=await this._hass.callWS({type:"deltasol/dashboard/engineering",entry_id:request.id});
+      if(active())this.report=report;
+    }catch{if(active())this.notice=this.t("error");}
+    if(active())this.render();
   }
   engineeringView(){
     if(!this.report)return '<p>'+escape(this.t("loading"))+'</p>';
@@ -462,7 +471,7 @@ class ResolDashboard extends HTMLElement {
   change(event){
     const target=event.target;
     if(this.pending){this.render();return;}
-    if(target.id==="installation"){this.context=target.value;this.object="";this.editor=null;this.history=null;this.report=null;if(!this.tabs().includes(this.tab))this.tab="overview";this.render();if(this.tab==="engineering")this.engineering();}
+    if(target.id==="installation"){this.context=target.value;this.object="";this.editor=null;this.history=null;this.report=null;this.engineeringRequest=null;if(!this.tabs().includes(this.tab))this.tab="overview";this.render();if(this.tab==="engineering")this.engineering();}
     if(target.id==="object")this.selectObject(target.value);
     if(target.id==="technical-filter"){this.filter=target.value;this.page=0;this.renderInventory();}
     if(target.id==="history-range"&&this.history)this.openHistory(this.row(this.history.id),Number(target.value));
