@@ -407,10 +407,13 @@ def _read_weekly_settings(
         return {}
     hints = hints or {}
     candidates = tuple(
-        owner for owner in WEEKLY_OWNERS
-        if complete or (
+        owner
+        for owner in WEEKLY_OWNERS
+        if complete
+        or (
             (row := hints.get(owner.name)) is not None
-            and row.status == "read" and row.index == owner.index
+            and row.status == "read"
+            and row.index == owner.index
             and row.value in slots
         )
     )
@@ -419,8 +422,12 @@ def _read_weekly_settings(
 
     def read(expected, packed=None):
         return session.read_parameter_observations(
-            profile.address, expected, changeset,
-            expected=expected, schema=profile.schema_index, packed=packed,
+            profile.address,
+            expected,
+            changeset,
+            expected=expected,
+            schema=profile.schema_index,
+            packed=packed,
         )
 
     refs = read({owner.name: owner.index for owner in candidates})
@@ -429,8 +436,11 @@ def _read_weekly_settings(
     for owner in candidates:
         row = refs.get(owner.name)
         if (
-            row is None or row.status != "read" or row.index != owner.index
-            or type(row.value) is not int or not 0 <= row.value <= 50
+            row is None
+            or row.status != "read"
+            or row.index != owner.index
+            or type(row.value) is not int
+            or not 0 <= row.value <= 50
         ):
             if complete and row is not None and row.status == "layout_mismatch":
                 raise VBusError("Configuration parameter is no longer supported")
@@ -449,7 +459,8 @@ def _read_weekly_settings(
     }
     observations = read(conditions)
     values = {
-        name: row.value for name, row in observations.items()
+        name: row.value
+        for name, row in observations.items()
         if row.status == "read" and row.index == conditions[name]
     }
     if complete and any(not owner.inactive(values) for owner in unknown):
@@ -458,9 +469,7 @@ def _read_weekly_settings(
         slot: tuple(sorted(owner.name for owner in owners if owner.active(values)))
         for slot, owners in links.items()
     }
-    eligible = tuple(
-        setting for setting in settings if active.get(setting.weekly_slot)
-    )
+    eligible = tuple(setting for setting in settings if active.get(setting.weekly_slot))
     if not eligible:
         return {}
     expected = {
@@ -468,13 +477,16 @@ def _read_weekly_settings(
     }
     packed = {
         setting.name: {
-            name: index for name, index in setting.expected.items() if name != setting.name
+            name: index
+            for name, index in setting.expected.items()
+            if name != setting.name
         }
         for setting in eligible
     }
     observations = read(expected, packed)
     values = {
-        name: row.value for name, row in observations.items()
+        name: row.value
+        for name, row in observations.items()
         if row.status == "read" and row.index == expected[name]
     }
     result = {}
@@ -486,7 +498,9 @@ def _read_weekly_settings(
         if (
             len(words) != 3
             or words[0] != row.value
-            or any(type(word) is not int or not -(2**31) <= word < 2**31 for word in words)
+            or any(
+                type(word) is not int or not -(2**31) <= word < 2**31 for word in words
+            )
         ):
             continue
         slot = setting.weekly_slot
@@ -500,8 +514,13 @@ def _read_weekly_settings(
         elif not setting.accepts({**values, setting.name: words}):
             continue
         cap = ConfigurationCapability(
-            setting, controller, controller, changeset, words,
-            tuple(sorted(owner.name for owner in links[slot])), active[slot],
+            setting,
+            controller,
+            controller,
+            changeset,
+            words,
+            tuple(sorted(owner.name for owner in links[slot])),
+            active[slot],
         )
         result[cap.unique_id] = cap
     return result
@@ -831,7 +850,10 @@ class RelayParameters:
                     cursor = previous.selector_cursor
                 if any(setting.weekly_slot is not None for setting in contracts):
                     selectors = sorted(
-                        {*selectors, *((owner.name, owner.index) for owner in WEEKLY_OWNERS)},
+                        {
+                            *selectors,
+                            *((owner.name, owner.index) for owner in WEEKLY_OWNERS),
+                        },
                         key=lambda item: item[1],
                     )
                 if selectors:
@@ -881,9 +903,16 @@ class RelayParameters:
             )
             configuration.update(
                 _read_weekly_settings(
-                    session, profile, changeset,
-                    tuple(setting for setting in settings if setting.weekly_slot is not None),
-                    controller, configuration_hints,
+                    session,
+                    profile,
+                    changeset,
+                    tuple(
+                        setting
+                        for setting in settings
+                        if setting.weekly_slot is not None
+                    ),
+                    controller,
+                    configuration_hints,
                 )
             )
         return RelayDiscovery(
@@ -960,7 +989,11 @@ class RelayParameters:
         def current_contract(session, requested=None):
             if setting.weekly_slot is not None:
                 return _read_weekly_settings(
-                    session, profile, capability.changeset, (setting,), controller,
+                    session,
+                    profile,
+                    capability.changeset,
+                    (setting,),
+                    controller,
                     complete=True,
                 ).get(capability.unique_id)
             selectors = {
@@ -1017,21 +1050,30 @@ class RelayParameters:
                 with self._session(profile.address) as session:
                     current = current_contract(session, wanted)
                     if not same_context(current) or (
-                        setting.weekly_slot is not None and current.raw != capability.raw
+                        setting.weekly_slot is not None
+                        and current.raw != capability.raw
                     ):
-                        raise VBusError("Configuration parameter is no longer supported")
+                        raise VBusError(
+                            "Configuration parameter is no longer supported"
+                        )
                     if current.raw == wanted:
                         return current
                     if setting.weekly_slot is not None:
                         attempted = True
                         session.write_packed_verified(
-                            profile.address, setting.index, current.raw, wanted,
+                            profile.address,
+                            setting.index,
+                            current.raw,
+                            wanted,
                             capability.changeset,
                         )
                     else:
                         session.write_verified(
-                            profile.address, setting.index, wanted,
-                            capability.changeset, save=setting.save,
+                            profile.address,
+                            setting.index,
+                            wanted,
+                            capability.changeset,
+                            save=setting.save,
                         )
                 with self._session(profile.address) as session:
                     verified = current_contract(session)
@@ -1046,8 +1088,10 @@ class RelayParameters:
                         observed = current_contract(session)
                     if same_context(observed):
                         outcome = (
-                            "previous" if observed.raw == capability.raw
-                            else "requested" if observed.raw == wanted
+                            "previous"
+                            if observed.raw == capability.raw
+                            else "requested"
+                            if observed.raw == wanted
                             else "partial"
                         )
                 except (OSError, VBusError):
