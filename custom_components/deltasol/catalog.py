@@ -169,15 +169,14 @@ def _metadata(type_node, types):
     result = {}
     declared_sizes = []
     for node in reversed(chain):
-        attribute = node.get("size")
-        size = node.find("size")
-        if attribute is not None:
-            declared_sizes.append(_integer(attribute.strip()))
-        if size is not None:
-            child_size = _integer((size.text or "").strip())
-            declared_sizes.append(child_size)
-            if attribute is not None and child_size != _integer(attribute.strip()):
-                declared_sizes.append(None)
+        sizes = [child.text for child in node.findall("size")]
+        if "size" in node.attrib:
+            sizes.append(node.get("size"))
+        parsed_sizes = {_integer((size or "").strip()) for size in sizes}
+        if len(parsed_sizes) > 1:
+            declared_sizes.append(None)
+        else:
+            declared_sizes.extend(parsed_sizes)
         if node.get("unit") is not None:
             result["unit"] = node.get("unit")
         if node.get("selectorValueRef") is not None:
@@ -270,9 +269,7 @@ def parse_menu(xml, digest):
         metadata["applicability"] = "not_assessed"
         # RPT MenuValue defaults omitted storage to Preferences. Keep the
         # existing declared-storage field for checkpoint/consumer compatibility.
-        metadata["rpt_storage"] = (
-            "preferences" if storage == "unspecified" else storage
-        )
+        metadata["rpt_storage"] = node.get("storage", "preferences")
         if name in menu_refs:
             metadata["menu_refs"] = menu_refs[name]
         if node.get("structValueRef"):
