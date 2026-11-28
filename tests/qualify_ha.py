@@ -544,7 +544,50 @@ class Peer:
     silent_offers = 0
     failed_release_sessions = 0
     sessions = 0
+    reads = 0
+    lookups = 0
     owner = threading.Lock()
+
+
+# Index immutable wire aliases once; read mutable peer state at request time.
+# Preserve the original precedence (temperature aliases, temperature parents,
+# differential aliases/parents, weekly words, volatile, persistent, base).
+_COMPOUND_BY_INDEX = {
+    index: (parent, factor) for index, parent, factor in COMPOUND_ALIASES.values()
+}
+_TEMPERATURE_BY_INDEX = {
+    index: (parent, delta) for index, parent, delta in TEMPERATURE_ALIASES.values()
+}
+
+
+def peer_scalar(index):
+    Peer.reads += 1
+    if index in _TEMPERATURE_BY_INDEX:
+        parent, delta = _TEMPERATURE_BY_INDEX[index]
+        return temperature_wire(Peer.settings[parent], delta == 2)
+    if index in TEMPERATURE_PARENTS:
+        return temperature_wire(Peer.settings[index], Peer.settings[60])
+    if index in _COMPOUND_BY_INDEX:
+        parent, factor = _COMPOUND_BY_INDEX[index]
+        return Peer.settings[parent] * factor
+    if index in COMPOUND_PARENTS:
+        return Peer.settings[index] * (1 + Peer.settings[60])
+    if index in Peer.weekly_words:
+        return Peer.weekly_words[index][0]
+    if index in Peer.extra_values:
+        return Peer.extra_values[index]
+    if index in Peer.settings:
+        return Peer.settings[index]
+    return {
+        0: CHANGESET,
+        86: 1,
+        RELAY: Peer.mode,
+        2015: 0,
+        191: 1,
+        193: int(Peer.em_present),
+        EM_RELAY: Peer.em_mode,
+        2169: 1,
+    }[index]
 
 
 def semantic_hash(name):
@@ -708,6 +751,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
             )
             index, value = struct.unpack("<Hi", payload)
             if command == 0x1100:
+                Peer.lookups += 1
                 if value == 613666522:
                     Peer.events.append("missing")
                 if value == 463603356 and Peer.silence_relay_response:
@@ -738,39 +782,10 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     index = 0
                 response = datagram(source, ADDRESS, 0x1101, index, value)
             elif command == 0x0300:
-                value = {
-                    0: CHANGESET,
-                    86: 1,
-                    RELAY: Peer.mode,
-                    2015: 0,
-                    191: 1,
-                    193: int(Peer.em_present),
-                    EM_RELAY: Peer.em_mode,
-                    2169: 1,
-                    **Peer.settings,
-                    **Peer.extra_values,
-                    **{idx: words[0] for idx, words in Peer.weekly_words.items()},
-                    **{
-                        parent: Peer.settings[parent] * (1 + Peer.settings[60])
-                        for parent in COMPOUND_PARENTS
-                    },
-                    **{
-                        alias: Peer.settings[parent] * factor
-                        for alias, parent, factor in COMPOUND_ALIASES.values()
-                    },
-                    **{
-                        parent: temperature_wire(
-                            Peer.settings[parent], Peer.settings[60]
-                        )
-                        for parent in TEMPERATURE_PARENTS
-                    },
-                    **{
-                        alias: temperature_wire(Peer.settings[parent], delta == 2)
-                        for alias, parent, delta in TEMPERATURE_ALIASES.values()
-                    },
-                }[index]
+                value = peer_scalar(index)
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command in (0x0301, 0x0302):
+                Peer.reads += 1
                 assert index in Peer.weekly_words
                 subindex = command & 0xFF
                 if index == 18420 and subindex == 2:
@@ -2259,7 +2274,8 @@ async def qualify(directory, phase):
             print(
                 f"ISOLATED_HA matrix {label}: "
                 f"{monotonic() - matrix_start:.1f}s "
-                f"sessions={Peer.sessions} writes={Peer.writes} saves={Peer.saves}",
+                f"sessions={Peer.sessions} reads={Peer.reads} "
+                f"lookups={Peer.lookups} writes={Peer.writes} saves={Peer.saves}",
                 flush=True,
             )
 

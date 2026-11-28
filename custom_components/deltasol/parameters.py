@@ -13,6 +13,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from functools import cached_property
 from threading import RLock
 from time import monotonic, sleep
 
@@ -102,6 +103,33 @@ class ControllerProfile:
     weekly_owners: tuple[WeeklyOwner, ...] = ()
     weekly_factory: Callable | None = None
     menu_review: Callable[[str], str] | None = None
+
+    @cached_property
+    def _dependency_index(self):
+        """Static profile relationships, not current controller availability."""
+        index = {}
+        for setting in self.settings:
+            for name in setting.expected:
+                index.setdefault(name, []).append(setting)
+        return {name: tuple(settings) for name, settings in index.items()}
+
+    @cached_property
+    def _weekly_dependency_index(self):
+        index = {}
+        for owner in self.weekly_owners:
+            for name in owner.expected:
+                index.setdefault(name, set()).add(owner.name)
+        return {name: frozenset(owners) for name, owners in index.items()}
+
+    def dependent_settings(self, changeset, name):
+        if changeset != self.configuration_changeset:
+            return ()
+        return self._dependency_index.get(name, ())
+
+    def affected_weekly_owners(self, changeset, name):
+        if changeset != self.configuration_changeset:
+            return set()
+        return set(self._weekly_dependency_index.get(name, ()))
 
     def settings_for(self, changeset, catalog=None):
         """Return the existing authorized capabilities, without global BX rules."""
@@ -1260,13 +1288,17 @@ class RelayParameters:
             or find_device(inventory, capability.device.address) != capability.device
         ):
             raise VBusError("Configuration capability or controller identity changed")
-        contracts = profile.settings_for(capability.changeset, catalog)
+        alternatives = tuple(
+            candidate
+            for candidate in profile.settings_for(capability.changeset, catalog)
+            if candidate.name == capability.setting.name
+        )
         # An existing source-verified control may have been registered just
         # before initial catalogue acquisition. Use its newly bound contract
         # only if the authorization and every encoding constraint are identical.
         matches = tuple(
             candidate
-            for candidate in contracts
+            for candidate in alternatives
             if candidate == capability.setting
             or (
                 capability.setting.value_definition is None
@@ -1280,9 +1312,6 @@ class RelayParameters:
         # A logical setting can have several firmware contracts (unit variant,
         # assignment evidence). Recheck competing live contracts, not just the
         # one in an older entity snapshot. First read selectors to bound work.
-        alternatives = tuple(
-            candidate for candidate in contracts if candidate.name == setting.name
-        )
 
         def current_contract(session, requested=None):
             if setting.weekly_slot is not None:

@@ -76,6 +76,52 @@ class QualificationFixtureTests(unittest.TestCase):
         self.assertFalse(failures, failures)
         self.assertFalse(peer.settings.keys() & peer.extra_values.keys())
 
+    def test_peer_scalar_matches_full_wire_map_for_both_units(self):
+        f = self.fixture
+        peer = f["Peer"]
+        saved_unit = peer.settings[60]
+        saved_reads = peer.reads
+        try:
+            for unit in (0, 1):
+                peer.settings[60] = unit
+                expected = {
+                    0: f["CHANGESET"],
+                    86: 1,
+                    f["RELAY"]: peer.mode,
+                    2015: 0,
+                    191: 1,
+                    193: int(peer.em_present),
+                    f["EM_RELAY"]: peer.em_mode,
+                    2169: 1,
+                    **peer.settings,
+                    **peer.extra_values,
+                    **{idx: words[0] for idx, words in peer.weekly_words.items()},
+                    **{
+                        parent: peer.settings[parent] * (1 + unit)
+                        for parent in f["COMPOUND_PARENTS"]
+                    },
+                    **{
+                        alias: peer.settings[parent] * factor
+                        for alias, parent, factor in f["COMPOUND_ALIASES"].values()
+                    },
+                    **{
+                        parent: f["temperature_wire"](peer.settings[parent], unit)
+                        for parent in f["TEMPERATURE_PARENTS"]
+                    },
+                    **{
+                        alias: f["temperature_wire"](peer.settings[parent], delta == 2)
+                        for alias, parent, delta in f["TEMPERATURE_ALIASES"].values()
+                    },
+                }
+                self.assertEqual(
+                    {index: f["peer_scalar"](index) for index in expected}, expected
+                )
+                with self.assertRaises(KeyError):
+                    f["peer_scalar"](-1)
+        finally:
+            peer.settings[60] = saved_unit
+            peer.reads = saved_reads
+
     def test_all_fixture_indices_and_compound_unit_encodings(self):
         f = self.fixture
         peer = f["Peer"]
@@ -2438,6 +2484,39 @@ class ParameterTests(unittest.TestCase):
             with self.assertRaises(parameters.VBusError):
                 self.api.set_configuration(telemetry(), capability, 6, vendor)
         self.session.write_verified.assert_not_called()
+
+    def test_dependency_index_preserves_all_profile_relationships(self):
+        from dataclasses import replace
+
+        profile = parameters.PROFILES[0]
+        changeset = profile.configuration_changeset
+        expected = {}
+        weekly = {}
+        for setting in profile.settings:
+            for name in setting.expected:
+                expected.setdefault(name, []).append(setting)
+        for owner in profile.weekly_owners:
+            for name in owner.expected:
+                weekly.setdefault(name, set()).add(owner.name)
+        for name in expected.keys() | weekly.keys():
+            self.assertEqual(
+                profile.dependent_settings(changeset, name),
+                tuple(expected.get(name, ())),
+            )
+            self.assertEqual(
+                profile.affected_weekly_owners(changeset, name),
+                weekly.get(name, set()),
+            )
+        self.assertEqual(profile.dependent_settings(changeset + 1, "Schema"), ())
+        self.assertEqual(profile.affected_weekly_owners(changeset + 1, "Schema"), set())
+        replacement = replace(profile, settings=(), weekly_owners=())
+        name = next(iter(expected))
+        self.assertEqual(replacement.dependent_settings(changeset, name), ())
+        name = next(iter(weekly))
+        owners = profile.affected_weekly_owners(changeset, name)
+        owners.clear()
+        self.assertEqual(profile.affected_weekly_owners(changeset, name), weekly[name])
+        self.assertEqual(replacement.affected_weekly_owners(changeset, name), set())
 
     def test_profile_binding_review_reports_mismatch_and_keeps_valid_control(self):
         from dataclasses import replace

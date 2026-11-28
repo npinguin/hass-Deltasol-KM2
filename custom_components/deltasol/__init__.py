@@ -713,19 +713,18 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             dependents = (
                 {
                     setting.name
-                    for setting in self.data.profile.settings_for(verified.changeset)
+                    for setting in self.data.profile.dependent_settings(
+                        verified.changeset, verified.setting.name
+                    )
                     if setting.name != verified.setting.name
-                    and verified.setting.name in setting.expected
                 }
                 if changed and self.data.profile
                 else set()
             )
             affected_owners = (
-                {
-                    owner.name
-                    for owner in self.data.profile.weekly_owners
-                    if verified.setting.name in owner.expected
-                }
+                self.data.profile.affected_weekly_owners(
+                    verified.changeset, verified.setting.name
+                )
                 if changed and self.data.profile
                 else set()
             )
@@ -814,7 +813,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 and option == "Auto"
                 and any(
                     (setting.installed_by is None or setting.installed_by.name in hints)
-                    and capability.name in setting.expected
-                    for setting in self.data.profile.settings_for(capability.changeset)
+                    for setting in self.data.profile.dependent_settings(
+                        capability.changeset, capability.name
+                    )
                 )
             )
