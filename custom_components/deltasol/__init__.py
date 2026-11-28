@@ -45,7 +45,7 @@ from .catalog import (
     load_catalog,
     source_for,
 )
-from .configuration import WEEKLY_REVIEW, encode_action
+from .configuration import encode_action
 from .const import (
     CONF_DASHBOARD,
     CONF_VBUS_PASSWORD,
@@ -770,17 +770,19 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         ):
             await self.async_refresh()
 
-    async def async_set_configuration(self, unique_id, value):
-        """Native entities use one live validated configuration action."""
+    async def async_set_configuration(self, unique_id, value, *, review=None):
+        """Native entities and reviewed actions use one validated owner."""
         try:
-            refresh_dependents = await self._async_set_configuration(unique_id, value)
+            refresh_dependents = await self._async_set_configuration(
+                unique_id, value, review=review
+            )
         except VBusError as error:
             await self._async_action_failed(error)
             raise HomeAssistantError(str(error)) from error
         if refresh_dependents:
             await self.async_refresh()
 
-    async def _async_set_configuration(self, unique_id, value):
+    async def _async_set_configuration(self, unique_id, value, *, review=None):
         async with self._lock:
             if (
                 self.closing
@@ -791,9 +793,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             ):
                 raise HomeAssistantError("Configuration capability is unavailable")
             capability = self.data.configuration[unique_id]
-            review = WEEKLY_REVIEW.get()
-            if review is not None and not review.consumed:
-                review.consumed = True
+            if review is not None:
                 try:
                     review.validate(capability)
                 except ValueError as error:

@@ -4421,7 +4421,6 @@ class WeeklyReviewTests(unittest.IsolatedAsyncioTestCase):
         )
         # Exercise the real guard with a controlled stop at the native I/O boundary.
         namespace = {
-            "WEEKLY_REVIEW": parameters_configuration.WEEKLY_REVIEW,
             "HomeAssistantError": ValueError,
             "VBusError": parameters.VBusError,
             "encode_action": Mock(side_effect=RuntimeError("reached native I/O")),
@@ -4443,26 +4442,18 @@ class WeeklyReviewTests(unittest.IsolatedAsyncioTestCase):
             telemetry=SimpleNamespace(last_update_success=True),
             data=SimpleNamespace(configuration={"week": cap}),
         )
-        review = parameters_configuration.WeeklyReview(
-            "week", "08:00-10:00", "owners"
-        )
-        context = parameters_configuration.WEEKLY_REVIEW
-        token = context.set(review)
-        try:
-            async with coordinator._lock:
-                task = asyncio.create_task(
-                    namespace["_async_set_configuration"](
-                        coordinator, "week", "09:00-10:00"
-                    )
+        review = parameters_configuration.WeeklyReview("week", "08:00-10:00", "owners")
+        async with coordinator._lock:
+            task = asyncio.create_task(
+                namespace["_async_set_configuration"](
+                    coordinator, "week", "09:00-10:00", review=review
                 )
-                await asyncio.sleep(0)
-                cap.value = "07:00-10:00"
-            with self.assertRaisesRegex(ValueError, "review again"):
-                await task
-            namespace["encode_action"].assert_not_called()
-            self.assertTrue(review.consumed)
-        finally:
-            context.reset(token)
+            )
+            await asyncio.sleep(0)
+            cap.value = "07:00-10:00"
+        with self.assertRaisesRegex(ValueError, "review again"):
+            await task
+        namespace["encode_action"].assert_not_called()
 
     def test_review_rejects_changed_ownership_and_accepts_same_context(self):
         review = parameters_configuration.WeeklyReview("week", "", "owners")

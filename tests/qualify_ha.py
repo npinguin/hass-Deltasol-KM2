@@ -3638,6 +3638,25 @@ async def qualify(directory, phase):
             resident, "deltasol/dashboard/action", preview=True, **request
         )
         assert not denial["success"] and Peer.bulk_saves == 0
+        # The reviewed HA action itself must reject an unauthorized caller,
+        # independently of dashboard visibility and websocket checks.
+        try:
+            await hass.services.async_call(
+                "deltasol",
+                "save_reviewed_weekly_program",
+                {
+                    **request,
+                    "expected": review["expected"],
+                    "reference_token": review["reference_token"],
+                },
+                blocking=True,
+                context=Context(user_id=resident.id),
+            )
+        except HomeAssistantError:
+            pass
+        else:
+            raise AssertionError("Resident invoked reviewed weekly service")
+        assert Peer.bulk_saves == 0
         stale = await dashboard_request(
             admin,
             "deltasol/dashboard/action",

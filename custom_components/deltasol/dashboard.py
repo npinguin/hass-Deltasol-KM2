@@ -25,7 +25,6 @@ from homeassistant.helpers import entity_registry as er
 
 from .catalog import CatalogError, configuration_evidence, is_sensitive
 from .configuration import (
-    WEEKLY_REVIEW,
     ActorReferences,
     WeeklyReview,
     format_weekly_day,
@@ -674,29 +673,24 @@ async def ws_action(hass, connection, msg):
             or msg.get("reference_token") != row["reference_token"]
         ):
             raise HomeAssistantError("Weekly program changed; review again")
-        review = None
-        token = None
         if row["schedule"]:
-            registered = er.async_get(hass).async_get(row["entity_id"])
-            if registered is None:
-                raise HomeAssistantError("Weekly program is no longer available")
-            review = WeeklyReview(
-                registered.unique_id, msg["expected"], msg["reference_token"]
+            # Preserve the explicit precondition across HA service dispatch.
+            # Ordinary native text.set_value remains available unchanged.
+            kind, service = DOMAIN, "save_reviewed_weekly_program"
+            data.update(
+                entry_id=msg["entry_id"],
+                expected=msg["expected"],
+                reference_token=msg["reference_token"],
             )
-            token = WEEKLY_REVIEW.set(review)
-        try:
-            await hass.services.async_call(
-                kind,
-                service,
-                {"entity_id": row["entity_id"], **data},
-                blocking=True,
-                context=Context(user_id=connection.user.id),
-            )
-            if review is not None and not review.consumed:
-                raise HomeAssistantError("Weekly review was not validated by the owner")
-        finally:
-            if token is not None:
-                WEEKLY_REVIEW.reset(token)
+        await hass.services.async_call(
+            kind,
+            service,
+            {"entity_id": row["entity_id"], **data},
+            blocking=True,
+            context=Context(user_id=connection.user.id),
+        )
+        if row["schedule"]:
+            kind = "text"
         state = hass.states.get(row["entity_id"])
         result = observed_result(kind, state, data.get("value", msg["value"]))
         connection.send_result(
@@ -708,6 +702,37 @@ async def ws_action(hass, connection, msg):
             "action_failed",
             "Action rejected or outcome uncertain; check live state",
         )
+
+
+async def save_reviewed_weekly_program(hass, call):
+    """HA action adapter: scoped admin, explicit review, existing native owner."""
+    user = (
+        await hass.auth.async_get_user(call.context.user_id)
+        if call.context.user_id
+        else None
+    )
+    if not user or not user.is_admin:
+        raise HomeAssistantError("Weekly program configuration is not permitted")
+    data = call.data
+    row = scoped_control(hass, user, data["entry_id"], data["entity_id"])
+    if not row["schedule"]:
+        raise HomeAssistantError("Not a weekly program")
+    entry = hass.config_entries.async_get_entry(data["entry_id"])
+    registered = er.async_get(hass).async_get(row["entity_id"])
+    if (
+        not enabled(entry)
+        or registered is None
+        or registered.config_entry_id != entry.entry_id
+        or not entry.runtime_data.relay_coordinator
+    ):
+        raise HomeAssistantError("Weekly program is no longer available")
+    await entry.runtime_data.relay_coordinator.async_set_configuration(
+        registered.unique_id,
+        data["value"],
+        review=WeeklyReview(
+            registered.unique_id, data["expected"], data["reference_token"]
+        ),
+    )
 
 
 def module_url(directory):
@@ -730,6 +755,24 @@ async def async_setup_dashboard(hass, entry_id):
             websocket_api.async_register_command(hass, ws_dashboard_list)
             websocket_api.async_register_command(hass, ws_engineering)
             websocket_api.async_register_command(hass, ws_action)
+
+            async def reviewed_weekly_action(call):
+                await save_reviewed_weekly_program(hass, call)
+
+            hass.services.async_register(
+                DOMAIN,
+                "save_reviewed_weekly_program",
+                reviewed_weekly_action,
+                schema=vol.Schema(
+                    {
+                        vol.Required("entry_id"): str,
+                        vol.Required("entity_id"): str,
+                        vol.Required("value"): str,
+                        vol.Required("expected"): str,
+                        vol.Required("reference_token"): str,
+                    }
+                ),
+            )
             hass.data[_RESOURCES] = True
         url = await hass.async_add_executor_job(module_url, directory)
         await panel_custom.async_register_panel(
