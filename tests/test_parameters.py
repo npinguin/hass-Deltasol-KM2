@@ -1056,6 +1056,70 @@ class ParameterTests(unittest.TestCase):
         values["Heizung_Heizkreis1_TVorlaufMax_C"] = 600
         self.assertFalse(setting.accepts(values, setting.encode(48)))
 
+    def test_supplementary_heating_cooling_and_circulation_operating_constraints(self):
+        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        root = "Heizung_Heizkreis1"
+        prefix = root + "_Nachheizung"
+        on = next(s for s in settings if s.name == prefix + "_dTEin" and s.unit == "K")
+        early = next(s for s in settings if s.name == prefix + "_tFruehstart")
+        values = {
+            root + "_Type": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_System": 0,
+            root + "_ONachheizung": 1,
+            prefix + "_Modus": 0,
+            prefix + "_Aktiviert_Modus": 1,
+            root + "_Relais6_Nr": 2,
+            root + "_Sensor4_Nr": 4,
+            prefix + "_dTEin": -50,
+            prefix + "_dTEin_K": -50,
+            prefix + "_dTAus": 50,
+            prefix + "_dTAus_K": 50,
+            prefix + "_tFruehstart": 60,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(on.accepts(values, on.encode(-4.5)))
+        self.assertFalse(on.accepts(values, on.encode(5)))
+        self.assertFalse(early.accepts(values))
+        values[prefix + "_OFruehstart"] = 1
+        self.assertTrue(early.accepts(values, early.encode(90)))
+        values[prefix + "_Modus"] = 1
+        zone = next(
+            s
+            for s in settings
+            if s.name == on.name and s.unit == "K" and s != on
+        )
+        self.assertFalse(on.accepts(values))
+        self.assertFalse(zone.accepts(values))
+        values[root + "_Sensor5_Nr"] = 5
+        self.assertTrue(zone.accepts(values, zone.encode(-4.5)))
+        clock = next(s for s in settings if s.name == root + "_Kuehlung_Timer_tEin")
+        values.update({
+            clock.name: 540,
+            root + "_Kuehlung_OTimer": 1,
+            root + "_Kuehlung_Relais1_Nr": 3,
+        })
+        self.assertFalse(clock.accepts(values))
+        values[root + "_System"] = 2
+        self.assertTrue(clock.accepts(values, clock.encode(555)))
+        values[root + "_Kuehlung_OTimer"] = 0
+        self.assertFalse(clock.accepts(values))
+        pump = "Anlage_WTUmwaelzpumpe"
+        duration = next(
+            s for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            if s.name == pump + "_RuhemodusDauer"
+        )
+        values = {
+            pump + "_Relais_Nr": 2,
+            pump + "_Aktiviert_Modus": 1,
+            pump + "_ORuhemodus": 1,
+            duration.name: 120,
+        }
+        self.assertTrue(duration.accepts(values, duration.encode(12.5)))
+        self.assertFalse(duration.accepts(values, 126))
+        values[pump + "_ORuhemodus"] = 0
+        self.assertFalse(duration.accepts(values))
+
     def test_energy_saving_requires_enabled_option_and_assigned_sensor(self):
         setting = next(
             s
