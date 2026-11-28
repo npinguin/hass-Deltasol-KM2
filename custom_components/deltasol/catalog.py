@@ -7,8 +7,9 @@ import re
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from decimal import Decimal, InvalidOperation
+from functools import cached_property
 from pathlib import Path
 from urllib.error import URLError
 from urllib.parse import urlsplit
@@ -108,6 +109,43 @@ def is_sensitive(definition):
 class Catalog:
     digest: str
     definitions: tuple[Definition, ...]
+    # Set by the verified source adapter, never inferred from a raw parse.
+    source: CatalogSource | None = None
+    # Static binding results belong to this exact normalized catalogue instance.
+    # A replacement catalogue starts empty, even if its source digest is equal.
+    _profile_bindings: dict = field(
+        default_factory=dict, init=False, repr=False, compare=False
+    )
+
+    def profile_binding(self, profile, build):
+        """Reuse static contracts, never live observations or write authority."""
+        key = id(profile)
+        cached = self._profile_bindings.get(key)
+        if cached is None:
+            bound, rejected = build(self)
+            # Retain the profile identity to avoid object-ID reuse. Concurrent
+            # first readers may compile twice but publish one complete result.
+            cached = self._profile_bindings.setdefault(key, (profile, bound, rejected))
+        _, bound, rejected = cached
+        return bound, dict(rejected)
+
+    def matches(self, address, changeset):
+        """One compatibility check for all consumers of normalized metadata."""
+        return (
+            self.source is not None
+            and self.source in CATALOG_SOURCES
+            and self.digest == self.source.digest
+            and (address, changeset) == (self.source.address, self.source.changeset)
+        )
+
+    @cached_property
+    def by_name(self):
+        result = {}
+        for definition in self.definitions:
+            if definition.name in result and result[definition.name] != definition:
+                raise CatalogError("Conflicting parameter definitions")
+            result[definition.name] = definition
+        return result
 
 
 def _number(text):
@@ -146,7 +184,16 @@ def _metadata(type_node, types):
         if base and type_node is None:
             unresolved = base
     result = {}
+    declared_sizes = []
     for node in reversed(chain):
+        sizes = [child.text for child in node.findall("size")]
+        if "size" in node.attrib:
+            sizes.append(node.get("size"))
+        parsed_sizes = {_integer((size or "").strip()) for size in sizes}
+        if len(parsed_sizes) > 1:
+            declared_sizes.append(None)
+        else:
+            declared_sizes.extend(parsed_sizes)
         if node.get("unit") is not None:
             result["unit"] = node.get("unit")
         if node.get("selectorValueRef") is not None:
@@ -182,6 +229,16 @@ def _metadata(type_node, types):
                 for option in options
             ]
     result["type_chain"] = [node.get("id") for node in chain]
+    # RPT TypeInfo inherits the maximum declared size. An invalid
+    # declaration or unresolved ancestry cannot establish a Blob layout.
+    if (
+        declared_sizes
+        and not unresolved
+        and all(type(size) is int and 0 <= size <= 512 for size in declared_sizes)
+    ):
+        result["size_bytes"] = max(declared_sizes)
+    elif declared_sizes:
+        result["size_unverified"] = True
     if unresolved:
         result["unresolved_base"] = unresolved
     # Do not infer implicit enumeration ordinals or defaults.
@@ -227,6 +284,9 @@ def parse_menu(xml, digest):
         type_id = type_node.get("id") if type_node is not None else None
         metadata = _metadata(type_node, types)
         metadata["applicability"] = "not_assessed"
+        # RPT MenuValue defaults omitted storage to Preferences. Keep the
+        # existing declared-storage field for checkpoint/consumer compatibility.
+        metadata["rpt_storage"] = node.get("storage", "preferences")
         if name in menu_refs:
             metadata["menu_refs"] = menu_refs[name]
         if node.get("structValueRef"):
@@ -253,9 +313,21 @@ def parse_menu(xml, digest):
                 and _integer(node.get("idHash")) == parameter_hash(name)
                 and index is not None
                 and 0 < index <= 65535
-                and metadata.get("selector_ref") == "TemperatureHysteresisSelector"
-                and set(metadata.get("type_chain", ()))
-                & {"TemperatureProxy", "HysteresisProxy"}
+                and (
+                    (
+                        metadata.get("selector_ref") == "TemperatureHysteresisSelector"
+                        and set(metadata.get("type_chain", ()))
+                        & {"TemperatureProxy", "HysteresisProxy"}
+                    )
+                    or (
+                        metadata.get("selector_ref") == "FlowSelector"
+                        and "FlowProxy" in metadata.get("type_chain", ())
+                        and re.fullmatch(
+                            r"Anlage_Wf[1-9][0-9]*_Funktionsblock_Volumenstrom(?:Ein|Aus)",
+                            name,
+                        )
+                    )
+                )
             ):
                 metadata["compound_parent_read_candidate"] = True
         elif not name.isascii() or _integer(node.get("idHash")) != parameter_hash(name):
@@ -300,13 +372,15 @@ def _parse_archive(data, source):
             info = archive.getinfo(source.menu_member)
             if info.file_size > MAX_XML:
                 raise CatalogError("RPT menu exceeds size limit")
-            return parse_menu(archive.read(info), digest)
+            return replace(parse_menu(archive.read(info), digest), source=source)
     except (KeyError, zipfile.BadZipFile) as err:
         raise CatalogError("Invalid RPT archive") from err
 
 
 def load_catalog(path, source=CATALOG_SOURCES[0]):
     """Validate the exact cached archive, never execute vendor binaries."""
+    if source not in CATALOG_SOURCES:
+        raise CatalogError("Untrusted RPT catalogue source")
     try:
         with open(path, "rb") as stream:
             data = stream.read(MAX_ARCHIVE + 1)
@@ -422,6 +496,8 @@ def configuration_evidence(definition, definitions):
         "applicability": "not_assessed",
         "storage_action": "not_verified",
     }
+    if "rpt_storage" in metadata:
+        result["rpt_storage"] = metadata["rpt_storage"]
     if definition.excluded:
         result["write_access_reason"] = definition.excluded
     elif "Blob" in metadata.get("type_chain", ()):
@@ -468,11 +544,23 @@ ORDINAL_TYPES = frozenset(
         "Heizung_HeizkreisX_Type",
         "WmzX_Type",
         "ActivityMode",
+        "Handbetrieb",
+        "Anlage_WfX_Struct_Anlage_WfX_Funktionsblock_Vt{0}_Bezugsrelais_Modus",
         "Heizung_HeizkreisX_Heizsystem",
+        "Heizung_HeizkreisX_Heizgrenze",
+        "Heizung_Heizung_HeizkreisX_Struct_Vt{0}_ModusSchaltuhr",
+        "Heizung_Heizung_HeizkreisX_Struct_Vt{0}_Kuehlung_Modus",
+        "Heizung_Heizung_HeizkreisX_Struct_Vt{0}_Nachheizung_Modus",
+        "Heizung_RelaisPumpeX_AnlaufNachlaufModus",
+        "Heizung_WfX_Struct_Heizung_WfX_ThBwErwaermung_Vt{0}_Modus",
+        "Heizung_HeizkreisX_Betriebsart",
         "VtTemperatureHysteresisSelector",
         "VtFlowSelector",
         "VtPressureSelector",
         "VtEnergySelector",
+        "VtSolar_Beladungstyp",
+        "Solar_Solar_Urlaubsfunktion_Vt{0}_Kuehlung",
+        "SDKarte_Vt{0}_Logging_Methode",
         "Wmz_WmzX_Struct_Vt{0}_AlternativAnzeigeEinheit",
     )
 )

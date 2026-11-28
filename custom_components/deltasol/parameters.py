@@ -8,26 +8,55 @@ The BX Plus manual specifies five local relays and two EM slots.
 """
 
 import asyncio
+import struct
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from functools import cached_property
 from threading import RLock
 from time import monotonic, sleep
 
+from .catalog import CatalogError
 from .configuration import (
+    BX_PLUS_ACTIVITY_SETTINGS,
+    BX_PLUS_ADDITIONAL_OPERATING_SETTINGS,
+    BX_PLUS_COORDINATION_OPTIONS,
     BX_PLUS_DIFFERENTIAL_SETTINGS,
     BX_PLUS_HEATING_COMFORT_SETTINGS,
+    BX_PLUS_HEATING_OPERATING_SETTINGS,
     BX_PLUS_HEATING_SETTINGS,
     BX_PLUS_HQM_SETTINGS,
     BX_PLUS_LOADING_SETTINGS,
+    BX_PLUS_LOGGING_SETTINGS,
     BX_PLUS_MIXER_SETTINGS,
+    BX_PLUS_OPERATING_MODE_OPTIONS,
+    BX_PLUS_PROGRAM_OPTIONS,
     BX_PLUS_PUMP_SETTINGS,
+    BX_PLUS_REFERENCE_SETTINGS,
+    BX_PLUS_REMAINING_OPERATING_SETTINGS,
+    BX_PLUS_ROOM_THERMAL_CONTROLS,
     BX_PLUS_SETTINGS,
+    BX_PLUS_SOLAR_COLLECTOR_SETTINGS,
+    BX_PLUS_SOLAR_DEDICATED_SETTINGS,
+    BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS,
+    BX_PLUS_SOLAR_STORE_SETTINGS,
+    BX_PLUS_SOLID_FUEL_MIXER_SETTINGS,
+    BX_PLUS_THERMAL_OPTIONS,
     BX_PLUS_THERMOSTAT_SETTINGS,
     BX_PLUS_TIMING_SETTINGS,
+    BX_PLUS_TRANSFER_SETTINGS,
+    BX_PLUS_WEEKLY_TIMER_OPTIONS,
+    WEEKLY_OWNERS,
+    ActorReferences,
     ConfigurationCapability,
     Setting,
+    WeeklyOwner,
+    WeeklyProgram,
+    bind_setting,
     encode_action,
+    native_menu_review_reason,
+    weekly_settings_for,
 )
 from .vbus import (
     ERROR_CODES,
@@ -71,9 +100,73 @@ class ControllerProfile:
     module_presence_lookup_optional_changeset: int | None = None
     configuration_changeset: int | None = None
     settings: tuple[Setting, ...] = ()
+    weekly_owners: tuple[WeeklyOwner, ...] = ()
+    weekly_factory: Callable | None = None
+    menu_review: Callable[[str], str] | None = None
 
-    def settings_for(self, changeset):
-        return self.settings if changeset == self.configuration_changeset else ()
+    @cached_property
+    def _dependency_index(self):
+        """Static profile relationships, not current controller availability."""
+        index = {}
+        for setting in self.settings:
+            for name in setting.expected:
+                index.setdefault(name, []).append(setting)
+        return {name: tuple(settings) for name, settings in index.items()}
+
+    @cached_property
+    def _weekly_dependency_index(self):
+        index = {}
+        for owner in self.weekly_owners:
+            for name in owner.expected:
+                index.setdefault(name, set()).add(owner.name)
+        return {name: frozenset(owners) for name, owners in index.items()}
+
+    def dependent_settings(self, changeset, name):
+        if changeset != self.configuration_changeset:
+            return ()
+        return self._dependency_index.get(name, ())
+
+    def affected_weekly_owners(self, changeset, name):
+        if changeset != self.configuration_changeset:
+            return set()
+        return set(self._weekly_dependency_index.get(name, ()))
+
+    def settings_for(self, changeset, catalog=None):
+        """Return the existing authorized capabilities, without global BX rules."""
+        return self.binding_review(changeset, catalog)[0]
+
+    def binding_review(self, changeset, catalog=None):
+        """Return supported bindings and concrete rejected contract reasons.
+
+        A rejection of one definition must not silently remove unrelated
+        compatible controls. Reasons describe contract validation, not access.
+        """
+        if changeset != self.configuration_changeset:
+            return (), {}
+        if catalog is None:
+            return self.settings, {}
+        if not catalog.matches(self.address, changeset):
+            return (), {}
+        return catalog.profile_binding(self, self._bind_catalog)
+
+    def _bind_catalog(self, catalog):
+        """Compile only the static, already provenance-checked metadata."""
+        try:
+            definitions = catalog.by_name
+        except CatalogError:
+            return (), {}
+        bound = []
+        rejected = {}
+        for setting in self.settings:
+            try:
+                bound.append(bind_setting(setting, definitions))
+            except CatalogError as error:
+                rejected.setdefault(setting.name, set()).add(str(error))
+        if self.weekly_factory is not None:
+            bound.extend(self.weekly_factory(definitions))
+        return tuple(bound), {
+            name: tuple(sorted(reasons)) for name, reasons in rejected.items()
+        }
 
 
 PROFILES = (
@@ -105,16 +198,35 @@ PROFILES = (
         # physical module identity + exact activation and relay mappings.
         module_presence_lookup_optional_changeset=0x2734DABC,
         configuration_changeset=0x2734DABC,
+        weekly_owners=WEEKLY_OWNERS,
+        weekly_factory=weekly_settings_for,
+        menu_review=native_menu_review_reason,
         settings=(
             *BX_PLUS_SETTINGS,
+            *BX_PLUS_LOGGING_SETTINGS,
             *BX_PLUS_MIXER_SETTINGS,
             *BX_PLUS_HQM_SETTINGS,
             *BX_PLUS_HEATING_SETTINGS,
             *BX_PLUS_HEATING_COMFORT_SETTINGS,
+            *BX_PLUS_HEATING_OPERATING_SETTINGS,
             *BX_PLUS_PUMP_SETTINGS,
-            # Alternative assignment namespaces are not corroborated yet.
-            # Keep direct, positively identified pump roles above.
+            *BX_PLUS_PROGRAM_OPTIONS,
+            *BX_PLUS_THERMAL_OPTIONS,
+            *BX_PLUS_WEEKLY_TIMER_OPTIONS,
+            *BX_PLUS_COORDINATION_OPTIONS,
+            *BX_PLUS_OPERATING_MODE_OPTIONS,
+            *BX_PLUS_ROOM_THERMAL_CONTROLS,
+            *BX_PLUS_ACTIVITY_SETTINGS,
+            *BX_PLUS_REMAINING_OPERATING_SETTINGS,
+            *BX_PLUS_REFERENCE_SETTINGS,
             *BX_PLUS_DIFFERENTIAL_SETTINGS,
+            *BX_PLUS_TRANSFER_SETTINGS,
+            *BX_PLUS_SOLID_FUEL_MIXER_SETTINGS,
+            *BX_PLUS_ADDITIONAL_OPERATING_SETTINGS,
+            *BX_PLUS_SOLAR_STORE_SETTINGS,
+            *BX_PLUS_SOLAR_COLLECTOR_SETTINGS,
+            *BX_PLUS_SOLAR_DEDICATED_SETTINGS,
+            *BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS,
             *BX_PLUS_THERMOSTAT_SETTINGS,
             *BX_PLUS_TIMING_SETTINGS,
             *BX_PLUS_LOADING_SETTINGS,
@@ -229,6 +341,13 @@ class RelayDiscovery:
     changeset: int | None = None
     observed_at: datetime | None = None
     configuration: dict[str, ConfigurationCapability] = field(default_factory=dict)
+    # Latest bounded selector observations are scheduling hints, not write
+    # authorization and not changes to the historical Discovery capture.
+    selector_hints: dict[str, ParameterObservation] = field(default_factory=dict)
+    selector_cursor: int = 0
+
+
+SELECTORS_PER_REFRESH = 4
 
 
 def _checked_parameters(session, profile, changeset, expected):
@@ -245,6 +364,117 @@ def _checked_parameters(session, profile, changeset, expected):
     return {
         name: result.value for name, result in found.items() if result.status == "read"
     }
+
+
+def _read_actor_dependencies(
+    session,
+    profile,
+    changeset,
+    settings,
+    values,
+    controller,
+    inventory,
+    relay_capabilities,
+):
+    """Resolve only referenced registry records and physical output evidence."""
+    dependencies = {
+        reference
+        for setting in settings
+        if setting.installed_by is None or setting.installed_by.matches(values)
+        for reference in setting.actor_references()
+    }
+    if not dependencies:
+        return
+
+    def read(expected):
+        if not expected:
+            return {}
+        return session.read_parameter_observations(
+            profile.address,
+            expected,
+            changeset,
+            expected=expected,
+            schema=profile.schema_index,
+        )
+
+    def merge(observed, expected):
+        for name in expected:
+            values.pop(name, None)
+            values.pop(name + "#verified", None)
+        values.update(
+            {
+                name: row.value
+                for name, row in observed.items()
+                if row.status == "read" and row.index == expected[name]
+            }
+        )
+
+    registry = {
+        name: index
+        for ref in dependencies
+        for name, index in ActorReferences.actor_layout(values.get(ref.name)).items()
+    }
+    merge(read(registry), registry)
+    outputs = {
+        name: index
+        for ref in dependencies
+        for name, index in ref.output_dependencies(values).items()
+    }
+    observed = read(outputs)
+    merge(observed, outputs)
+    # Reuse the exact-profile presence exception only for known observed
+    # modules, never for an explicit negative or invalid presence result.
+    for group in profile.groups:
+        if not group.flags:
+            continue
+        activation, presence = (name for name, _ in group.flags)
+        row = observed.get(presence)
+        if (
+            row is None
+            or row.status != "not_resolved"
+            or row.index is not None
+            or values.get(activation) != 1
+        ):
+            continue
+        device = find_device(inventory, group.address)
+        if device is None or device.serial != controller.serial:
+            continue
+        if relay_capabilities is None:
+            numbers = tuple(
+                number
+                for number in range(1, len(group.indices) + 1)
+                if group.parameter(number, "AktorFunktion") in outputs
+            )
+            if not numbers:
+                continue
+            _, relays = _read_group(
+                session, profile, changeset, group, controller, device, numbers
+            )
+        else:
+            relays = relay_capabilities
+        if any(
+            cap.group == group
+            and cap.device == device
+            and group.parameter(cap.number, "AktorFunktion") in outputs
+            for cap in relays.values()
+        ):
+            values[presence + "#verified"] = 1
+    # The native assignment may be replaced during the extra reads. Never
+    # keep a previously resolved actor or physical reference in that case.
+    links = {
+        **{name: index for ref in dependencies for name, index in ref.expected.items()},
+        **registry,
+    }
+    reread = read(links)
+    for name, index in links.items():
+        row = reread.get(name)
+        if (
+            row is None
+            or row.status != "read"
+            or row.index != index
+            or row.value != values.get(name)
+        ):
+            values.pop(name, None)
 
 
 def _read_settings(
@@ -314,13 +544,90 @@ def _read_settings(
         for name, result in observed.items()
         if result.status == "read" and result.index == expected[name]
     }
+    _read_actor_dependencies(
+        session,
+        profile,
+        changeset,
+        settings,
+        values,
+        controller,
+        inventory,
+        relay_capabilities,
+    )
+    # Resolve the native pool only after observing the owner's exact reference.
+    # A read-only refresh needs allocation/initialization; actual enable or
+    # predicate removal additionally verifies all seven packed days.
+    references = {
+        reference
+        for setting in settings
+        if setting.installed_by is None or setting.installed_by.matches(values)
+        for reference in setting.weekly_references(requested)
+        if reference.slot(values) is not None
+    }
+    program_expected = {}
+    packed = {}
+    for reference in references:
+        allocation, days = WeeklyProgram.layout(reference.slot(values))
+        program_expected.update(allocation)
+        if reference.require_days:
+            program_expected.update(days)
+            packed.update({name: allocation for name in days})
+    if program_expected:
+        programs = session.read_parameter_observations(
+            profile.address,
+            program_expected,
+            changeset,
+            expected=program_expected,
+            schema=profile.schema_index,
+            packed=packed or None,
+        )
+        for name, row in programs.items():
+            if row.status != "read" or row.index != program_expected[name]:
+                continue
+            if name not in packed:
+                values[name] = row.value
+            elif (
+                len(row.packed_words) == 3
+                and row.packed_words[0] == row.value
+                and all(
+                    type(word) is int and -(2**31) <= word < 2**31
+                    for word in row.packed_words
+                )
+            ):
+                values[name] = struct.pack("<iii", *row.packed_words)
+        # Detect a reassignment during the additional program reads.
+        links = {reference.name: reference.index for reference in references}
+        observed_links = session.read_parameter_observations(
+            profile.address,
+            links,
+            changeset,
+            expected=links,
+            schema=profile.schema_index,
+        )
+        for name, index in links.items():
+            row = observed_links.get(name)
+            if (
+                row is None
+                or row.status != "read"
+                or row.index != index
+                or row.value != values.get(name)
+            ):
+                values.pop(name, None)
     result = {}
     ambiguous = set()
     rejected = set()
     for setting in settings:
-        if setting.unresolved_role:
-            role = observed.get(setting.unresolved_role.name)
-            if role is None or role.status != "not_resolved" or role.index is not None:
+        if setting.optional_role:
+            dependency = setting.optional_role
+            role = observed.get(dependency.name)
+            if role is None or not (
+                (role.status == "not_resolved" and role.index is None)
+                or (
+                    role.status == "read"
+                    and role.index == dependency.index
+                    and dependency.matches({dependency.name: role.value})
+                )
+            ):
                 continue
         device = find_device(inventory, setting.owner_address or profile.address)
         if (
@@ -330,7 +637,28 @@ def _read_settings(
         ):
             continue
         capability = ConfigurationCapability(
-            setting, controller, device, changeset, values[setting.name]
+            setting,
+            controller,
+            device,
+            changeset,
+            values[setting.name],
+            program_reference=(
+                setting.timer_reference.slot(values)
+                if setting.timer_reference
+                else None
+            ),
+            reference_context=tuple(
+                sorted(
+                    {
+                        item
+                        for reference in (
+                            *setting.actor_references(),
+                            *setting.function_selections(),
+                        )
+                        for item in reference.context(values)
+                    }
+                )
+            ),
         )
         uid = capability.unique_id
         if uid in result:
@@ -341,6 +669,147 @@ def _read_settings(
     if rejected.difference(ambiguous):
         raise VBusError("Configuration conditional constraint rejected")
     return {uid: cap for uid, cap in result.items() if uid not in ambiguous}
+
+
+def _read_weekly_settings(
+    session, profile, changeset, settings, controller, hints=None, *, complete=False
+):
+    """Read live program context through the same owner; full proof on mutation."""
+    slots = {setting.weekly_slot for setting in settings}
+    if not slots:
+        return {}
+    hints = hints or {}
+    candidates = tuple(
+        owner
+        for owner in profile.weekly_owners
+        if complete
+        or (
+            (row := hints.get(owner.name)) is not None
+            and row.status == "read"
+            and row.index == owner.index
+            and row.value in slots
+        )
+    )
+    if not candidates:
+        return {}
+
+    def read(expected, packed=None):
+        return session.read_parameter_observations(
+            profile.address,
+            expected,
+            changeset,
+            expected=expected,
+            schema=profile.schema_index,
+            packed=packed,
+        )
+
+    refs = read({owner.name: owner.index for owner in candidates})
+    links = {}
+    unknown = []
+    for owner in candidates:
+        row = refs.get(owner.name)
+        if (
+            row is None
+            or row.status != "read"
+            or row.index != owner.index
+            or type(row.value) is not int
+            or not 0 <= row.value <= 50
+        ):
+            if complete and row is not None and row.status == "layout_mismatch":
+                raise VBusError("Configuration parameter is no longer supported")
+            unknown.append(owner)
+        elif row.value in slots:
+            links.setdefault(row.value, []).append(owner)
+    if not links:
+        return {}
+    conditions = {
+        name: index
+        for owner in (
+            *(owner for owners in links.values() for owner in owners),
+            *(unknown if complete else ()),
+        )
+        for name, index in owner.expected.items()
+        if name != owner.name
+    }
+    observations = read(conditions)
+    values = {
+        name: row.value
+        for name, row in observations.items()
+        if row.status == "read" and row.index == conditions[name]
+    }
+    if complete:
+        # An unresolved reference is safe only when the function is known
+        # inactive. A positive shared link likewise needs a definite active
+        # or inactive state: missing conditions cannot establish inactivity.
+        unresolved_links = (
+            owner
+            for owners in links.values()
+            for owner in owners
+            if not owner.active(values)
+        )
+        if any(not owner.inactive(values) for owner in (*unknown, *unresolved_links)):
+            raise VBusError("Configuration parameter is no longer supported")
+        if any(row.status == "layout_mismatch" for row in observations.values()):
+            raise VBusError("Configuration parameter is no longer supported")
+    active = {
+        slot: tuple(sorted(owner.name for owner in owners if owner.active(values)))
+        for slot, owners in links.items()
+    }
+    eligible = tuple(setting for setting in settings if active.get(setting.weekly_slot))
+    if not eligible:
+        return {}
+    expected = {
+        name: index for setting in eligible for name, index in setting.expected.items()
+    }
+    packed = {
+        setting.name: {
+            name: index
+            for name, index in setting.expected.items()
+            if name != setting.name
+        }
+        for setting in eligible
+    }
+    observations = read(expected, packed)
+    values = {
+        name: row.value
+        for name, row in observations.items()
+        if row.status == "read" and row.index == expected[name]
+    }
+    result = {}
+    for setting in eligible:
+        row = observations.get(setting.name)
+        if row is None or row.status != "read" or row.index != setting.index:
+            continue
+        words = row.packed_words
+        if (
+            len(words) != 3
+            or words[0] != row.value
+            or any(
+                type(word) is not int or not -(2**31) <= word < 2**31 for word in words
+            )
+        ):
+            continue
+        slot = setting.weekly_slot
+        if complete:
+            # Reconciliation must retain malformed but fully observed partial
+            # words. Only the live display and initial edit require decoding.
+            if not setting.installed_by.matches(values) or not all(
+                dep.matches(values) for dep in setting.dependencies
+            ):
+                continue
+        elif not setting.accepts({**values, setting.name: words}):
+            continue
+        cap = ConfigurationCapability(
+            setting,
+            controller,
+            controller,
+            changeset,
+            words,
+            tuple(sorted(owner.name for owner in links[slot])),
+            active[slot],
+        )
+        result[cap.unique_id] = cap
+    return result
 
 
 def _read_group(
@@ -432,7 +901,14 @@ async def run_parameter_job(hass, function, *args):
 
 
 async def refresh_relay_modes(
-    telemetry, lock=None, *, guard=None, initial=False, configuration_hints=None
+    telemetry,
+    lock=None,
+    *,
+    guard=None,
+    initial=False,
+    configuration_hints=None,
+    catalog=None,
+    previous=None,
 ):
     """Retry reads, releasing async ownership between attempts."""
 
@@ -440,8 +916,10 @@ async def refresh_relay_modes(
         if guard is not None:
             guard()
         arguments = (telemetry.data,)
-        if configuration_hints is not None:
+        if configuration_hints is not None or catalog is not None:
             arguments += (configuration_hints,)
+        if catalog is not None:
+            arguments += (catalog, previous)
         return await run_parameter_job(
             telemetry.hass, telemetry.api.fetch_relay_modes, *arguments
         )
@@ -479,10 +957,16 @@ class RelayParameters:
             "failed_sessions": 0,
             "release_attempts": 0,
             "release_failures": 0,
+            "read_resync_attempts": 0,
+            "read_resync_successes": 0,
             "other_live_packets": 0,
+            "other_release_offers": 0,
+            "last_release_confirmation": None,
             "failure_counts": {},
             "phase_timings": {},
             "last_failure": None,
+            "last_acquisition": None,
+            "last_failed_acquisition": None,
         }
 
     def transport_health(self):
@@ -499,9 +983,13 @@ class RelayParameters:
             min(self._failure_streak, len(SESSION_FAILURE_GAPS)) - 1
         ]
 
-    def _record_session(self, session, error, elapsed, connect_seconds):
+    def _record_session(self, session, error, elapsed, connect_seconds, cooldown_wait):
         previous = self._health
-        phases = {"session": elapsed, "connect_and_auth": connect_seconds}
+        phases = {
+            "session": elapsed,
+            "connect_and_auth": connect_seconds,
+            "cooldown_wait": cooldown_wait,
+        }
         real_session = session is not None and isinstance(session.phase_seconds, dict)
         if real_session:
             phases.update(session.phase_seconds)
@@ -512,6 +1000,7 @@ class RelayParameters:
                 "count": old.get("count", 0) + 1,
                 "last_seconds": round(seconds, 3),
                 "max_seconds": max(old.get("max_seconds", 0), round(seconds, 3)),
+                "total_seconds": round(old.get("total_seconds", 0) + seconds, 6),
             }
         counts = dict(previous["failure_counts"])
         failure = previous["last_failure"]
@@ -523,8 +1012,19 @@ class RelayParameters:
                 "phase": getattr(error, "phase", None),
                 "observed_at": datetime.now(UTC).isoformat(),
             }
+        acquisition = (
+            session.acquisition_stats
+            if real_session and isinstance(session.acquisition_stats, dict)
+            else None
+        )
         self._health = {
             **previous,
+            "last_acquisition": acquisition or previous["last_acquisition"],
+            "last_failed_acquisition": (
+                acquisition
+                if acquisition is not None and not acquisition["accepted_offers"]
+                else previous["last_failed_acquisition"]
+            ),
             "sessions": previous["sessions"] + 1,
             "successful_sessions": previous["successful_sessions"] + (error is None),
             "failed_sessions": previous["failed_sessions"] + (error is not None),
@@ -532,8 +1032,19 @@ class RelayParameters:
             + (session.release_attempts if real_session else 0),
             "release_failures": previous["release_failures"]
             + (int(session.release_failed) if real_session else 0),
+            "read_resync_attempts": previous["read_resync_attempts"]
+            + (session.read_resync_attempts if real_session else 0),
+            "read_resync_successes": previous["read_resync_successes"]
+            + (session.read_resync_successes if real_session else 0),
             "other_live_packets": previous["other_live_packets"]
             + (session.other_live_packets if real_session else 0),
+            "other_release_offers": previous["other_release_offers"]
+            + (session.other_release_offers if real_session else 0),
+            "last_release_confirmation": (
+                session.release_confirmation
+                if real_session and "release" in phases
+                else previous["last_release_confirmation"]
+            ),
             "failure_counts": counts,
             "phase_timings": timings,
             "last_failure": failure,
@@ -542,10 +1053,11 @@ class RelayParameters:
         }
 
     @contextmanager
-    def _session(self, address):
+    def _session(self, address, *, acquire=True):
         """Serialize polling and writes, including gateway recovery time."""
         with self._lock:
-            delay = self._next_session - monotonic()
+            waiting = monotonic()
+            delay = self._next_session - waiting
             if delay > 0:
                 sleep(delay)
             started = monotonic()
@@ -555,13 +1067,16 @@ class RelayParameters:
             try:
                 with open_vbus(self.host, self.password) as session:
                     connect_seconds = monotonic() - started
-                    with session.bus(address):
+                    if acquire:
+                        with session.bus(address):
+                            yield session
+                    else:
                         yield session
             except BaseException as error:
                 failure = error
                 if (
                     isinstance(error, VBusTransientError)
-                    or str(error) == "VBus write outcome uncertain"
+                    or str(error).startswith("VBus write outcome uncertain")
                     or (session is not None and session.release_failed is True)
                 ):
                     self._failure_streak += 1
@@ -576,17 +1091,45 @@ class RelayParameters:
                     failure,
                     elapsed,
                     elapsed if connect_seconds is None else connect_seconds,
+                    started - waiting if delay > 0 else 0.0,
                 )
 
-    def discover(self, telemetry, configuration_hints=None):
+    def _read_only_session(self, address, operation):
+        """One bounded same-connection resync after a confirmed release."""
+        with self._session(address, acquire=False) as session:
+            session.read_resync_attempts = 0
+            session.read_resync_successes = 0
+            try:
+                with session.bus(address):
+                    result = operation(session)
+            except VBusTransientError as error:
+                if (
+                    error.phase != "response"
+                    or session.release_failed is not False
+                    or session.release_confirmation
+                    not in ("controller_offer", "controller_live_packet")
+                ):
+                    raise
+                session.read_resync_attempts += 1
+                # The earlier bus grant has ended. Await a new offer, then
+                # restart the entire read-only operation, not just one value.
+                with session.bus(address):
+                    result = operation(session)
+                session.read_resync_successes += 1
+            return result
+
+    def discover(
+        self, telemetry, configuration_hints=None, catalog=None, previous=None
+    ):
         inventory = device_inventory(telemetry)
         profile, controller = find_profile(inventory)
         if profile is None:
             return RelayDiscovery(None, {}, {})
-        capabilities = {}
-        status = {}
-        module_flags = {}
-        with self._session(profile.address) as session:
+
+        def read(session):
+            capabilities = {}
+            status = {}
+            module_flags = {}
             changeset = session.read(profile.address, 0)
             if not changeset:
                 raise VBusError("Controller changeset is unknown")
@@ -610,20 +1153,68 @@ class RelayParameters:
                     module_flags,
                 )
                 capabilities.update(relays)
-            # Historical inventory is only a scheduling hint for installed
-            # families. _read_settings independently verifies live selectors,
-            # layout, current values and identity before exposing controls.
-            settings = tuple(
-                setting
-                for setting in profile.settings_for(changeset)
-                if setting.installed_by is None
-                or (
-                    configuration_hints is not None
-                    and (
-                        observation := configuration_hints.get(
-                            setting.installed_by.name
+            contracts = profile.settings_for(changeset, catalog)
+            selector_hints = {}
+            cursor = 0
+            # A completed capture is historical. Rotate a small number of
+            # exact, authorized selectors through normal polling so a native
+            # installer change is discovered without a new 12,812-item scan.
+            if catalog is not None:
+                selectors = sorted(
+                    {
+                        (setting.installed_by.name, setting.installed_by.index)
+                        for setting in contracts
+                        if setting.installed_by and setting.weekly_slot is None
+                    },
+                    key=lambda item: item[1],
+                )
+                if (
+                    previous is not None
+                    and previous.controller == controller
+                    and previous.changeset == changeset
+                ):
+                    selector_hints.update(previous.selector_hints)
+                    cursor = previous.selector_cursor
+                if any(setting.weekly_slot is not None for setting in contracts):
+                    selectors = sorted(
+                        {
+                            *selectors,
+                            *(
+                                (owner.name, owner.index)
+                                for owner in profile.weekly_owners
+                            ),
+                        },
+                        key=lambda item: item[1],
+                    )
+                if selectors:
+                    cursor %= len(selectors)
+                    count = min(SELECTORS_PER_REFRESH, len(selectors))
+                    batch = dict(
+                        selectors[(cursor + i) % len(selectors)] for i in range(count)
+                    )
+                    selector_hints.update(
+                        session.read_parameter_observations(
+                            profile.address,
+                            batch,
+                            changeset,
+                            expected=batch,
+                            schema=profile.schema_index,
                         )
                     )
+                    cursor = (cursor + count) % len(selectors)
+            effective_hints = {
+                **(configuration_hints or {}),
+                **selector_hints,
+            }
+            # Historical/live hints never authorize writes. _read_settings
+            # independently checks live conditions and identity.
+            settings = tuple(
+                setting
+                for setting in contracts
+                if setting.weekly_slot is not None
+                or setting.installed_by is None
+                or (
+                    (observation := effective_hints.get(setting.installed_by.name))
                     is not None
                     and observation.status == "read"
                     and observation.index == setting.installed_by.index
@@ -636,21 +1227,39 @@ class RelayParameters:
                 session,
                 profile,
                 changeset,
-                settings,
+                tuple(setting for setting in settings if setting.weekly_slot is None),
                 controller,
                 inventory,
                 relay_capabilities=capabilities,
             )
-        return RelayDiscovery(
-            profile,
-            capabilities,
-            status,
-            module_flags,
-            controller,
-            changeset,
-            datetime.now(UTC),
-            configuration,
-        )
+            configuration.update(
+                _read_weekly_settings(
+                    session,
+                    profile,
+                    changeset,
+                    tuple(
+                        setting
+                        for setting in settings
+                        if setting.weekly_slot is not None
+                    ),
+                    controller,
+                    effective_hints,
+                )
+            )
+            return RelayDiscovery(
+                profile,
+                capabilities,
+                status,
+                module_flags,
+                controller,
+                changeset,
+                datetime.now(UTC),
+                configuration,
+                selector_hints,
+                cursor,
+            )
+
+        return self._read_only_session(profile.address, read)
 
     def read_configuration_batch(
         self, telemetry, controller, names, changeset, packed=None
@@ -676,29 +1285,51 @@ class RelayParameters:
             )
         return {name: observations[name] for name in names}
 
-    def set_configuration(self, telemetry, capability, value):
+    def set_configuration(self, telemetry, capability, value, catalog=None):
         """Same serialized owner; save once and confirm via a new VBus session."""
         inventory = device_inventory(telemetry)
         profile, controller = find_profile(inventory)
         if (
             profile is None
             or controller != capability.controller
-            or capability.setting not in profile.settings_for(capability.changeset)
             or find_device(inventory, capability.device.address) != capability.device
         ):
             raise VBusError("Configuration capability or controller identity changed")
-        setting = capability.setting
+        alternatives = tuple(
+            candidate
+            for candidate in profile.settings_for(capability.changeset, catalog)
+            if candidate.name == capability.setting.name
+        )
+        # An existing source-verified control may have been registered just
+        # before initial catalogue acquisition. Use its newly bound contract
+        # only if the authorization and every encoding constraint are identical.
+        matches = tuple(
+            candidate
+            for candidate in alternatives
+            if candidate == capability.setting
+            or (
+                capability.setting.value_definition is None
+                and replace(candidate, value_definition=None) == capability.setting
+            )
+        )
+        if len(matches) != 1:
+            raise VBusError("Configuration parameter is no longer supported")
+        setting = matches[0]
         wanted = encode_action(setting, value)
         # A logical setting can have several firmware contracts (unit variant,
         # assignment evidence). Recheck competing live contracts, not just the
         # one in an older entity snapshot. First read selectors to bound work.
-        alternatives = tuple(
-            candidate
-            for candidate in profile.settings_for(capability.changeset)
-            if candidate.name == setting.name
-        )
 
         def current_contract(session, requested=None):
+            if setting.weekly_slot is not None:
+                return _read_weekly_settings(
+                    session,
+                    profile,
+                    capability.changeset,
+                    (setting,),
+                    controller,
+                    complete=True,
+                ).get(capability.unique_id)
             selectors = {
                 candidate.installed_by.name: candidate.installed_by.index
                 for candidate in alternatives
@@ -738,33 +1369,70 @@ class RelayParameters:
 
         # Hold the existing owner lock across both sessions. Never retry a save
         # when acknowledgement, release or verification is uncertain.
+        def same_context(current):
+            return (
+                current is not None
+                and current.device == capability.device
+                and current.setting == setting
+                and current.owners == capability.owners
+                and current.active_owners == capability.active_owners
+                and current.program_reference == capability.program_reference
+                and current.reference_context == capability.reference_context
+            )
+
         with self._lock:
-            with self._session(profile.address) as session:
-                current = current_contract(session, wanted)
-                if (
-                    current is None
-                    or current.device != capability.device
-                    or current.setting != setting
-                ):
-                    raise VBusError("Configuration parameter is no longer supported")
-                if current.raw == wanted:
-                    return current
-                session.write_verified(
-                    profile.address,
-                    setting.index,
-                    wanted,
-                    capability.changeset,
-                    save=setting.save,
-                )
-            with self._session(profile.address) as session:
-                verified = current_contract(session)
-                if (
-                    verified is None
-                    or verified.device != capability.device
-                    or verified.setting != setting
-                    or verified.raw != wanted
-                ):
-                    raise VBusError("Configuration reconnect readback differs")
+            attempted = False
+            try:
+                with self._session(profile.address) as session:
+                    current = current_contract(session, wanted)
+                    if not same_context(current) or (
+                        setting.weekly_slot is not None
+                        and current.raw != capability.raw
+                    ):
+                        raise VBusError(
+                            "Configuration parameter is no longer supported"
+                        )
+                    if current.raw == wanted:
+                        return current
+                    if setting.weekly_slot is not None:
+                        attempted = True
+                        session.write_packed_verified(
+                            profile.address,
+                            setting.index,
+                            current.raw,
+                            wanted,
+                            capability.changeset,
+                        )
+                    else:
+                        session.write_verified(
+                            profile.address,
+                            setting.index,
+                            wanted,
+                            capability.changeset,
+                            save=setting.save,
+                        )
+                with self._session(profile.address) as session:
+                    verified = current_contract(session)
+                    if not same_context(verified) or verified.raw != wanted:
+                        raise VBusError("Configuration reconnect readback differs")
+            except (OSError, VBusError) as error:
+                if not attempted:
+                    raise
+                outcome = "unavailable"
+                try:
+                    with self._session(profile.address) as session:
+                        observed = current_contract(session)
+                    if same_context(observed):
+                        outcome = (
+                            "previous"
+                            if observed.raw == capability.raw
+                            else "requested"
+                            if observed.raw == wanted
+                            else "partial"
+                        )
+                except (OSError, VBusError):
+                    pass
+                raise VBusError(f"VBus write outcome uncertain: {outcome}") from error
         return verified
 
     def set_mode(self, telemetry, capability, option):

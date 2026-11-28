@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import re
+import struct
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import cached_property
@@ -17,12 +18,19 @@ from .catalog import (
     is_sensitive,
     ordinal_options,
 )
+from .configuration import decode_native_day, encode_native_day
 from .parameters import device_inventory, find_profile
 from .vbus import ERROR_CODES, ParameterObservation, VBusError, VBusTransientError
 
 BATCH_SIZE = 16
 CHECKPOINT_INTERVAL = 128
 RETRY_DELAYS = (2, 5, 10, 20, 30, 60)
+# Exact BX Plus 2.08 descriptor selects MX2Filter. These native families
+# depend on Solar_SystemId, not the generic optional-function type.
+SOLAR_DEDICATED = re.compile(
+    r"^(Solar_Wf([1-9][0-9]*)_(Roehrenkollektor|Bypass|CsBypass|"
+    r"Frostschutz|ExtWT|Zieltemperatur|Bereitschaft|DrainBack))(?:_|$)"
+)
 
 
 @dataclass
@@ -43,6 +51,8 @@ class ConfigurationCapture:
     consecutive_failures: int = 0
     retry_in_seconds: int | None = None
     last_failure: dict | None = None
+    # Derived during restore only; not a second persisted lifecycle flag.
+    extension_pending: bool = False
 
     @cached_property
     def sensitive_indices(self):
@@ -382,7 +392,16 @@ class ConfigurationCapture:
         )
         if legacy_complete:
             capture.finished_at = None
+            capture.extension_pending = True
         return capture
+
+    def weekly_day_shape(self, definition):
+        """Use the inherited native declaration, never an inferred Blob size."""
+        metadata = definition.metadata
+        if metadata.get("size_unverified") or metadata.get("unresolved_base"):
+            return None, None
+        size = metadata.get("size_bytes")
+        return (size, "rpt_declared") if type(size) is int else (None, None)
 
     @cached_property
     def packed_days(self):
@@ -393,7 +412,11 @@ class ConfigurationCapture:
                 r"(Wsu[0-9]+)_Schaltuhr_Woche_Tag(Mo|Di|Mi|Do|Fr|Sa|So)_Daten",
                 definition.name,
             )
-            if not match or "Blob" not in definition.metadata.get("type_chain", ()):
+            if (
+                not match
+                or "Blob" not in definition.metadata.get("type_chain", ())
+                or self.weekly_day_shape(definition)[0] != 12
+            ):
                 continue
             flags = (
                 definitions.get(f"{match[1]}_Belegt"),
@@ -452,7 +475,7 @@ class ConfigurationCapture:
 
     def compound_parameters(self):
         """Consolidate temperature variants without guessing the write target."""
-        definitions = {d.name: d for d in self.catalog.definitions}
+        definitions = self.catalog.by_name
         groups = {}
         for definition in self.base_candidates:
             parent = definition.metadata.get("compound_ref")
@@ -525,9 +548,9 @@ class ConfigurationCapture:
     def weekly_program_evidence(self):
         """Inventory packed weekly programs without interpreting a scalar as a day.
 
-        The exact catalogue provides seven Blob definitions per week and
-        separate WochenschaltuhrNr references. Scalar datagrams do not
-        establish a complete schedule or the reference namespace.
+        Native SET and both DLL builds establish the serialized day codec.
+        Exact captured words establish decoded content, not current ownership
+        or permission to write.
         """
         weeks = {}
         references = {}
@@ -542,9 +565,12 @@ class ConfigurationCapture:
             if match and "Blob" in chain:
                 week = weeks.setdefault(match[1], {"days": {}})
                 observed = self.results.get(definition.name)
+                size, size_evidence = self.weekly_day_shape(definition)
                 week["days"][match[2]] = {
                     "parameter": definition.name,
                     "reference_index": definition.index,
+                    "size_bytes": size,
+                    "size_evidence": size_evidence,
                     "observation": observed.status if observed else "not_scanned",
                     "scalar_observed": self._observed_raw(definition) is not None,
                     "observed_words": (
@@ -561,7 +587,12 @@ class ConfigurationCapture:
                     "reference": value,
                     "status": "observed" if value is not None else "unknown",
                 }
-        definitions = {d.name: d for d in self.catalog.definitions}
+        definitions = self.catalog.by_name
+        native_codec = (
+            self.controller.address == 0x7112
+            and self.changeset == BX_PLUS_CHANGESET
+            and self.catalog.matches(self.controller.address, self.changeset)
+        )
         for name, week in weeks.items():
             allocated = self._observed_raw(definitions.get(f"{name}_Belegt"))
             initialized = self._observed_raw(
@@ -570,8 +601,55 @@ class ConfigurationCapture:
             week["allocated"] = bool(allocated) if allocated in (0, 1) else None
             week["initialized"] = bool(initialized) if initialized in (0, 1) else None
             week["catalogue_days"] = len(week["days"])
+            slot = int(name[3:])
+            base = 18401 + 13 * slot
+            flags = (
+                definitions.get(f"{name}_Belegt"),
+                definitions.get(f"{name}_Schaltuhr_Woche_Initialisiert"),
+            )
+            if (
+                native_codec
+                and 1 <= slot <= 50
+                and allocated == 1
+                and initialized == 1
+                and all(
+                    flag is not None and flag.index == index
+                    for flag, index in zip(flags, (base, base + 4), strict=True)
+                )
+            ):
+                for label, day in week["days"].items():
+                    words = day["observed_words"]
+                    if (
+                        day["size_bytes"] != 12
+                        or day["reference_index"]
+                        != base
+                        + 5
+                        + ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").index(label)
+                        or len(words) != 3
+                        or any(type(word) is not int for word in words)
+                    ):
+                        continue
+                    if not all(-(2**31) <= word < 2**31 for word in words):
+                        continue
+                    candidate = decode_native_day(struct.pack("<iii", *words))
+                    if candidate is not None and encode_native_day(
+                        candidate
+                    ) == struct.pack("<iii", *words):
+                        day["candidate_windows"] = candidate
+                        day["candidate_encoding"] = "native_set_quarter_hour_pairs"
+                        day["candidate_status"] = "wire_word_mapping_verified"
+                        day["payload_verified"] = True
+            verified_days = sum(
+                day["payload_verified"] for day in week["days"].values()
+            )
             week["schedule_status"] = (
-                "unallocated"
+                "reserved"
+                if native_codec and slot == 0
+                else "decoded_capture"
+                if verified_days == 7
+                else "partial_payload"
+                if verified_days
+                else "unallocated"
                 if allocated == 0
                 else "uninitialized"
                 if allocated == 1 and initialized == 0
@@ -579,8 +657,17 @@ class ConfigurationCapture:
                 if allocated == 1 and initialized == 1
                 else "unknown"
             )
+        # A positive reference is a potential link, not an allocation or
+        # exclusive owner authorization. Zero is never treated as a live link.
+        for reference in references.values():
+            raw = reference["reference"]
+            if native_codec and type(raw) is int and 1 <= raw <= 50:
+                program = f"Wsu{raw}"
+                if program in weeks and weeks[program]["allocated"] is True:
+                    reference["candidate_program"] = program
+                    reference["reference_evidence"] = "native_set_slot_number"
         return {
-            "value_semantics": "catalogue_and_capture_evidence_not_decoded_schedule",
+            "value_semantics": "catalogue_and_capture_evidence_not_verified_live_schedule",
             "write_access": "not_verified",
             "programs": weeks,
             "references": references,
@@ -595,11 +682,21 @@ class ConfigurationCapture:
             if selector:
                 name, slot, family = selector
                 slots[name] = (slot, family, definition)
+        system = self.catalog.by_name.get("Solar_SystemId")
+        if (
+            self.catalog.matches(self.controller.address, self.changeset)
+            and system
+            and system.index == 3416
+        ):
+            for definition in self.catalog.definitions:
+                match = SOLAR_DEDICATED.match(definition.name)
+                if match and not is_sensitive(definition):
+                    slots[match[1]] = (int(match[2]), "solar_dedicated", system)
         members = {name: [] for name in slots}
         for definition in self.catalog.definitions:
-            # A slot owns its prefix only, not slot 10 through slot 19.
+            # Prefer the most specific native slot, including its root.
             parts = definition.name.split("_")
-            for end in range(1, len(parts)):
+            for end in range(len(parts), 0, -1):
                 name = "_".join(parts[:end])
                 if name in slots:
                     members[name].append(definition)
@@ -613,17 +710,20 @@ class ConfigurationCapture:
         writability. A mask or extraRef is retained as an unresolved condition
         until its vendor semantics are independently established.
         """
-        definitions = {d.name: d for d in self.catalog.definitions}
+        definitions = self.catalog.by_name
         slots, members = self.function_slots
         functions = {}
         contexts = {}
         for name, (slot, family, selector) in slots.items():
             raw = self._observed_raw(selector)
+            dedicated = family == "solar_dedicated"
             options = ordinal_options(selector)
-            kind = options.get(raw)
+            kind = name.split("_", 2)[2] if dedicated else options.get(raw)
             activity = self._observed_raw(definitions.get(f"{name}_Aktiviert_Modus"))
             status = (
-                "unknown"
+                "topology_unverified"
+                if dedicated
+                else "unknown"
                 if kind is None
                 else "unused"
                 if kind == "Frei"
@@ -644,6 +744,13 @@ class ConfigurationCapture:
                 }.get(activity),
                 "assignments": {},
             }
+            if dedicated:
+                # The system ID is transfer relevance evidence, not a type
+                # ordinal or proof of installed hydraulic topology.
+                item.pop("type_parameter")
+                item.pop("type_raw")
+                item["system_parameter"] = selector.name
+                item["system_id_raw"] = raw
             typed_menus = {
                 f"{name}_{option}" for option in options.values() if option != "Frei"
             }
@@ -666,7 +773,9 @@ class ConfigurationCapture:
                         (selected if menu == f"{name}_{kind}" else other).append(ref)
                     elif menu and (menu == name or menu.startswith(name + "_")):
                         common.append(ref)
-                if definition.name == selector.name:
+                if dedicated:
+                    applicability = "solar_topology_unverified"
+                elif definition.name == selector.name:
                     applicability = "function_selector"
                 elif status == "unknown":
                     applicability = "function_unknown"
@@ -707,12 +816,13 @@ class ConfigurationCapture:
                     "RelaisOderAusgangAlleNr",
                 }
                 if (
-                    status != "configured"
+                    (not dedicated and status != "configured")
                     or applicability
                     not in (
                         "selected_function_reference",
                         "conditional_unverified",
                         "slot_menu_unverified",
+                        "solar_topology_unverified",
                     )
                     or not reference_types.intersection(chain)
                 ):
@@ -738,7 +848,7 @@ class ConfigurationCapture:
     def export(self, current):
         parameters = {}
         counts = {}
-        definitions = {d.name: d for d in self.catalog.definitions}
+        definitions = self.catalog.by_name
         parent_names = {d.name for d in self.candidates[len(self.base_candidates) :]}
         functions, contexts = self.function_context()
         for definition in self.catalog.definitions:
@@ -814,6 +924,16 @@ class ConfigurationCapture:
             "unread_write_access": "not_verified",
             "value_semantics": "observations_during_capture_not_live_poll",
             "catalog_digest": self.catalog.digest,
+            "catalogue_source": (
+                {
+                    "format": "rpt_xml",
+                    "artifact": self.catalog.source.filename,
+                    "sha256": self.catalog.source.digest,
+                    "compatibility": "verified",
+                }
+                if self.catalog.matches(self.controller.address, self.changeset)
+                else {"compatibility": "not_verified"}
+            ),
             "controller_address": f"0x{self.controller.address:04X}",
             "changeset": f"{self.changeset:08X}",
             "started_at": self.started_at,

@@ -26,6 +26,10 @@ ERROR_CODES = {
     "VBus command send failed": "command_send",
     "VBus parameter response failed": "parameter_response",
     "VBus write outcome uncertain": "write_outcome_uncertain",
+    **{
+        f"VBus write outcome uncertain: {outcome}": f"write_outcome_{outcome}"
+        for outcome in ("previous", "requested", "partial", "unavailable")
+    },
     "VBus response timed out": "timeout",
     "VBus connection closed": "connection_closed",
     "VBus release not confirmed": "release_unconfirmed",
@@ -46,6 +50,9 @@ ERROR_CODES = {
     "Unsupported relay mode": "unsupported_mode",
     "VBus write acknowledgement differs": "acknowledgement_mismatch",
     "VBus write readback differs": "readback_mismatch",
+    "VBus bulk transaction rejected": "bulk_transaction_rejected",
+    "Controller does not advertise VBus bulk transactions": "bulk_unsupported",
+    "VBus bulk transaction rollback unconfirmed": "bulk_rollback_unconfirmed",
     "Relay capability or controller identity changed": "identity_changed",
     "Configuration capability or controller identity changed": "identity_changed",
     "Configuration parameter is no longer supported": "unsupported_parameter",
@@ -151,8 +158,14 @@ class VBusSession:
         self.buffer = bytearray()
         self.phase_seconds = {}
         self.release_attempts = 0
+        self.read_resync_attempts = 0
+        self.read_resync_successes = 0
         self.other_live_packets = 0
+        self.other_release_offers = 0
+        self.release_confirmation = None
         self.release_failed = False
+        self.acquisition_stats = None
+        self._acquiring = False
 
     def _receive(self, deadline):
         remaining = deadline - monotonic()
@@ -162,6 +175,8 @@ class VBusSession:
         data = self.connection.recv(4096)
         if not data:
             raise VBusTransientError("VBus connection closed", "receive")
+        if self._acquiring:
+            self.acquisition_stats["received_bytes"] += len(data)
         return data
 
     def _line(self, deadline):
@@ -196,6 +211,25 @@ class VBusSession:
             elif start:
                 del self.buffer[:start]
             if len(self.buffer) >= 6 and self.buffer[5] != 0x20:
+                # During acquisition distinguish a silent TCP stream from
+                # live VBus traffic without a usable offer. Count validated
+                # headers only; no payloads or device addresses are exported.
+                if self._acquiring and self.buffer[5] == 0x10:
+                    if len(self.buffer) < 10:
+                        self.buffer.extend(self._receive(deadline))
+                        continue
+                    header = self.buffer[:10]
+                    if (
+                        all(byte < 128 for byte in header[1:])
+                        and (sum(header[1:]) & 127) == 127
+                    ):
+                        source = int.from_bytes(header[3:5], "little")
+                        key = (
+                            "controller_live_headers"
+                            if source == self._acquisition_address
+                            else "other_live_headers"
+                        )
+                        self.acquisition_stats[key] += 1
                 del self.buffer[0]
                 continue
             if len(self.buffer) >= 16:
@@ -218,13 +252,18 @@ class VBusSession:
 
     def request(self, address, command, index=0, value=0, *, replies=(0x0100,)):
         """Send exactly once and correlate the response to its address and ID."""
+        mutating = command & 0xFF80 in (0x0200, 0x0400, 0x1500) or command in (
+            0x1400,
+            0x1402,
+            0x1404,
+        )
         self.connection.settimeout(2)
         try:
             self.connection.sendall(
                 Datagram(address, SELF_ADDRESS, command, index, value).encode()
             )
         except OSError as error:
-            if command in (0x0200, 0x0400):
+            if mutating:
                 raise VBusError("VBus write outcome uncertain") from error
             raise VBusTransientError(
                 "VBus command send failed", "send", command=command, index=index
@@ -238,14 +277,14 @@ class VBusSession:
                 and (
                     packet.value == value
                     if command == 0x1100
-                    else packet.index == index
+                    else command == 0x1300 or packet.index == index
                 )
             )
 
         try:
             return self.receive_matching(matches, 2)
         except (OSError, VBusError) as error:
-            if command in (0x0200, 0x0400):
+            if mutating:
                 raise VBusError("VBus write outcome uncertain") from error
             raise VBusTransientError(
                 "VBus parameter response failed",
@@ -260,6 +299,10 @@ class VBusSession:
             address, 0x1100, value=parameter_hash(name), replies=(0x0100, 0x1101)
         )
         return result.index or None
+
+    def read_capabilities(self, address):
+        """Read controller capability flags (MIT getCaps1, RESOL RPT 2.02)."""
+        return self.request(address, 0x1300, replies=(0x1301,)).value
 
     def read(self, address, index, *, subindex=0):
         """Read one correlated 32-bit parameter word.
@@ -282,7 +325,7 @@ class VBusSession:
         return reply.value
 
     def _wait_for_master(self, address, timeout):
-        """Confirm a valid live-data packet from the controller after release."""
+        """Observe the expected master return via live data or a fresh offer."""
         deadline = monotonic() + timeout
         while True:
             if monotonic() >= deadline:
@@ -292,6 +335,28 @@ class VBusSession:
                 self.buffer.clear()
             elif start:
                 del self.buffer[:start]
+            if len(self.buffer) >= 6 and self.buffer[5] == 0x20:
+                if len(self.buffer) < 16:
+                    self.buffer.extend(self._receive(deadline))
+                    continue
+                try:
+                    packet = Datagram.decode(self.buffer[:16])
+                except VBusError:
+                    del self.buffer[0]
+                    continue
+                del self.buffer[:16]
+                # A new bus offer is also positive evidence that the master
+                # has resumed scheduling. RPT resynchronizes on 0x0500.
+                # Never consume another master's offer as our own authority.
+                if packet.command == 0x0500:
+                    if packet.source == address and packet.destination in (
+                        0,
+                        SELF_ADDRESS,
+                    ):
+                        self.release_confirmation = "controller_offer"
+                        return
+                    self.other_release_offers += 1
+                continue
             if len(self.buffer) >= 10:
                 header = self.buffer[:10]
                 if (
@@ -315,6 +380,7 @@ class VBusSession:
                         for i in range(10, size, 6)
                     ):
                         if int.from_bytes(header[3:5], "little") == address:
+                            self.release_confirmation = "controller_live_packet"
                             return
                         self.other_live_packets += 1
                 else:
@@ -326,20 +392,39 @@ class VBusSession:
     def bus(self, address):
         """Acquire only the expected controller's offer; release in all cases."""
         started = monotonic()
+        self._acquisition_address = address
+        self.acquisition_stats = {
+            "received_bytes": len(self.buffer),
+            "controller_live_headers": 0,
+            "other_live_headers": 0,
+            "non_offer_datagrams": 0,
+            "other_source_offers": 0,
+            "other_destination_offers": 0,
+            "accepted_offers": 0,
+        }
+
+        def offered(packet):
+            if packet.command != 0x0500:
+                key = "non_offer_datagrams"
+            elif packet.source != address:
+                key = "other_source_offers"
+            elif packet.destination not in (0, SELF_ADDRESS):
+                key = "other_destination_offers"
+            else:
+                self.acquisition_stats["accepted_offers"] += 1
+                return True
+            self.acquisition_stats[key] += 1
+            return False
+
+        self._acquiring = True
         try:
-            self.receive_matching(
-                lambda packet: (
-                    packet.source == address
-                    and packet.destination in (0, SELF_ADDRESS)
-                    and packet.command == 0x0500
-                ),
-                20,
-            )
+            self.receive_matching(offered, 20)
         except (OSError, VBusError) as error:
             raise VBusTransientError(
                 "VBus bus acquisition failed", "acquire"
             ) from error
         finally:
+            self._acquiring = False
             self.phase_seconds["acquire"] = monotonic() - started
         started = monotonic()
         try:
@@ -358,14 +443,20 @@ class VBusSession:
     def _release(self, address):
         """Retry release only on silence, never repeat a parameter write.
 
-        Other live traffic is not proof of the expected master's return.
-        If observed, wait rather than sending another release on an active bus.
+        Other live traffic or offers are not proof of the expected master's
+        return. If observed, wait rather than sending another release on an
+        active bus.
         """
         started = monotonic()
         self.release_failed = True
+        self.release_confirmation = None
+        self.other_live_packets = 0
+        self.other_release_offers = 0
         try:
             for attempt, timeout in enumerate((1.5, 4.5)):
-                if attempt == 0 or not self.other_live_packets:
+                if attempt == 0 or not (
+                    self.other_live_packets or self.other_release_offers
+                ):
                     self.connection.settimeout(2)
                     self.connection.sendall(
                         Datagram(address, SELF_ADDRESS, 0x0600).encode()
@@ -491,7 +582,9 @@ class VBusSession:
             if result.status == "read"
         }
 
-    def write_verified(self, address, index, value, changeset, *, save=False):
+    def write_verified(
+        self, address, index, value, changeset, *, save=False, subindex=0
+    ):
         """Internal write primitive; caller must hold the bus.
 
         The MIT resol-vbus connection.js reference distinguishes volatile
@@ -502,14 +595,105 @@ class VBusSession:
         Only a verified semantic mapping may invoke this primitive. Do not
         retry an uncertain write: report the error and re-read separately.
         """
-        ack = self.request(address, 0x0400 if save else 0x0200, index, value)
+        if type(subindex) is not int or not 0 <= subindex <= 127:
+            raise VBusError("Invalid VBus parameter subindex")
+        ack = self.request(
+            address,
+            (0x0400 if save else 0x0200) | subindex,
+            index,
+            value,
+            replies=(0x0100 | subindex,),
+        )
         if ack.value != value:
             raise VBusError("VBus write acknowledgement differs")
         if self.read(address, 0) != changeset:
             raise VBusError("Controller changeset changed during write")
-        if self.read(address, index) != value:
+        if self.read(address, index, subindex=subindex) != value:
             raise VBusError("VBus write readback differs")
         return value
+
+    def write_packed_verified(self, address, index, before, wanted, changeset):
+        """Write a caller-verified native Blob, not a fixed weekly wire shape."""
+        if (
+            type(index) is not int
+            or not 0 < index <= 65535
+            or not isinstance(before, tuple)
+            or not isinstance(wanted, tuple)
+            or len(before) != len(wanted)
+            or not 1 <= len(wanted) <= 128
+        ):
+            raise VBusError("Invalid configuration value")
+        observed = {(index, n): word for n, word in enumerate(before)}
+        requested = {(index, n): word for n, word in enumerate(wanted)}
+        result = self.write_bulk_verified(address, observed, requested, changeset)
+        return tuple(result.values())
+
+    def write_bulk_verified(self, address, before, wanted, changeset):
+        """Internal ordered bulk transport for already authorized native words.
+
+        RPT TransferSerial and AbstractVBusConnection encode the parameter ID
+        and seven-bit subindex independently; BVT start/stage status is
+        nonnegative on success. A fresh capability query must advertise BVT.
+        Verify the entire requested set before and after the transaction.
+        BX Plus stages mutate the live buffer immediately; a transaction is
+        not atomic and no rollback is established. Never retry an uncertain
+        stage or commit. This is transport, not a public raw-write service.
+        """
+        if (
+            not isinstance(before, dict)
+            or not isinstance(wanted, dict)
+            or not wanted
+            or before.keys() != wanted.keys()
+            or any(
+                not isinstance(key, tuple)
+                or len(key) != 2
+                or type(key[0]) is not int
+                or not 0 < key[0] <= 65535
+                or type(key[1]) is not int
+                or not 0 <= key[1] <= 127
+                or type(word) is not int
+                or not -(2**31) <= word < 2**31
+                for words in (before, wanted)
+                for key, word in words.items()
+            )
+        ):
+            raise VBusError("Invalid configuration value")
+        if self.read(address, 0) != changeset:
+            raise VBusError("Controller changeset changed before write")
+
+        def read_words():
+            return {
+                (index, subindex): self.read(address, index, subindex=subindex)
+                for index, subindex in wanted
+            }
+
+        if read_words() != before:
+            raise VBusError("VBus write readback differs")
+        if before == wanted:
+            return dict(wanted)
+        if not self.read_capabilities(address) & 0x08:
+            raise VBusError("Controller does not advertise VBus bulk transactions")
+
+        def acknowledged(command, reply, index=0, value=0):
+            response = self.request(address, command, index, value, replies=(reply,))
+            if response.value < 0:
+                raise VBusError("VBus bulk transaction rejected")
+
+        acknowledged(0x1400, 0x1401, value=10)
+        try:
+            for (index, subindex), word in wanted.items():
+                acknowledged(0x1500 | subindex, 0x1600 | subindex, index, word)
+            if self.read(address, 0) != changeset:
+                raise VBusError("Controller changeset changed during write")
+            acknowledged(0x1402, 0x1403, value=10)
+        except (OSError, VBusError) as error:
+            # Previous words can already be live, even after a rejection.
+            raise VBusError("VBus write outcome uncertain") from error
+        if self.read(address, 0) != changeset:
+            raise VBusError("Controller changeset changed during write")
+        if read_words() != wanted:
+            raise VBusError("VBus write readback differs")
+        return dict(wanted)
 
 
 @contextmanager

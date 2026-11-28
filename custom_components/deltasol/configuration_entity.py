@@ -6,7 +6,7 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
-from .parameters import device_inventory, find_device
+from .parameters import find_device
 
 
 def register_configuration_entities(entry, async_add_entities, kind, entity_type):
@@ -47,6 +47,13 @@ def configuration_device_info(capability):
     label = {
         "Anlage_Wf": "Arrangement function",
         "Solar_Wf": "Solar optional function",
+        "Solar_Sp": "Solar store",
+        "Solar_Kol": "Solar collector",
+        "Solar_Bypass": "Solar bypass",
+        "Solar_CsBypass": "Solar CS bypass",
+        "Solar_Zieltemperatur": "Solar target temperature",
+        "Solar_Roehrenkollektor": "Solar tube collector",
+        "Solar_ExtWT": "Solar external heat exchanger",
         "Heizung_Wf": "Heating optional function",
         "Heizung_Heizkreis": "Heating circuit",
     }[family]
@@ -91,7 +98,7 @@ class ConfigurationEntity(CoordinatorEntity):
         capability = self.coordinator.data.configuration.get(self.unique_id)
         if capability is None:
             return None
-        inventory = device_inventory(self.coordinator.telemetry.data)
+        inventory = self.coordinator.telemetry.observed_inventory
         if (
             find_device(inventory, capability.controller.address)
             != capability.controller
@@ -107,7 +114,7 @@ class ConfigurationEntity(CoordinatorEntity):
     @property
     def extra_state_attributes(self):
         capability = self.capability
-        return {
+        attributes = {
             "parameter": self.setting.name,
             "native_function_slot": (
                 self.setting.native_slot[0] if self.setting.native_slot else None
@@ -115,6 +122,18 @@ class ConfigurationEntity(CoordinatorEntity):
             "storage_action": "save" if self.setting.save else "volatile",
             "changeset": f"{capability.changeset:08X}" if capability else None,
         }
+        if self.setting.timer_reference:
+            attributes["weekly_program_reference"] = (
+                capability.program_reference if capability else None
+            )
+        if self.setting.weekly_slot is not None:
+            attributes.update(
+                weekly_program=self.setting.weekly_slot,
+                observed_references=list(capability.owners) if capability else [],
+                active_references=list(capability.active_owners) if capability else [],
+                reference_coverage="known_live_links_full_check_on_edit",
+            )
+        return attributes
 
     async def async_set_value(self, value):
         await self.coordinator.async_set_configuration(self.unique_id, value)

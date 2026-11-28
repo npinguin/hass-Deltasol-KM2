@@ -174,16 +174,33 @@ async def async_get_config_entry_diagnostics(hass, entry):
                 "value": capability.value if valid else None,
                 "last_observed_value": capability.value,
             }
+            if capability.setting.weekly_slot is not None:
+                settings[capability.setting.name].update(
+                    weekly_program=capability.setting.weekly_slot,
+                    observed_references=list(capability.owners) if valid else [],
+                    active_references=list(capability.active_owners) if valid else [],
+                    reference_coverage="known_live_links_full_check_on_edit",
+                )
     # Do not present historical inventory values as live control readback.
     # The capture is a snapshot; the existing coordinator owns current controls.
     relay_contracts = {item["parameter"]: item for item in relays.values()}
     reference_contracts = {}
     if profile and capture and capture.changeset == profile.configuration_changeset:
-        for setting in profile.settings_for(capture.changeset):
-            reference_contracts[setting.name] = {
-                "kind": setting.kind,
-                "storage_action": "save" if setting.save else "volatile",
-            }
+        bound, rejected = profile.binding_review(capture.changeset, capture.catalog)
+        bound_names = {setting.name for setting in bound}
+        for setting in (*profile.settings_for(capture.changeset), *bound):
+            row = reference_contracts.setdefault(
+                setting.name,
+                {
+                    "kind": setting.kind,
+                    "storage_action": "save" if setting.save else "volatile",
+                    "catalogue_binding": "not_confirmed",
+                },
+            )
+            if setting.name in bound_names:
+                row["catalogue_binding"] = "verified"
+            if setting.name in rejected:
+                row["rejected_variant_reasons"] = list(rejected[setting.name])
     coverage = Counter()
     contract_coverage = Counter()
     for name, item in configuration.get("parameters", {}).items():
@@ -201,8 +218,43 @@ async def async_get_config_entry_diagnostics(hass, entry):
             item["configuration_device_address"] = relay_control["device_address"]
             item["storage_action"] = "volatile"
             item.pop("write_access_reason", None)
+        elif (
+            name in reference_contracts
+            and reference_contracts[name]["catalogue_binding"] != "verified"
+        ):
+            item["write_access_reason"] = "catalogue_contract_not_confirmed"
         elif control or relay_control or name in reference_contracts:
             item["write_access_reason"] = "live_capability_not_confirmed"
+        elif (
+            capture
+            and profile
+            and profile.weekly_factory is not None
+            and capture.catalog.matches(profile.address, capture.changeset)
+            and capture.changeset == profile.configuration_changeset
+            and re.fullmatch(
+                r"Wsu0_Schaltuhr_Woche_Tag(?:Mo|Di|Mi|Do|Fr|Sa|So)_Daten", name
+            )
+        ):
+            item["write_access_reason"] = "reserved_native_weekly_slot"
+        elif (
+            capture
+            and profile
+            and profile.menu_review is not None
+            and capture.changeset == profile.configuration_changeset
+            and capture.catalog.matches(profile.address, capture.changeset)
+        ):
+            definition = capture.catalog.by_name.get(name)
+            if (
+                definition
+                and definition.metadata.get("menu_refs")
+                and not definition.metadata.get("compound_ref")
+                and (
+                    definition.metadata.get("rpt_storage")
+                    in ("preferences", "persistent")
+                    or definition.metadata.get("compound_parent_read_candidate")
+                )
+            ):
+                item["write_access_reason"] = profile.menu_review(name)
         if name in reference_contracts:
             item["reference_contract"] = reference_contracts[name]
             item["contract_status"] = (

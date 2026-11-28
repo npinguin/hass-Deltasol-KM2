@@ -72,6 +72,7 @@ PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.NUMBER,
     Platform.SWITCH,
+    Platform.TEXT,
 ]
 
 PLATFORM_SCHEMA = PLATFORM_SCHEMA_BASE.extend(
@@ -107,6 +108,8 @@ class RuntimeData:
     capture_store: Store | None = None
     checkpoint_error: str | None = None
     resume_on_load: bool = False
+    auto_start_task: asyncio.Task | None = None
+    closing: bool = False
 
     def notify_capture(self):
         for listener in tuple(self.capture_listeners):
@@ -219,6 +222,7 @@ async def async_unload_entry(
 
     # Unload platforms and return result
     runtime = config_entry.runtime_data
+    runtime.closing = True
     async with runtime.capture_lock:
         if runtime.capture_task and not runtime.capture_task.done():
             runtime.resume_on_load = not runtime.stop_capture
@@ -230,8 +234,10 @@ async def async_unload_entry(
     if runtime.relay_coordinator:
         await runtime.relay_coordinator.async_close()
     unloaded = await hass.config_entries.async_unload_platforms(config_entry, PLATFORMS)
-    if not unloaded and runtime.relay_coordinator:
-        runtime.relay_coordinator.closing = False
+    if not unloaded:
+        runtime.closing = False
+        if runtime.relay_coordinator:
+            runtime.relay_coordinator.closing = False
     return unloaded
 
 
@@ -290,7 +296,7 @@ async def _async_catalog(hass, source, *, acquire=False):
         return await hass.async_add_executor_job(download_catalog, path, source)
 
 
-async def _async_restore_capture(hass, runtime):
+async def _async_restore_capture(hass, runtime, *, catalog=None):
     """Restore only against the current verified controller and exact local archive."""
     if not runtime.coordinator.api.supports_parameter_access:
         return False
@@ -300,7 +306,8 @@ async def _async_restore_capture(hass, runtime):
             runtime.checkpoint_error = None
             return False
         controller, source = _catalog_identity(runtime)
-        catalog = await _async_catalog(hass, source)
+        if catalog is None:
+            catalog = await _async_catalog(hass, source)
         capture = ConfigurationCapture.restore(
             stored["capture"], catalog, controller, source.changeset
         )
@@ -313,9 +320,14 @@ async def _async_restore_capture(hass, runtime):
             else None
         )
         runtime.capture = capture
-        runtime.resume_on_load = stored.get("resume") is True
+        runtime.resume_on_load = (
+            stored.get("resume") is True or capture.extension_pending
+        )
         runtime.checkpoint_error = None
         return True
+    except CatalogMissing:
+        runtime.checkpoint_error = "checkpoint_catalogue_missing"
+        return False
     except (
         CatalogError,
         VBusError,
@@ -331,18 +343,78 @@ async def _async_restore_capture(hass, runtime):
 
 
 async def _async_restore_and_resume(hass, entry, runtime):
-    """Restore once after verified parameter access returns, not on every poll."""
+    """Restore once or schedule initial Discovery after confirmed access."""
     async with runtime.capture_lock:
-        if runtime.capture is None and await _async_restore_capture(hass, runtime):
+        if runtime.closing or runtime.capture is not None:
+            return
+        if await _async_restore_capture(hass, runtime):
             if runtime.resume_on_load and runtime.capture.status == "paused":
                 await _start_capture(hass, entry, runtime)
             runtime.notify_capture()
+        elif (
+            runtime.checkpoint_error in (None, "checkpoint_catalogue_missing")
+            and runtime.auto_start_task is None
+        ):
+            runtime.auto_start_task = entry.async_create_background_task(
+                hass,
+                _async_start_initial_capture(hass, entry, runtime),
+                "deltasol_initial_discovery",
+            )
+        else:
+            runtime.notify_capture()
+
+
+async def _async_start_initial_capture(hass, entry, runtime):
+    """Acquire the pinned catalogue once outside setup; never replace a checkpoint."""
+    async with runtime.capture_lock:
+        if runtime.closing or runtime.capture is not None:
+            return
+        restore_required = runtime.checkpoint_error == "checkpoint_catalogue_missing"
+        try:
+            controller, source = _catalog_identity(runtime)
+        except (CatalogError, VBusError):
+            runtime.checkpoint_error = "discovery_controller_unverified"
+            runtime.notify_capture()
+            return
+        try:
+            catalog = await _async_catalog(hass, source, acquire=True)
+        except (CatalogError, OSError, ValueError):
+            runtime.checkpoint_error = "discovery_catalogue_unavailable"
+            runtime.notify_capture()
+            return
+        if runtime.closing:
+            return
+        # Acquisition may take time; repeat identity verification before
+        # committing the capture, rather than scanning a changed controller.
+        try:
+            current_controller, current_source = _catalog_identity(runtime)
+        except (CatalogError, VBusError):
+            runtime.checkpoint_error = "discovery_controller_unverified"
+            runtime.notify_capture()
+            return
+        if (current_controller, current_source) != (controller, source):
+            runtime.checkpoint_error = "discovery_controller_unverified"
+            runtime.notify_capture()
+            return
+        if restore_required:
+            if (
+                await _async_restore_capture(hass, runtime, catalog=catalog)
+                and runtime.resume_on_load
+                and runtime.capture.status == "paused"
+            ):
+                await _start_capture(hass, entry, runtime)
+            runtime.notify_capture()
+            return
+        runtime.capture = ConfigurationCapture(catalog, controller, source.changeset)
+        await _start_capture(hass, entry, runtime)
 
 
 async def async_toggle_configuration_capture(hass, entry):
     """Start/resume or request a stop at the next batch boundary."""
     runtime = entry.runtime_data
     async with runtime.capture_lock:
+        if runtime.closing:
+            raise HomeAssistantError("Controller entry is unloading")
         await _async_toggle_capture_locked(hass, entry, runtime)
 
 
@@ -411,6 +483,8 @@ class DeltasolCoordinator(DataUpdateCoordinator):
     def __init__(self, hass: HomeAssistant, config: DeltasolConfigEntry) -> None:
         """Initialize coordinator."""
         self.hass = hass
+        self._inventory_source = None
+        self._inventory = {}
         self.api = DeltasolApi(
             host=config.data.get(CONF_HOST),
             port=config.data.get(CONF_PORT),
@@ -432,6 +506,19 @@ class DeltasolCoordinator(DataUpdateCoordinator):
                 )
             ),
         )
+
+    @property
+    def observed_inventory(self):
+        """Derive identity once per published HTTP telemetry snapshot.
+
+        The API constructs a new endpoint mapping on each successful fetch.
+        Entity projections reuse that mapping; parameter commands still perform
+        their independent live identity and contract checks.
+        """
+        if self._inventory_source is not self.data:
+            self._inventory = device_inventory(self.data)
+            self._inventory_source = self.data
+        return self._inventory
 
     async def async_update_data(self):
         """Fetch data from the Resol KM1/KM2, DL2/DL2Plus/DL3, VBus/LAN, VBus/USB."""
@@ -479,15 +566,32 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         async with self._lock:
             await asyncio.sleep(self.api.parameter_cooldown_remaining())
 
+    def _configuration_catalog(self):
+        """Use the existing capture's verified catalogue, no second cache."""
+        capture = self.runtime.capture
+        if capture is None:
+            return None
+        _, controller = find_profile(self.telemetry.observed_inventory)
+        if capture.controller != controller:
+            return None
+        if not capture.catalog.matches(capture.controller.address, capture.changeset):
+            return None
+        return capture.catalog
+
     def _configuration_hints(self):
-        profile, controller = find_profile(device_inventory(self.telemetry.data))
+        profile, controller = find_profile(self.telemetry.observed_inventory)
         if not profile:
             return {}
+        contracts = profile.settings_for(
+            profile.configuration_changeset, self._configuration_catalog()
+        )
         selectors = {
             setting.installed_by.name
-            for setting in profile.settings_for(profile.configuration_changeset)
-            if setting.installed_by
+            for setting in contracts
+            if setting.installed_by and setting.weekly_slot is None
         }
+        if any(setting.weekly_slot is not None for setting in contracts):
+            selectors.update(owner.name for owner in profile.weekly_owners)
         hints = {}
         # The previous completed capture avoids temporarily losing controls
         # during a new scan. The newer observations replace previous hints.
@@ -512,6 +616,8 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 guard=self._check_open,
                 initial=self.initial_refresh,
                 configuration_hints=self._configuration_hints(),
+                catalog=self._configuration_catalog(),
+                previous=self.data,
             )
         except VBusError as error:
             # Retry ordinary polling sooner while unavailable, not by issuing
@@ -560,13 +666,18 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
 
     async def _async_action_failed(self, error):
         """Refresh capabilities, not the failed command; preserve real errors."""
-        if isinstance(error, VBusTransientError) or str(error) in (
-            "VBus write outcome uncertain",
-            "VBus write acknowledgement differs",
-            "VBus write readback differs",
-            "Configuration reconnect readback differs",
-            "Configuration parameter is no longer supported",
-            "Configuration conditional constraint rejected",
+        if (
+            str(error).startswith("VBus write outcome uncertain")
+            or isinstance(error, VBusTransientError)
+            or str(error)
+            in (
+                "VBus write outcome uncertain",
+                "VBus write acknowledgement differs",
+                "VBus write readback differs",
+                "Configuration reconnect readback differs",
+                "Configuration parameter is no longer supported",
+                "Configuration conditional constraint rejected",
+            )
         ):
             await self.async_refresh()
 
@@ -605,6 +716,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                     self.telemetry.data,
                     capability,
                     value,
+                    self._configuration_catalog(),
                 )
             except VBusError as error:
                 self.async_set_update_error(error)
@@ -616,17 +728,29 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             dependents = (
                 {
                     setting.name
-                    for setting in self.data.profile.settings_for(verified.changeset)
+                    for setting in self.data.profile.dependent_settings(
+                        verified.changeset, verified.setting.name
+                    )
                     if setting.name != verified.setting.name
-                    and verified.setting.name in setting.expected
                 }
                 if changed and self.data.profile
                 else set()
             )
+            affected_owners = (
+                self.data.profile.affected_weekly_owners(
+                    verified.changeset, verified.setting.name
+                )
+                if changed and self.data.profile
+                else set()
+            )
+            timer = verified.setting.timer_reference if changed else None
+            if timer:
+                affected_owners.add(timer.name)
             remaining = {
                 uid: cap
                 for uid, cap in self.data.configuration.items()
                 if cap.setting.name not in dependents
+                and not affected_owners.intersection(cap.owners)
             }
             self.async_set_updated_data(
                 replace(
@@ -634,7 +758,7 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                     configuration={**remaining, unique_id: verified},
                 )
             )
-            return bool(dependents)
+            return bool(dependents or affected_owners)
 
     async def async_set_mode(self, unique_id, option):
         """Do not accept calls that bypass entity availability."""
@@ -703,9 +827,9 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
                 self.data.profile
                 and option == "Auto"
                 and any(
-                    setting.installed_by
-                    and setting.installed_by.name in hints
-                    and capability.name in setting.expected
-                    for setting in self.data.profile.settings_for(capability.changeset)
+                    (setting.installed_by is None or setting.installed_by.name in hints)
+                    for setting in self.data.profile.dependent_settings(
+                        capability.changeset, capability.name
+                    )
                 )
             )
