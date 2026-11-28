@@ -36,8 +36,9 @@ def decode_native_day(payload):
     """Decode the day layout corroborated by BX Plus 2.08 native SET exports.
 
     Six ordered start/end quarter-hour pairs, unused pairs FF FF.
-    Midnight-as-end representation and malformed or overlapping windows are
-    not established; retain the original bytes rather than inventing times.
+    RESOL BX Plus manual 11202383 documents the native 00:00-23:45
+    quarter-hour range for weekly timer channels. Reject malformed and
+    overlapping windows; do not invent a 24:00 sentinel or cross-day format.
     This codec alone never establishes the VBus subindex mapping or write access.
     """
     if not isinstance(payload, bytes) or len(payload) != 12:
@@ -59,8 +60,8 @@ def decode_native_day(payload):
 def encode_native_day(windows):
     """Encode only the established native SET representation, not a VBus write.
 
-    Preserve the six-window limit and the verified quarter-hour grid. Until
-    the end-of-day sentinel is established, reject 24:00 instead of rounding.
+    Preserve the six-window limit and the documented native 00:00-23:45
+    quarter-hour grid. Reject 24:00 instead of silently rounding.
     """
     if not isinstance(windows, (list, tuple)) or len(windows) > 6:
         raise ValueError("Invalid native day windows")

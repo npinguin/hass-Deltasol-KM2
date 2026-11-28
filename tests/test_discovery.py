@@ -479,11 +479,17 @@ class DiscoveryTests(unittest.TestCase):
             bytes.fromhex("3a43ffffffffffffffffffff"),
             bytes([255] * 12),
             bytes(range(12)),
+            bytes.fromhex("005fffffffffffffffffffff"),
+            bytes.fromhex("5e5fffffffffffffffffffff"),
         ):
             self.assertEqual(
                 discovery.encode_native_day(discovery.decode_native_day(payload)),
                 payload,
             )
+        self.assertEqual(
+            discovery.decode_native_day(bytes.fromhex("5e5fffffffffffffffffffff")),
+            [{"start_minute": 1410, "end_minute": 1425}],
+        )
         for windows in (
             [{"start_minute": 0, "end_minute": 1440}],
             [{"start_minute": 1, "end_minute": 60}],
