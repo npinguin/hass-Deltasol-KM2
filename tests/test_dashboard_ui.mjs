@@ -198,3 +198,30 @@ test("linked native schedule remains reachable from the same function context in
 test("stale engineering response cannot replace a newer authorized request",async()=>{
   const p=model(true,true);p.tab="engineering";p.render=()=>{};const requests=[];p._hass.callWS=()=>new Promise(resolve=>requests.push(resolve));const first=p.engineering(),second=p.engineering();requests[1]({newer:true});await second;requests[0]({older:true});await first;assert.equal(p.report.newer,true);assert.equal(p.report.older,undefined);
 });
+
+
+test("native projection updates invalidate reviewed values and permission changes even while editing",()=>{
+  const p=model(true,true),row=p.row("text.week");
+  p.render=()=>{};p.object="device";row.reference_token="original";
+  p.editor={id:row.entity_id,review:{expected:"08:00-10:00",reference_token:"original"}};
+  const snapshot=JSON.parse(JSON.stringify(p.installations));
+  snapshot[0].objects[0].capabilities.find(item=>item.entity_id===row.entity_id).reference_token="changed";
+  p.applyProjection(snapshot);assert.equal(p.editor.review,null);
+  p.editor={id:row.entity_id};
+  const denied=JSON.parse(JSON.stringify(snapshot));
+  denied[0].objects[0].capabilities.find(item=>item.entity_id===row.entity_id).control=false;
+  p.applyProjection(denied);assert.equal(p.editor,null);
+  assert.equal(p.row(row.entity_id).control,false);
+});
+
+test("newer native subscription projection wins over an older list response",async()=>{
+  const p=model(true,true);p.render=()=>{};
+  let resolveList;p._hass.callWS=()=>new Promise(resolve=>resolveList=resolve);
+  const older=JSON.parse(JSON.stringify(p.installations));
+  const loading=p.load();
+  p.projectionRevision=1;
+  const newer=JSON.parse(JSON.stringify(older));newer[0].engineering=false;
+  p.applyProjection(newer);
+  resolveList(older);await loading;
+  assert.equal(p.current().engineering,false);
+});

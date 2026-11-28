@@ -17,11 +17,12 @@ import voluptuous as vol
 from homeassistant.auth.permissions.const import POLICY_CONTROL, POLICY_READ
 from homeassistant.components import frontend, panel_custom, websocket_api
 from homeassistant.components.http import StaticPathConfig
-from homeassistant.config_entries import ConfigEntryState
-from homeassistant.core import Context
+from homeassistant.config_entries import SIGNAL_CONFIG_ENTRY_CHANGED, ConfigEntryState
+from homeassistant.core import Context, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from .catalog import CatalogError, configuration_evidence, is_sensitive
 from .configuration import (
@@ -470,6 +471,87 @@ async def ws_dashboard_list(hass, connection, msg):
     connection.send_result(msg["id"], dashboard_objects(hass, connection.user))
 
 
+@websocket_api.websocket_command(
+    {vol.Required("type"): "deltasol/dashboard/subscribe"}
+)
+@callback
+def ws_dashboard_subscribe(hass, connection, msg):
+    """Publish the same scoped projection on native source updates, never poll."""
+    watched = {}
+    pending = None
+    previous = None
+    closed = False
+
+    @callback
+    def schedule(*_):
+        nonlocal pending
+        if not closed and pending is None:
+            pending = hass.loop.call_later(0.1, publish)
+
+    @callback
+    def publish():
+        nonlocal pending, previous
+        pending = None
+        if closed:
+            return
+        projection = dashboard_objects(hass, connection.user)
+        visible = {item["id"] for item in projection}
+        entries = {
+            entry.entry_id: entry for entry in hass.config_entries.async_entries(DOMAIN)
+        }
+        # Rebind when the native entry is loaded, removed, or reloaded.
+        for entry_id, (entry, runtime, removers) in list(watched.items()):
+            current = entries.get(entry_id)
+            target = current.runtime_data if current and entry_id in visible else None
+            if current is not entry or target is not runtime:
+                for remove in removers:
+                    remove()
+                del watched[entry_id]
+        for entry_id, entry in entries.items():
+            if entry_id in watched:
+                continue
+            runtime = entry.runtime_data if entry_id in visible else None
+            removers = [entry.async_on_state_change(schedule)]
+            if runtime:
+                # Visible native entities already own the coordinator cadence.
+                removers.append(runtime.coordinator.async_add_listener(schedule))
+                if runtime.relay_coordinator:
+                    removers.append(
+                        runtime.relay_coordinator.async_add_listener(schedule)
+                    )
+                runtime.capture_listeners.add(schedule)
+                removers.append(
+                    lambda runtime=runtime: runtime.capture_listeners.discard(schedule)
+                )
+            watched[entry_id] = (entry, runtime, removers)
+        if projection != previous:
+            previous = projection
+            connection.send_event(msg["id"], projection)
+
+    subscriptions = [
+        async_dispatcher_connect(hass, SIGNAL_CONFIG_ENTRY_CHANGED, schedule),
+        hass.bus.async_listen("entity_registry_updated", schedule),
+        hass.bus.async_listen("device_registry_updated", schedule),
+    ]
+
+    @callback
+    def unsubscribe():
+        nonlocal closed
+        closed = True
+        if pending:
+            pending.cancel()
+        for remove in subscriptions:
+            remove()
+        for _, _, removers in watched.values():
+            for remove in removers:
+                remove()
+        watched.clear()
+
+    connection.subscriptions[msg["id"]] = unsubscribe
+    connection.send_result(msg["id"])
+    publish()
+
+
 @websocket_api.require_admin
 @websocket_api.websocket_command(
     {
@@ -753,6 +835,7 @@ async def async_setup_dashboard(hass, entry_id):
                 [StaticPathConfig("/deltasol_dashboard", str(directory), False)]
             )
             websocket_api.async_register_command(hass, ws_dashboard_list)
+            websocket_api.async_register_command(hass, ws_dashboard_subscribe)
             websocket_api.async_register_command(hass, ws_engineering)
             websocket_api.async_register_command(hass, ws_action)
 

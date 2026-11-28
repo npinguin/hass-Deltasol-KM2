@@ -2451,6 +2451,38 @@ async def qualify(directory, phase):
                 assert response["id"] == 1
                 return response
 
+        # A resident subscription receives native coordinator updates without
+        # another VBus session or registry mutation.
+        token = await hass.auth.async_create_refresh_token(
+            resident, client_id="http://127.0.0.1:18123/"
+        )
+        access_token = hass.auth.async_create_access_token(token)
+        async with (
+            ClientSession() as session,
+            session.ws_connect("http://127.0.0.1:18123/api/websocket") as ws,
+        ):
+            assert (await ws.receive_json())["type"] == "auth_required"
+            await ws.send_json({"type": "auth", "access_token": access_token})
+            assert (await ws.receive_json())["type"] == "auth_ok"
+            sessions_before = Peer.sessions
+            await ws.send_json({"id": 1, "type": "deltasol/dashboard/subscribe"})
+            assert (await ws.receive_json())["success"]
+            initial = (await ws.receive_json())["event"][0]
+            assert not initial["engineering"]
+            assert initial["health"]["parameter_current"]
+            relay = entry.runtime_data.relay_coordinator
+            relay.async_set_update_error(HomeAssistantError("qualification outage"))
+            changed = (await ws.receive_json(timeout=5))["event"][0]
+            assert not changed["health"]["parameter_current"]
+            relay.async_set_updated_data(relay.data)
+            recovered = (await ws.receive_json(timeout=5))["event"][0]
+            assert recovered["health"]["parameter_current"]
+            assert Peer.sessions == sessions_before
+            await ws.send_json(
+                {"id": 2, "type": "unsubscribe_events", "subscription": 1}
+            )
+            assert (await ws.receive_json())["success"]
+
         # Authenticate against the real HA websocket and exercise registration,
         # schemas, permissions and the native action context, not just wrappers.
         listed = await dashboard_request(admin, "deltasol/dashboard/list")

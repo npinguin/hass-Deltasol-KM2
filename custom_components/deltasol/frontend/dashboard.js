@@ -53,8 +53,35 @@ class ResolDashboard extends HTMLElement {
       if(event.target.id==="technical-search"){this.query=event.target.value;this.page=0;this.renderInventory();}
     });
   }
-  connectedCallback(){this.render();if(this._hass&&!this.loaded)this.load();this.subscribeRegistry();}
-  disconnectedCallback(){this.unsubscribeRegistry?.();this.unsubscribeRegistry=null;clearTimeout(this.registryTimer);}
+  connectedCallback(){this.render();if(this._hass&&!this.loaded)this.load();this.subscribeProjection();}
+  disconnectedCallback(){
+    const subscription=this.projectionSubscription;
+    this.projectionSubscription=null;
+    subscription?.unsubscribe?.();
+    clearTimeout(this.registryTimer);
+    this.unsubscribeRegistry?.();this.unsubscribeRegistry=null;
+    this.projectionRevision=(this.projectionRevision||0)+1;
+    this.loaded=false;
+  }
+  subscribeProjection(){
+    const connection=this._hass?.connection;
+    if(!connection)return;
+    if(this.projectionSubscription?.connection===connection)return;
+    this.projectionSubscription?.unsubscribe?.();
+    if(!connection.subscribeMessage){this.subscribeRegistry();return;}
+    const subscription={connection};
+    this.projectionSubscription=subscription;
+    connection.subscribeMessage(installations=>{
+      if(this.isConnected&&this.projectionSubscription===subscription){
+        this.projectionRevision=(this.projectionRevision||0)+1;
+        this.applyProjection(installations);
+      }
+    },{type:"deltasol/dashboard/subscribe"}).then(unsubscribe=>{
+      if(this.isConnected&&this.projectionSubscription===subscription)subscription.unsubscribe=unsubscribe;else unsubscribe();
+    }).catch(()=>{
+      if(this.projectionSubscription===subscription){this.projectionSubscription=null;this.subscribeRegistry();}
+    });
+  }
   subscribeRegistry(){
     if(this.unsubscribeRegistry||this.registrySubscription||!this._hass?.connection?.subscribeEvents)return;
     this.registrySubscription=true;
@@ -70,12 +97,12 @@ class ResolDashboard extends HTMLElement {
     const previous=this._hass;
     this._hass=hass;
     if(!this.isConnected)return;
-    this.subscribeRegistry();
+    this.subscribeProjection();
     if(!this.loaded&&!this.loading){this.load();return;}
-    if(this.editor||this.pending||this.shadowRoot.activeElement?.matches("input,select,textarea"))return;
     const rows=this.rows();
-    if(rows.some(row=>previous?.states?.[row.entity_id]?.state!==hass.states?.[row.entity_id]?.state&&["unknown","unavailable",undefined].includes(previous?.states?.[row.entity_id]?.state)!==["unknown","unavailable",undefined].includes(hass.states?.[row.entity_id]?.state))){this.load();return;}
-    if(rows.some(row=>row.kind==="sensor"&&row.depth==="engineering"&&previous?.states?.[row.entity_id]!==hass.states?.[row.entity_id])){this.load();return;}
+    // Compatibility fallback for a connection without native subscriptions.
+    if(!this.projectionSubscription&&this.installations.some(installation=>installation.objects.some(asset=>asset.capabilities.some(row=>previous?.states?.[row.entity_id]!==hass.states?.[row.entity_id])))){this.load();return;}
+    if(this.editor||this.pending||this.shadowRoot.activeElement?.matches("input,select,textarea"))return;
     if(previous?.language!==hass.language||rows.some(row=>previous?.states?.[row.entity_id]!==hass.states?.[row.entity_id])){
       this.render();
     }
@@ -90,22 +117,36 @@ class ResolDashboard extends HTMLElement {
   async load(){
     if(!this._hass||this.loading)return;
     this.loading=true;
-    const before=this.current(),oldContext=this.context;
-    let scopeChanged=false;
+    const revision=this.projectionRevision||0;
     try{
-      this.installations=await this._hass.callWS({type:"deltasol/dashboard/list"});
-      if(!this.current()){this.context=this.installations[0]?.id||"";this.object="";this.report=null;}
-      if(!this.current()?.objects.some(asset=>asset.id===this.object))this.object="";
-      const current=this.current();
-      scopeChanged=oldContext!==this.context||before?.engineering!==current?.engineering||before?.settings!==current?.settings||Boolean(before&&this.rows().length!==before.objects.flatMap(asset=>asset.capabilities).length);
-      if(!current?.engineering){this.report=null;this.engineeringRequest=null;this.query="";this.filter="all";this.page=0;}
-      if(!this.tabs().includes(this.tab))this.tab="overview";
-      if(this.object&&!this.objectsForTab().some(asset=>asset.id===this.object))this.object="";
-      if(this.editor&&!this.row(this.editor.id)?.control)this.editor=null;
-      if(this.history&&!this.row(this.history.id))this.history=null;
-      this.loaded=true;
-    }catch{scopeChanged=true;this.installations=[];this.context="";this.object="";this.report=null;this.engineeringRequest=null;this.editor=null;this.history=null;this.tab="overview";this.notice=this.t("error");this.loaded=true;}
-    finally{this.loading=false;if(scopeChanged||!this.editor&&!this.pending&&!this.shadowRoot.activeElement?.matches("input,select,textarea"))this.render();}
+      const installations=await this._hass.callWS({type:"deltasol/dashboard/list"});
+      if(revision===(this.projectionRevision||0))this.applyProjection(installations);
+    }catch{
+      if(revision===(this.projectionRevision||0)){this.notice=this.t("error");this.applyProjection([]);}
+    }finally{this.loading=false;}
+  }
+  applyProjection(installations){
+    const before=this.current(),oldContext=this.context;
+    const scope=installation=>JSON.stringify((installation?.objects||[]).flatMap(asset=>asset.capabilities.map(row=>[asset.id,row.entity_id,row.depth,row.control])).sort());
+    this.installations=installations;
+    if(!this.current()){this.context=installations[0]?.id||"";this.object="";}
+    const current=this.current();
+    const scopeChanged=oldContext!==this.context||before?.engineering!==current?.engineering||before?.settings!==current?.settings||scope(before)!==scope(current);
+    if(oldContext!==this.context||!current?.engineering){this.report=null;this.engineeringRequest=null;this.query="";this.filter="all";this.page=0;}
+    if(!this.tabs().includes(this.tab))this.tab="overview";
+    if(this.object&&!this.objectsForTab().some(asset=>asset.id===this.object))this.object="";
+    if(this.editor&&(oldContext!==this.context||!this.row(this.editor.id)?.control))this.editor=null;
+    let reviewChanged=false;
+    if(this.editor?.review){
+      const row=this.row(this.editor.id),review=this.editor.review;
+      if((row.reference_token&&row.reference_token!==review.reference_token)||this.state(row)?.state!==review.expected){
+        this.editor.review=null;reviewChanged=true;
+      }
+    }
+    if(this.history&&(oldContext!==this.context||!this.row(this.history.id)))this.history=null;
+    this.loaded=true;
+    if(scopeChanged||reviewChanged||!this.editor&&!this.pending&&!this.shadowRoot?.activeElement?.matches("input,select,textarea"))this.render();
+    if(this.tab==="engineering"&&current?.engineering&&!this.report&&!this.engineeringRequest)this.engineering();
   }
   tabs(){
     const installation=this.current();
@@ -418,14 +459,17 @@ class ResolDashboard extends HTMLElement {
   }
   async action(row,value,preview=false){
     if(!row||!this.allowed(row))return;
+    const editor=this.editor,context=this.context;
     this.pending=true;
     this.notice=this.t("working");
     this.render();
     try{
       const review=row.schedule&&!preview?this.editor?.review:null;
       const result=await this._hass.callWS({type:"deltasol/dashboard/action",entry_id:this.context,entity_id:row.entity_id,value,preview,...(review?{expected:review.expected,references:review.references,reference_token:review.reference_token}:{})});
-      if(preview&&this.editor){this.editor.review=result;this.notice="";}
-      else{this.notice=this.t(result.outcome)+(result.value==null?"":": "+(typeof result.value==="number"?this.formatNumber(result.value):this.optionLabel(result.value)));this.editor=null;}
+      if(this.context!==context)return;
+      if(preview){
+        if(this.editor&&this.editor===editor&&this.row(row.entity_id)?.control){this.editor.review=result;this.notice="";}
+      }else{this.notice=this.t(result.outcome)+(result.value==null?"":": "+(typeof result.value==="number"?this.formatNumber(result.value):this.optionLabel(result.value)));this.editor=null;}
     }catch{this.notice=this.t("error");if(this.editor)this.editor.review=null;}
     finally{this.pending=false;this.render();}
   }
