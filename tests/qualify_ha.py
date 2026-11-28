@@ -38,6 +38,11 @@ HQM_SENSOR_UID = "00_0010_7131_0100__004_4_0"
 # Independent wire fixtures: exact 2.08 reference positions, not imported
 # production Setting objects. Persistent state belongs to the protocol peer.
 CONFIG_SELECTORS = {
+    "Heizung_Heizkreis1_OSchaltuhr": (13703, 0),
+    "Heizung_Heizkreis1_Aktiviert_SensorSchalter_Nr": (13691, 4),
+    "Ausgang_Regler_A1_AktorFunktion": (2602, 7),
+    "Ausgang_Regler_A1_Handbetrieb": (2612, 2),
+    "Ausgang_Regler_A1_ODrehzahl": (2606, 0),
     "Heizung_Wf2_SolarAus_SpeicherMaske": (11434, 1),
     "Heizung_Heizkreis1_Nachheizung_SolarAus_SpeicherMaske": (14142, 1),
     "Solar_Wf8_Type": (5249, 6),
@@ -114,7 +119,6 @@ CONFIG_SELECTORS = {
     "Anlage_Wf3_Relais1_Nr": (7094, 1),
     "Anlage_Wf3_Relais2_Nr": (7102, 2),
     "Heizung_Heizkreis1_Type": (13684, 1),
-    "Heizung_Heizkreis1_Aktiviert_Modus": (13689, 1),
     "Heizung_Heizkreis1_Heizsystem": (13978, 1),
     "Heizung_Heizkreis1_Sensor1_Nr": (13796, 1),
     "Heizung_Heizkreis1_Relais1_Nr": (13764, 1),
@@ -177,7 +181,6 @@ CONFIG_SELECTORS = {
     "Heizung_Heizkreis1_Raumthermostat1_Typ": (13823, 0),
     "Heizung_Heizkreis1_Raumthermostat1_Sensor1_Nr": (13834, 4),
     "Heizung_Heizkreis2_Type": (14179, 1),
-    "Heizung_Heizkreis2_Aktiviert_Modus": (14184, 1),
     "Heizung_Heizkreis2_Kopplung": (14534, 1),
     "InbetriebnahmeAbgeschlossen": (68, 1),
     "Wmz1_Type": (17260, 1),
@@ -217,6 +220,8 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_dtVerzoegerung": (11414, 0),
 }
 CONFIG_SETTINGS = {
+    "Heizung_Heizkreis2_Aktiviert_Modus": (14184, 1, 0, 2),
+    "Heizung_Heizkreis1_Aktiviert_Modus": (13689, 1, 0, 2),
     "Solar_Beladungstyp": (3417, 0, 0, 1),
     "Solar_Sp2_Aktiviert_Modus": (3640, 1, 0, 2),
     "Solar_Sp1_Aktiviert_Modus": (3604, 1, 0, 2),
@@ -806,6 +811,10 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 if index == RELAY:
                     assert value in (0, 2, 4)
                     Peer.mode = value
+                elif index == 2612:
+                    assert Peer.extra_values[2602] == 7
+                    assert value in (0, 2, 4)
+                    Peer.extra_values[index] = value
                 else:
                     assert index == EM_RELAY and Peer.em_present
                     assert value in (0, 1, 2, 3)
@@ -957,7 +966,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert all(Peer.extra_values[i] > 0 for i in (6576, 6592, 6600))
                     elif index in (14072, 14076, 14080, 14083, 14086, 14089):
                         assert Peer.extra_values[13684] == 1
-                        assert Peer.extra_values[13689] == 1
+                        assert Peer.settings[13689] == 1
                         assert Peer.extra_values[13697] in (1, 2)
                         assert Peer.extra_values[14059] > 0
                         if index == 14072:
@@ -1008,7 +1017,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[13978] in (4, 5)
                 if index in (13719, 14168, 14171):
                     assert Peer.extra_values[13684] == 1
-                    assert Peer.extra_values[13689] == 1
+                    assert Peer.settings[13689] == 1
                     assert Peer.extra_values[13697] in (0, 2)
                     assert Peer.extra_values[13796] > 0
                     assert Peer.extra_values[13772] > 0
@@ -1070,7 +1079,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[14534] == 0
                     offset = index - 14014
                     assert Peer.extra_values[13684 + offset] == 1
-                    assert Peer.extra_values[13689 + offset] == 1
+                    assert Peer.settings[13689 + offset] == 1
                     if value == 4:
                         assert 1 <= Peer.settings[19063] <= 200
                     if value == 0:
@@ -3144,6 +3153,26 @@ async def qualify(directory, phase):
         assert Peer.settings[3604] == 1
         assert all(Peer.settings[i] == value for i, value in before_store.items())
         assert Peer.saves == before_solar + 4
+
+        circuit_activity = entity("Heizung_Heizkreis1_Aktiviert_Modus", "select")
+        analog_manual = entity("Ausgang_Regler_A1_Handbetrieb", "select")
+        assert circuit_activity and analog_manual
+        before_circuit = Peer.saves
+        assignments = {i: Peer.extra_values[i] for i in (13764, 13772, 13780, 13796, 13800)}
+        await set_mode(circuit_activity, "Deactivated")
+        assert Peer.settings[13689] == 0
+        await set_mode(circuit_activity, "External switch")
+        assert Peer.settings[13689] == 2
+        await set_mode(circuit_activity, "Activated")
+        assert Peer.settings[13689] == 1 and Peer.saves == before_circuit + 3
+        assert all(Peer.extra_values[i] == value for i, value in assignments.items())
+        before_manual = Peer.writes
+        before_save = Peer.saves
+        await reject_mode(analog_manual, "Min")
+        await set_mode(analog_manual, "On")
+        await set_mode(analog_manual, "Auto")
+        assert Peer.extra_values[2612] == 2
+        assert Peer.writes == before_manual + 2 and Peer.saves == before_save
 
         timer = entity("Anlage_Wf8_OSchaltuhr", "switch")
         assert timer and hass.states.get(timer).state == "off"
