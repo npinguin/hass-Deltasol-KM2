@@ -571,7 +571,9 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             profile.configuration_changeset, self._configuration_catalog()
         )
         selectors = {
-            setting.installed_by.name for setting in contracts if setting.installed_by
+            setting.installed_by.name
+            for setting in contracts
+            if setting.installed_by and setting.weekly_slot is None
         }
         if any(setting.weekly_slot is not None for setting in contracts):
             selectors.update(owner.name for owner in WEEKLY_OWNERS)
