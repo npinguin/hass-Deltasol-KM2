@@ -1666,11 +1666,12 @@ class ParameterTests(unittest.TestCase):
 
         setting = choose(flag, values)
         self.assertTrue(setting.accepts(values, setting.encode(True)))
+        self.assertTrue(setting.accepts({**values, other: 0}, 0))  # no-op
+        values[flag] = 1
         self.assertTrue(setting.accepts(values, setting.encode(False)))
         self.assertFalse(setting.accepts({**values, other: 0}, 0))
-        self.assertFalse(
-            setting.accepts({**values, root + "_Sensor2_Nr": 0}, 0)
-        )
+        self.assertFalse(setting.accepts({**values, root + "_Sensor2_Nr": 0}, 0))
+        self.assertFalse(setting.accepts({**values, prefix + "_TTh2Ein_C": 510}, 0))
         on = prefix + "_TTh1Ein"
         self.assertFalse(setting.accepts({**values, on: 450, on + "_C": 450}, 1))
         self.assertFalse(setting.accepts({**values, on: 401, on + "_C": 401}, 1))
