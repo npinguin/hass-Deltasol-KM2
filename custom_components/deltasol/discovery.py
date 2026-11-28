@@ -674,7 +674,9 @@ class ConfigurationCapture:
                     if (
                         day["size_bytes"] != 12
                         or day["reference_index"]
-                        != base + 5 + ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").index(label)
+                        != base
+                        + 5
+                        + ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").index(label)
                         or len(words) != 3
                         or any(type(word) is not int for word in words)
                     ):
@@ -687,7 +689,9 @@ class ConfigurationCapture:
                         day["candidate_encoding"] = "native_set_quarter_hour_pairs"
                         day["candidate_status"] = "wire_word_mapping_verified"
                         day["payload_verified"] = True
-            verified_days = sum(day["payload_verified"] for day in week["days"].values())
+            verified_days = sum(
+                day["payload_verified"] for day in week["days"].values()
+            )
             week["schedule_status"] = (
                 "reserved"
                 if native_codec and slot == 0
