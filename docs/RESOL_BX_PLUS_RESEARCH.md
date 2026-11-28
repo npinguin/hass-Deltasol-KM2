@@ -212,12 +212,12 @@ TypeInfo inherits storage and display factors (default 1), applies storage conve
 
 ### 4.8 Solar topology and optional function dependencies
 
-The native model contains an exact topology lookup table, rather than merely a numeric SystemId interval. The Solar_SystemId parameter (index 3416) has native callbacks for interpretation and presentation. Its positive integer value decomposes into three decimal fields:
+The native model contains an exact topology lookup table, rather than merely a numeric SystemId interval. The Solar_SystemId parameter (index 3416) has native callbacks for interpretation and presentation. Its positive integer value decomposes into three decimal fields. The RESOL manual beginning with firmware 2.07 (pp. 20–34, dotted system notation) independently identifies the first two fields as collector-field count and store count, and the third as hydraulic variant. The native topology allocation and mask-bound callbacks corroborate this interpretation:
 
 ```text
-A = (SystemId // 10000) % 100
-B = (SystemId // 100) % 100
-C = SystemId % 100
+A = (SystemId // 10000) % 100  # collector fields
+B = (SystemId // 100) % 100    # stores
+C = SystemId % 100            # hydraulic variant
 SystemId = 10000 * A + 100 * B + C
 ```
 
@@ -231,7 +231,7 @@ The exact lookup table contains 28 eight-byte records, one of which is ID 1 (fie
 10401 10402 10403
 ```
 
-The lookup validates exact combinations and supports partial selection; for example, 20304 is present but 20303 is absent. A native allocation path uses additional record attributes and the selection routine dispatches according to the decoded fields. The physical meaning of all additional table bytes and variant combinations is not yet proven. Neither the XML numeric interval nor its default 10101 establishes an installed hydraulic topology. In particular, a nonzero selector used in a transfer filter is not a proof of Solar installation.
+The lookup validates exact combinations and supports partial selection; for example, 20304 is present but 20303 is absent. A native allocation path uses additional record attributes and the selection routine dispatches according to the decoded fields. The two counts are stored in native configuration context offsets 0x1185 and 0x1186 (allocation at RVAs 0x2cec4 and 0x2ced2). The physical meaning of all additional table bytes and exact variant-specific output allocations is not yet proven. Use actual live assignment references rather than generating fixed terminal mappings from these bytes. The menu contains up to five store slots, but the 28-record topology table has a maximum of four stores; a catalogue slot is not a supported or installed topology. Neither the XML numeric interval nor its default 10101 establishes an installed hydraulic topology. In particular, a nonzero selector used in a transfer filter is not a proof of Solar installation.
 
 The XML defines up to three collector groups, five store groups and ten Solar relay slots. It contains 18 dedicated Solar function groups (three tube collector, three bypass, one CS bypass, three frost protection, five external heat exchanger, one target temperature, one readiness and one drainback) and 16 generic Type/Nr groups. Dedicated and generic functions must use the same capability representation, but their dependencies must be resolved from actual function identity, topology and assignments.
 
@@ -254,6 +254,28 @@ The implementation must distinguish applied/read-back data, acknowledged complet
 The Java TransferSerial.getValueById path uses bounded retry of a read, then release and reacquisition on the same authenticated connection, awaiting a fresh offer and verifying the expected controller source. AbstractVBusConnection.releaseBus sends 0x0600 without an explicit release acknowledgement. This is a read-recovery reference, not authorization to retry a physical write.
 
 The current Python open_vbus establishes a fresh TCP connection; its release path sends 0x0600 and waits for the expected master's traffic, with a conditional second release only on silence. Both paths distinguish controller identity and communication state, but their connection lifecycle is different. This difference is a concrete diagnostic hypothesis for the field acquisition/release regression, not its established root cause. Compare actual offer/request/release traces before changing session lifetime or weakening address, correlation or safety checks. Preserve the single bus owner.
+
+### 4.11 Native dynamic constraints and schedule ownership
+
+The complete menu XML contains no explicit constraint elements, even though the native controller provides relational editing bounds. The complete index-to-descriptor join gives a useful explanation: all 15,680 XML indices point to descriptors containing two code pointers within the DLL text section, including abstract and structural entries. In the Preferences category alone (7,492 definitions), 1,757 distinct first callback addresses and 149 distinct second callback addresses are present. Callback presence is not equivalent to read/write authority; the pointer pair and data representation are separate from menu context. It does show why reproducing only XML min/max values is insufficient.
+
+Offline inspection of the original DLL, using the sorted native parameter index table (RVA 0x183500) and descriptor pointer table (RVA 0x18afa0), joined each selected XML parameter to its 16-byte descriptor. The descriptor contains the value pointer, descriptor flags and two code pointers. The following rules are directly supported by the bound callbacks and the shared min/max helpers:
+
+| Family | Coverage inspected | Dynamic bound | Evidence |
+| --- | --- | --- | --- |
+| Collector selection mask | Tube collector mask callback | (1 << configured collector count) - 1 | RVA 0x23850 reads context +0x1185 |
+| Store selection mask | External exchanger mask callback | (1 << configured store count) - 1 | RVA 0x238e5 reads context +0x1186 |
+| Tube collector start/end | 3/3 slots, both bounds | End >= start + 30 minutes; reciprocal start maximum | First pair RVAs 0x77687 / 0x77701, remaining pairs 0x7777b / 0x777f5 and 0x7786f / 0x778e9 |
+| External exchanger on/off differential, K | 5/5 slots, both bounds | On >= off + 0.5 K | First pair RVAs 0x789dd / 0x78b1f; raw margin 5 with factor 0.1 |
+| External exchanger on/off differential, R | 5/5 slots, both bounds | On >= off + 1 °R | First pair RVAs 0x78a59 / 0x78b9b; raw margin 10 with factor 0.1 |
+
+All 13 relational pairs (26 callbacks) were compared offline: each callback references the correct opposite parameter's native index and value pointer, invokes the appropriate min/max tightening helper (RVAs 0x10cdec / 0x10ce24) and applies the expected raw offset. For tube collector time bounds the native offset is 30 in minute representation. These callbacks conditionally tighten the editing bounds based on current context. They establish a valid operational constraint, not proof that an arbitrary raw VBus write always applies the same validation.
+
+This gives an implementation-ready pattern: bind the native family once, derive instances from verified metadata, require live assignment/activation and selected representation, check the dependent values in the same serialized operation, and reject an invalid pair before mutation. Keep the conservative conditional-write gates until the relevant function-presence evidence is established. Do not infer a 7-bit collector or 31-value store mask is valid solely from its XML maximum. The native mask callbacks demonstrate the difference between a schema capacity and the installed configuration. Do not expose topology/assignment mutations under the guise of operating parameters.
+
+Weekly schedule ownership was also examined across the full type inheritance tree. There are 74 value definitions inheriting WochenschaltuhrNr: 16 arrangement functions and 58 heating function/circuit/room-thermostat references. All 74 are Preferences and bind to the same native callback pair (RVAs 0x549ae and 0x54a34); the first callback sets a reference interval of 0–50, consistent with XML. Each of the 51 Wsu slots contains its own Belegt allocation flag, volatile Ttl field, initialization flag and seven daily payloads. The native callback does not establish exclusive ownership or the full lifecycle of allocation/release. A range containing zero does not authorize treating Wsu0 as an ordinary user-editable allocated program. Keep the distinction between a slot, a live reference and its actual active owners. Before editing, re-read allocation, initialization, relevant references and function context; show shared ownership when observed. Do not auto-allocate or reassign a schedule merely to expose a control.
+
+**Implementation implications:** the next V1 changes should correct the metadata parser, introduce family-based dependent constraints using the existing Setting/ConfigurationCapability model, complete the schedule editor on the corrected transport, and qualify failure recovery. Native callbacks can be studied further where a supported operation lacks evidence; it is not necessary to reimplement the controller's autonomous hydraulic algorithm or every display routine. The remaining exact menu predicate/assignment semantics and timer allocation lifecycle must not be described as solved. Retain the entire agreed functional outcome and distinguish intentionally excluded safety/commissioning operations from unfinished operational functions.
 
 ## 5. Architecture: a single native Home Assistant integration
 
@@ -304,7 +326,7 @@ The approved functional scope remains DS-PAR-01–05 in issue #10. The table bel
 | Correct catalogue | Read size attributes and inheritance consistently with RPT; retain genuine metadata provenance | Exact archive tests for all 357 daily definitions, storage default, inherited scaling/quantization, conflicting and malformed declarations, no unverified write grants |
 | Complete discovery | Prioritize selectors, exact topology and installed assignments, preserve full safe readable inventory, distinguish unresolved values | Native IDs, live applicability, bounded interruption/resume and snapshot comparison |
 | Correct transport | Remove false atomicity assumptions; reconcile partial or uncertain writes and relay acquisition/release | Independent peer applies words immediately; stage failure, lost commit, reconnect, stale values and no blind retry |
-| Complete native configuration | Verified schedule read/edit, relevant operating parameters and conditional Solar/heating/module functions | Live dependencies, bounds, native actions, exact readback and persistence; no duplicate writer |
+| Complete native configuration | Verified schedule read/edit, relevant operating parameters and conditional Solar/heating/module functions | Live dependencies, 3 tube collector pairs and 10 exchanger unit-specific pairs, schedule ownership, native actions, exact readback and persistence; no duplicate writer |
 | Qualify the full batch | Preserve existing 1.2.16 functionality and complete the agreed 1.2.17 scope | Exact candidate source gates, actual isolated HA lifecycle, actions, recovery, upgrade, restart and exact predecessor rollback |
 
 The weekly editor must use the existing owner, validate complete days and ownership before any mutation and report the authoritative final state. A partial write is not success. A recovered state that differs from both the original and requested schedule requires explicit reconciliation; the UI must not hide the discrepancy. No new HA UI framework is required: select the smallest native HA surface that provides a genuinely usable schedule editing journey, and verify it end to end.
@@ -332,10 +354,10 @@ No upstream PR is submitted by this research document. Upstream review should fo
 | Topic | Current conclusion | Evidence still needed |
 | --- | --- | --- |
 | Archive identity | Supplied controller/version/changeset match; ZIP digests differ | Member-level comparison with registered archive |
-| Weekly mapping | Statically verified in supplied DLL and supported by SET data | Registered-source reconciliation and live/isolated coherent read and edit journey |
+| Weekly mapping | Statically verified in supplied DLL and supported by SET data | Registered-source reconciliation, timer allocation/ownership lifecycle and live/isolated coherent read and edit journey |
 | Bulk recovery | Native direct mutation, inactivity and queued storage behavior established; guaranteed rollback contradicted | Independent partial-application peer and qualified recovery behavior |
 | Persistent storage | Preference defaults and native deferred storage path identified; commit is not a durability receipt | Complete restart/reconnect proof, physical retention separately |
-| Solar/menu applicability | Native SystemId decomposition and 28-record lookup verified; menu and transfer selection separated | Meaning of remaining topology attributes, native predicates and all applicable function contracts |
+| Solar/menu applicability | Native SystemId decomposition, counts and 28-record lookup verified; dynamic mask bounds and 13 paired constraints confirmed; menu and transfer selection separated | Remaining variant/assignment attributes, native presence predicates and all applicable function contracts |
 | Relay stability | RPT read recovery and Python session lifecycle compared | Actual recovery root cause and qualified regressions; supervised site acceptance separately |
 | Overall product | Active development, not feature complete | Full DS-PAR-01–05 and applicable DS-REL journeys, exact qualified HACS bytes |
 
@@ -375,6 +397,10 @@ Native DLL RVAs below are inspection references, not portable entry points or a 
 | Java transfer selection and import order | MX2Filter.initEditableValueInfos, getRelevantValueIds, postProcessOptionalFunctions |
 | Java deferred storage model | Storage.writeStorage, StorageMX.writeStorage |
 | Java read recovery | TransferSerial.getValueById |
+| Native index / descriptor pointer tables | 0x183500 / 0x18afa0 |
+| Configured collector/store counts | Allocation 0x2cec4 / 0x2ced2; context offsets 0x1185 / 0x1186 |
+| Dynamic min / max helpers | 0x10cdec / 0x10ce24 |
+| Weekly reference callback pair | 0x549ae / 0x54a34 (all 74) |
 | Parameter selection and packed IDs | MX2Filter.getRelevantValueIndices |
 | Java transfer lifecycle | Controller.readDataFromLibrary, writeDataToDevice, Controller$7 |
 | Bus acquisition / release | AbstractVBusConnection.waitForFreeBus, releaseBus |
@@ -384,6 +410,7 @@ SET file block-header CRC verification used reflected CRC16 polynomial 0x8408, i
 ### References
 
 - [RESOL DeltaSol BX Plus operating and installation manual, document 11202383](https://www.resol.de/Produktdokumente/Alte_Montageanleitungen/11202383_DeltaSol_BX_Plus.monen.pdf) — operating function definitions and native timer range.
+- [RESOL DeltaSol BX Plus manual beginning with firmware 2.07](https://www.manualslib.com/manual/2406566/Resol-Deltasol-Bx-Plus.html) — pp. 20–34, dotted system numbers and output/sensor allocation. The older manual's ordinal system numbers must not be used as exact 2.08 SystemId mappings. The online table of contents was accessible; individual page retrieval failed, so the binary remains the authority for the exact 28-record list and dynamic bounds.
 - [RESOL VBus Core parameterization guide](https://resol-vbus-core.bugstu.be/guides/vbus-parameterization.html) — independent protocol/mapping reference; not proof of BX Plus-specific storage behavior.
 - [Original RPT binary audit evidence](https://github.com/npinguin/hass-Deltasol-KM2/pull/18#issuecomment-7237378673) — native analysis, source fingerprints and limitations.
 - [Configuration scope and acceptance](https://github.com/npinguin/hass-Deltasol-KM2/issues/10) — authoritative work scope.
