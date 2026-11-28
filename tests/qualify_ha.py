@@ -2346,6 +2346,7 @@ async def qualify(directory, phase):
             GROUP_ID_USER,
         )
         from homeassistant.components.frontend import DATA_PANELS
+
         from custom_components.deltasol.dashboard import (
             dashboard_objects,
             scoped_control,
