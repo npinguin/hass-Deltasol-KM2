@@ -815,7 +815,9 @@ def bind_setting(setting, definitions):
             _normalized_numeric(target, setting.limits)
             options = (1, 2, 3)
         exposed = {raw for _, raw in setting.options}
-        if set(options) != set(setting.native_options or exposed) or not exposed <= set(options):
+        if set(options) != set(setting.native_options or exposed) or not exposed <= set(
+            options
+        ):
             raise CatalogError("Catalogue enumeration contract differs")
     else:
         raise CatalogError("Unsupported configuration contract")
@@ -3315,7 +3317,9 @@ def _room_thermal_controls():
                         (
                             (
                                 Dependency(prefix + "_Typ", base + 4, (0,)),
-                                RangeDependency(prefix + "_Sensor1_Nr", base + 15, 1, 65),
+                                RangeDependency(
+                                    prefix + "_Sensor1_Nr", base + 15, 1, 65
+                                ),
                             ),
                             switch,
                         )
@@ -3364,8 +3368,12 @@ def _room_thermal_controls():
                 (
                     RangeDependency(root + "_Sensor4_Nr", 13804 + offset, 1, 65),
                     Dependency("TemperatureHysteresisSelector", 60, (unit,)),
-                    *_unit_value(on, oi, unit, alias, -150 * factor, 445 * factor, 5 * factor),
-                    *_unit_value(off, ai, unit, alias, -145 * factor, 450 * factor, 5 * factor),
+                    *_unit_value(
+                        on, oi, unit, alias, -150 * factor, 445 * factor, 5 * factor
+                    ),
+                    *_unit_value(
+                        off, ai, unit, alias, -145 * factor, 450 * factor, 5 * factor
+                    ),
                     PeerComparison(off, ai, on, oi, "gt"),
                 )
                 for unit, alias, factor in ((0, "_K", 1), (1, "_R", 2))
@@ -3434,7 +3442,11 @@ def _room_thermal_controls():
                     RequestedCondition(1, (thermal,)),
                     RequestedCondition(
                         2,
-                        (RangeDependency(f"{root}_{phase}_dt{phase}", duration + offset, 0, 300),),
+                        (
+                            RangeDependency(
+                                f"{root}_{phase}_dt{phase}", duration + offset, 0, 300
+                            ),
+                        ),
                     ),
                 ),
             )
@@ -3470,14 +3482,22 @@ def _room_thermal_controls():
         )
         for suffix, index, label, variants in (
             (
-                "TMax", 11389, "temperature target",
-                ((0, "_C", "°C", ("20", "90", "1", "0.1")),
-                 (1, "_F", "°F", ("68", "194", "2", "0.1"))),
+                "TMax",
+                11389,
+                "temperature target",
+                (
+                    (0, "_C", "°C", ("20", "90", "1", "0.1")),
+                    (1, "_F", "°F", ("68", "194", "2", "0.1")),
+                ),
             ),
             (
-                "dTMax", 11394, "speed-regulation hysteresis",
-                ((0, "_K", "K", ("0.5", "10", "0.5", "0.1")),
-                 (1, "_R", "°R", ("1", "20", "1", "0.1"))),
+                "dTMax",
+                11394,
+                "speed-regulation hysteresis",
+                (
+                    (0, "_K", "K", ("0.5", "10", "0.5", "0.1")),
+                    (1, "_R", "°R", ("1", "20", "1", "0.1")),
+                ),
             ),
         ):
             name = prefix + "_" + suffix
@@ -3496,7 +3516,12 @@ def _room_thermal_controls():
                         Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                     ),
                     compound_mirrors=(
-                        (name, index + offset, name + alias, index + offset + selector + 1),
+                        (
+                            name,
+                            index + offset,
+                            name + alias,
+                            index + offset + selector + 1,
+                        ),
                     ),
                 )
 
