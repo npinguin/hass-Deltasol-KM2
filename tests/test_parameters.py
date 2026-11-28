@@ -326,17 +326,19 @@ class ParameterTests(unittest.TestCase):
                             {**values, root + "_Aktiviert_SensorSchalter_Nr": 6}, 2
                         )
                     )
-                    self.assertFalse(setting.accepts({**values, "Solar_SystemId": 1}, 1))
-                    self.assertFalse(setting.accepts({**values, "Solar_Relais1_Nr": 0}, 1))
+                    self.assertFalse(
+                        setting.accepts({**values, "Solar_SystemId": 1}, 1)
+                    )
+                    self.assertFalse(
+                        setting.accepts({**values, "Solar_Relais1_Nr": 0}, 1)
+                    )
                     for key in suffixes:
                         missing = dict(values)
                         del missing[root + "_" + key]
                         self.assertFalse(setting.accepts(missing, 1), key)
                     if "KollektorMaske" in suffixes:
                         self.assertFalse(
-                            setting.accepts(
-                                {**values, root + "_KollektorMaske": 4}, 1
-                            )
+                            setting.accepts({**values, root + "_KollektorMaske": 4}, 1)
                         )
                         self.assertFalse(
                             setting.accepts({**values, "Solar_Kol2_Sensor1_Nr": 0}, 1)
@@ -361,7 +363,9 @@ class ParameterTests(unittest.TestCase):
                 self.assertTrue(setting.accepts({**values, delay: 0}, 0))
                 self.assertFalse(setting.accepts({**values, delay: 0}, 1))
                 self.assertFalse(setting.accepts({**values, delay: 1440}, 1))
-                self.assertFalse(setting.accepts({**values, root + "_Relais1_Nr": 0}, 1))
+                self.assertFalse(
+                    setting.accepts({**values, root + "_Relais1_Nr": 0}, 1)
+                )
                 values[root + "_Aktiviert_Modus"] = 2
                 self.assertFalse(setting.accepts(values, 1))
                 values[root + "_Aktiviert_SensorSchalter_Nr"] = 3

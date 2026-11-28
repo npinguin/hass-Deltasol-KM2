@@ -1673,9 +1673,15 @@ def _timing_settings():
             dependencies=(
                 AnyDependencies(
                     (
-                        (Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (1,)),),
                         (
-                            Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (2,)),
+                            Dependency(
+                                f"{arrangement}_Aktiviert_Modus", 6566 + ao, (1,)
+                            ),
+                        ),
+                        (
+                            Dependency(
+                                f"{arrangement}_Aktiviert_Modus", 6566 + ao, (2,)
+                            ),
                             RangeDependency(
                                 f"{arrangement}_Aktiviert_SensorSchalter_Nr",
                                 6568 + ao,
@@ -3946,7 +3952,11 @@ def _dedicated_solar_activity():
                 _raw_steps(root + "_tBeginn", 3840 + offset, 0, 1410, 30),
                 _raw_steps(root + "_tEnde", 3841 + offset, 0, 1410, 30),
                 PeerComparison(
-                    root + "_tEnde", 3841 + offset, root + "_tBeginn", 3840 + offset, "gt"
+                    root + "_tEnde",
+                    3841 + offset,
+                    root + "_tBeginn",
+                    3840 + offset,
+                    "gt",
                 ),
                 _raw_steps(root + "_Laufzeit", 3842 + offset, 5, 600, 5),
                 RangeDependency(root + "_Pausezeit", 3843 + offset, 1, 60),
@@ -3990,7 +4000,9 @@ def _dedicated_solar_activity():
             RangeDependency(root + "_Verzoegerung", 3992, 10, 300),
         ),
     )
-    yield replace(setting, dependencies=(SolarSelection(root + "_KollektorMaske", 3986),))
+    yield replace(
+        setting, dependencies=(SolarSelection(root + "_KollektorMaske", 3986),)
+    )
 
     root = "Solar_Wf1_Zieltemperatur"
     setting = _activity_setting(
@@ -4014,7 +4026,10 @@ def _dedicated_solar_activity():
     yield replace(setting, dependencies=(topology,))
 
 
-BX_PLUS_ACTIVITY_SETTINGS = (*_installed_function_activity(), *_dedicated_solar_activity())
+BX_PLUS_ACTIVITY_SETTINGS = (
+    *_installed_function_activity(),
+    *_dedicated_solar_activity(),
+)
 
 
 def _heating_operating_settings():
