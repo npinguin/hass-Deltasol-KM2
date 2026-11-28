@@ -1296,6 +1296,138 @@ class DiscoveryTests(unittest.TestCase):
                 locations["VBus bulk Blob"] - locations["VBus bulk command"],
                 0x6C,
             )
+        # Compare the complete handler's control flow, retaining all jumps and
+        # constants. Only PE-declared address relocations and external CALL
+        # displacements are normalized. The verified bulk branch locates it.
+        reloc_rva, reloc_length = struct.unpack_from("<II", binary, optional + 136)
+        reloc_offset = locate(base + reloc_rva, reloc_length, ".reloc")
+        reloc_end = reloc_offset + reloc_length
+        relocations = set()
+        while reloc_offset < reloc_end:
+            page, length = struct.unpack_from("<II", binary, reloc_offset)
+            self.assertGreaterEqual(length, 8)
+            self.assertEqual(length % 2, 0)
+            self.assertLessEqual(reloc_offset + length, reloc_end)
+            for offset in range(reloc_offset + 8, reloc_offset + length, 2):
+                item = struct.unpack_from("<H", binary, offset)[0]
+                kind = item >> 12
+                if kind:
+                    self.assertEqual(kind, 3)
+                    relocations.add(page + (item & 0xFFF))
+            reloc_offset += length
+
+        def fingerprint(start, length, calls, relocation_count, expected):
+            offset = locate(base + start, length, ".text")
+            body = bytearray(binary[offset : offset + length])
+            reloc = sorted(
+                r - start for r in relocations if start <= r < start + length
+            )
+            self.assertEqual(len(reloc), relocation_count)
+            for pos in reloc:
+                self.assertLessEqual(pos + 4, length)
+                body[pos : pos + 4] = bytes(4)
+            targets = {}
+            for pos in calls:
+                self.assertEqual(body[pos], 0xE8)
+                targets[pos] = (
+                    start + pos + 5 + struct.unpack_from("<i", body, pos + 1)[0]
+                )
+                body[pos + 1 : pos + 5] = bytes(4)
+            actual = hashlib.sha256(body).hexdigest()
+            print("Native normalized fingerprint:", hex(start), actual)
+            self.assertEqual(actual, expected)
+            return targets
+
+        handler = locations["VBus bulk command"] - 0x84E
+        targets = fingerprint(
+            handler,
+            3863,
+            (
+                0x94,
+                0x166,
+                0x19E,
+                0x1BC,
+                0x223,
+                0x237,
+                0x273,
+                0x349,
+                0x3B0,
+                0x3C4,
+                0x451,
+                0x465,
+                0x49B,
+                0x4B7,
+                0x4E0,
+                0x52D,
+                0x541,
+                0x576,
+                0x5C4,
+                0x5D8,
+                0x62A,
+                0x63E,
+                0x692,
+                0x6A6,
+                0x6DB,
+                0x6ED,
+                0x6FD,
+                0x708,
+                0x70D,
+                0x718,
+                0x72A,
+                0x736,
+                0x742,
+                0x784,
+                0x798,
+                0x7E8,
+                0x830,
+                0x844,
+                0x88B,
+                0x99A,
+                0x9D3,
+                0xA1F,
+                0xA33,
+                0xB05,
+                0xB34,
+                0xB56,
+                0xB6A,
+                0xC08,
+                0xC37,
+                0xC63,
+                0xC8F,
+                0xCDE,
+                0xCF4,
+                0xD21,
+                0xD6A,
+                0xDCF,
+                0xDFC,
+                0xE32,
+                0xE6A,
+                0xE85,
+                0xEA9,
+                0xEF0,
+                0xF04,
+            ),
+            46,
+            "9248ae007f73c3e32b3b9dd1fb9b59d92582585555b87e06ad8e18ab9ce2639a",
+        )
+        self.assertEqual(targets[0x94], targets[0x273])
+        self.assertEqual(targets[0x94], targets[0x88B])
+        fingerprint(
+            targets[0x7E8],
+            245,
+            (0x12, 0x39, 0x63, 0xC1, 0xE9),
+            9,
+            "5e0867c3c52e06568928f10944d58ee15b875c6921987e89e0e56e8390dfa949",
+        )
+        dirty = fingerprint(
+            targets[0x9D3],
+            77,
+            (0x23, 0x45),
+            2,
+            "f3f9f943ec77a2f881142737033a2d3a2f42dd53f7b2ba89af4d97751d852f1b",
+        )
+        self.assertEqual(dirty[0x23], dirty[0x45])
+        print("Native handler and storage helper contracts verified:", hex(handler))
         # The two JNI block comparisons in run 46133822341 did not match;
         # JNI is not the integration's transport. These four VBus blocks
         # establish byte order and immediate mutation, not
