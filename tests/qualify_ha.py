@@ -2395,7 +2395,9 @@ async def qualify(directory, phase):
 
         try:
             ws_engineering(
-                hass, SimpleNamespace(user=resident), {"id": 1, "entry_id": entry.entry_id}
+                hass,
+                SimpleNamespace(user=resident),
+                {"id": 1, "entry_id": entry.entry_id},
             )
         except Unauthorized:
             pass

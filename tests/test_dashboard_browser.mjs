@@ -22,7 +22,7 @@ function journey(){
     calls.push(request);
     if(request.type.endsWith("/list"))return [{id:"one",name:"System 1",settings:admin,engineering:admin&&engineering,health:{telemetry:true,parameter_access:true,catalogue:true,selectors_observed:12,selectors_total:16,checkpoint:"checkpoint_incompatible"},objects:[{id:"native",name:"RESOL Arrangement function 1",object_kind:"solid_fuel",object_number:1,capabilities:rows.filter(row=>admin||row.depth!=="engineering"&&row.depth!=="settings")}]},{id:"two",name:"System 2",settings:admin,engineering:false,objects:[]}];
     if(request.type.endsWith("/engineering"))return {configuration_discovery:{parameters:{Schema:{status:"read"}}}};
-    if(request.type.endsWith("/action"))return request.preview?{value:request.value,expected:"08:00-10:00",references:["Heating"]}:{outcome:"observed",value:request.value};
+    if(request.type.endsWith("/action"))return request.preview?{value:request.value,expected:"08:00-10:00",references:["Heating"],reference_token:"known-links"}:{outcome:"observed",value:request.value};
     throw new Error("Unexpected request "+request.type);
   }};
   const root=panel.shadowRoot;
@@ -42,7 +42,7 @@ function journey(){
     click("[data-preview]");await tick();
     check(root.textContent.includes("Heating"),"Shared schedule references missing");
     click("[data-save]");await tick();
-    check(calls.some(x=>x.entity_id==="text.week"&&!x.preview&&x.expected==="08:00-10:00"),"Missing reviewed schedule save");
+    check(calls.some(x=>x.entity_id==="text.week"&&!x.preview&&x.expected==="08:00-10:00"&&x.reference_token==="known-links"),"Missing reviewed schedule save");
     click('[data-tab="engineering"]');await tick();
     check(root.textContent.includes("Schema"),"Missing native parameter inventory");
     choose("#installation","two");

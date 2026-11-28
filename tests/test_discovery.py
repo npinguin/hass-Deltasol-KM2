@@ -3088,9 +3088,7 @@ class RecoveryTests(unittest.IsolatedAsyncioTestCase):
         coordinator = SimpleNamespace(
             runtime=runtime,
             telemetry=SimpleNamespace(observed_inventory={}),
-            data=SimpleNamespace(
-                controller=controller, changeset=source.changeset
-            ),
+            data=SimpleNamespace(controller=controller, changeset=source.changeset),
         )
         self.assertIs(ns["_configuration_catalog"](coordinator), vendor)
         coordinator.data.changeset += 1

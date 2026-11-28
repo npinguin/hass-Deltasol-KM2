@@ -8,6 +8,7 @@ See DASHBOARD-LICENSE.txt.
 from __future__ import annotations
 
 import asyncio
+import re
 from hashlib import sha256
 from math import isclose
 from pathlib import Path
@@ -90,6 +91,24 @@ def object_kind(setting):
         "Heizung_Wf": "heating_function",
         "Wmz": "meter",
     }.get(family, "solar_function"), number
+
+
+def weekly_owner_label(name):
+    """Human-readable label for a positively observed native schedule reference."""
+    match = re.fullmatch(
+        r"(Anlage_Wf|Heizung_Wf|Heizung_Heizkreis)([0-9]+)"
+        r"(?:_Raumthermostat([0-9]+))?_SchaltuhrNr",
+        name,
+    )
+    if not match:
+        return "RESOL program reference"
+    family, number, room = match.groups()
+    label = {
+        "Anlage_Wf": "Arrangement function",
+        "Heizung_Wf": "Heating function",
+        "Heizung_Heizkreis": "Heating circuit",
+    }[family]
+    return f"{label} {number}" + (f" / Room thermostat {room}" if room else "")
 
 
 def capability_access(registered, setting, state, user, engineering, *, relay=False):
@@ -182,14 +201,25 @@ def dashboard_objects(hass, user):
                 {
                     "id": device.id,
                     "name": device.name_by_user or device.name or "RESOL",
+                    "renamed": bool(device.name_by_user),
                     "capabilities": [],
                     "object_kind": None,
                     "object_number": None,
+                    "object_confirmed": False,
                 },
             )
             kind = object_kind(setting)
-            if kind and (not asset["object_kind"] or kind[0] == "solid_fuel"):
+            confirmed = bool(cap and state and state.state != "unavailable")
+            if kind and (
+                not asset["object_kind"]
+                or (confirmed and not asset["object_confirmed"])
+                or (
+                    confirmed == asset["object_confirmed"]
+                    and kind[0] == "solid_fuel"
+                )
+            ):
                 asset["object_kind"], asset["object_number"] = kind
+                asset["object_confirmed"] = confirmed
             asset["capabilities"].append(
                 {
                     "entity_id": row.entity_id,
@@ -207,13 +237,16 @@ def dashboard_objects(hass, user):
                     "schedule": bool(setting and setting.weekly_slot is not None),
                     "shared_references": (
                         [
-                            static_settings[owner].label
-                            if owner in static_settings
-                            else "RESOL program reference"
+                            weekly_owner_label(owner)
                             for owner in cap.owners
                         ]
                         if cap and setting and setting.weekly_slot is not None
                         else []
+                    ),
+                    "reference_token": (
+                        sha256(repr((cap.owners, cap.active_owners)).encode()).hexdigest()
+                        if cap and setting and setting.weekly_slot is not None
+                        else None
                     ),
                 }
             )
@@ -327,6 +360,7 @@ def observed_result(kind, state, value):
         vol.Optional("preview", default=False): bool,
         vol.Optional("expected"): str,
         vol.Optional("references"): [str],
+        vol.Optional("reference_token"): str,
     }
 )
 @websocket_api.async_response
@@ -343,6 +377,7 @@ async def ws_action(hass, connection, msg):
                 {
                     "value": data["value"],
                     "references": row["shared_references"],
+                    "reference_token": row["reference_token"],
                     "expected": hass.states.get(row["entity_id"]).state,
                 },
             )
@@ -350,6 +385,7 @@ async def ws_action(hass, connection, msg):
         if row["schedule"] and (
             msg.get("expected") != hass.states.get(row["entity_id"]).state
             or msg.get("references") != row["shared_references"]
+            or msg.get("reference_token") != row["reference_token"]
         ):
             raise HomeAssistantError("Weekly program changed; review again")
         await hass.services.async_call(

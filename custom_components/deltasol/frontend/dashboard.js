@@ -111,12 +111,15 @@ class ResolDashboard extends HTMLElement {
     const rows=asset.capabilities;
     if(this.tab==="settings")return rows.filter(row=>row.depth==="settings"||row.depth==="controls");
     if(this.tab==="engineering")return rows.filter(row=>row.depth==="engineering");
-    if(this.tab==="overview")return rows.filter(row=>row.depth==="status"||row.depth==="controls");
-    return rows.filter(row=>row.section===this.tab&&(row.depth==="status"||row.depth==="controls"));
+    if(this.tab==="overview"){
+      const operational=rows.filter(row=>row.depth==="status"||row.depth==="controls");
+      return operational.length&&!this.object?operational:rows.filter(row=>row.depth!=="engineering");
+    }
+    return rows.filter(row=>row.section===this.tab&&row.depth!=="engineering");
   }
   objectTitle(asset){
     const type=asset.object_kind?this.t(asset.object_kind)+" "+asset.object_number:"";
-    return type&&asset.name.startsWith("RESOL ")?type:asset.name;
+    return type&&!asset.renamed&&asset.name.startsWith("RESOL ")?type:asset.name;
   }
   summary(){
     const h=this.current()?.health;
@@ -136,7 +139,7 @@ class ResolDashboard extends HTMLElement {
         const prominent=rows.filter(row=>this.valid(row)).slice(0,4);
         return '<article class="card">'+header+prominent.map(row=>this.detail(row,false)).join("")+(available!==rows.length?'<p class="warning">'+(rows.length-available)+' '+escape(this.t("not_confirmed"))+'</p>':"")+'</article>';
       }
-      return '<article class="card">'+header+rows.map(row=>this.detail(row,row.depth!=="status")).join("")+'</article>';
+      return '<article class="card">'+header+rows.map(row=>this.detail(row,row.depth==="controls"||this.tab==="settings"||this.tab==="engineering")).join("")+((this.tab!=="settings"&&this.tab!=="engineering"&&this.object&&this.current()?.settings&&rows.some(row=>row.depth==="settings"))?'<button data-tab="settings">'+escape(this.t("settings"))+'</button>':"")+'</article>';
     }).filter(Boolean);
     return cards.length?'<div class="grid">'+cards.join("")+'</div>':'<p class="muted">'+escape(this.t("empty"))+'</p>';
   }
@@ -189,7 +192,7 @@ class ResolDashboard extends HTMLElement {
     this.render();
     try{
       const review=row.schedule&&!preview?this.editor?.review:null;
-      const result=await this._hass.callWS({type:"deltasol/dashboard/action",entry_id:this.context,entity_id:row.entity_id,value,preview,...(review?{expected:review.expected,references:review.references}:{})});
+      const result=await this._hass.callWS({type:"deltasol/dashboard/action",entry_id:this.context,entity_id:row.entity_id,value,preview,...(review?{expected:review.expected,references:review.references,reference_token:review.reference_token}:{})});
       if(preview&&this.editor){this.editor.review=result;this.notice="";}
       else{this.notice=this.t(result.outcome)+(result.value==null?"":": "+result.value);this.editor=null;}
     }catch{this.notice=this.t("error");if(this.editor)this.editor.review=null;}

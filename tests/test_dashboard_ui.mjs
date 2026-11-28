@@ -50,13 +50,20 @@ test("weekly preview carries authoritative baseline to native action",async()=>{
   let request;
   p._hass.callWS=async msg=>{
     request=msg;
-    return msg.preview?{value:"08:00-10:00",expected:"07:00-09:00",references:["Heating"]}:{outcome:"observed",value:msg.value};
+    return msg.preview?{value:"08:00-10:00",expected:"07:00-09:00",references:["Heating"],reference_token:"verified-owners"}:{outcome:"observed",value:msg.value};
   };
   await p.action(p.row("text.week"),"08:00-10:00",true);
   assert.equal(p.editor.review.expected,"07:00-09:00");
   await p.action(p.row("text.week"),p.editor.review.value);
   assert.equal(request.expected,"07:00-09:00");
   assert.equal(request.references[0],"Heating");
+  assert.equal(request.reference_token,"verified-owners");
   assert.equal(request.entry_id,"one");
   assert.equal(p.editor,null);
+});
+
+test("settings-only native function remains visible in the object overview",()=>{
+  const p=model(true,false);
+  const object={id:"thermostat",capabilities:[{entity_id:"number.thermostat",depth:"settings",section:"overview",kind:"number",control:true}]};
+  assert.equal(p.visibleRows(object).length,1);
 });
