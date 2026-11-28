@@ -251,3 +251,15 @@ test("configured function with no observed measurement explicitly shows unknown 
   p.tab="heating";
   const html=p.cards();assert.ok(html.includes(p.t("unconfirmed")));assert.ok(!html.includes("1 / 1"));
 });
+
+test("every supported entity depth is reachable in the shared dashboard navigation",()=>{
+  const p=model(true,true);const asset=p.current().objects[0];
+  asset.capabilities.push({entity_id:"number.solar",depth:"settings",section:"solar",kind:"number",control:true},{entity_id:"switch.dhw",depth:"settings",section:"hot_water",kind:"switch",control:true},{entity_id:"sensor.yield",depth:"status",section:"energy",kind:"sensor"});
+  p.object="device";
+  for(const row of asset.capabilities){
+    p.tab=row.depth==="engineering"?"engineering":row.depth==="settings"?"settings":"overview";
+    assert.ok(p.tabs().includes(p.tab));assert.ok(p.visibleRows(asset).includes(row),row.entity_id);
+  }
+  p.current().engineering=false;
+  assert.ok(!p.tabs().includes("engineering"));
+});

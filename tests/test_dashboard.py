@@ -1,7 +1,10 @@
 """Source-level dashboard authorization and native action contract regression."""
 
 import ast
+import importlib
 import re
+import sys
+import types
 import unittest
 from math import isclose
 from pathlib import Path
@@ -377,3 +380,34 @@ class DashboardTests(unittest.TestCase):
         coordinator.last_update_success = True
         sources[row.unique_id].append((key, "private_Controller"))
         self.assertEqual(evidence(row, device, sources), {})
+
+    def test_every_static_profile_contract_has_an_authorized_dashboard_depth(self):
+        package = types.ModuleType("_deltasol_dashboard_profile")
+        package.__path__ = [str(PATH.parent)]
+        sys.modules[package.__name__] = package
+        profile = importlib.import_module(f"{package.__name__}.bx_plus")
+        admin = SimpleNamespace(
+            is_admin=True, permissions=SimpleNamespace(check_entity=lambda *_: True)
+        )
+        resident = SimpleNamespace(is_admin=False, permissions=admin.permissions)
+        access = self.ns["capability_access"]
+        for setting in profile.SETTINGS:
+            with self.subTest(parameter=setting.name, kind=setting.kind):
+                row = SimpleNamespace(
+                    entity_id=f"{setting.kind}.native", entity_category="config"
+                )
+                state = SimpleNamespace(
+                    state="unknown" if setting.kind == "button" else "1"
+                )
+                depth, writable = access(row, setting, state, admin, True)
+                self.assertIn(setting.kind, ("number", "select", "switch", "text", "button"))
+                self.assertTrue(writable)
+                self.assertIn(depth, ("controls", "settings", "engineering"))
+                self.assertEqual(
+                    depth == "engineering", not setting.save or setting.kind == "button"
+                )
+                resident_access = access(row, setting, state, resident, False)
+                if depth == "engineering":
+                    self.assertIsNone(resident_access)
+                else:
+                    self.assertEqual(resident_access, (depth, depth == "controls"))

@@ -2382,6 +2382,30 @@ async def qualify(directory, phase):
         (resident_view,) = dashboard_objects(hass, resident)
         (reader_view,) = dashboard_objects(hass, readonly)
         assert admin_view["engineering"] and admin_view["settings"]
+        # Every readable, enabled native entity in this installed fixture must
+        # occur exactly once in the administrator's scoped projection.
+        from homeassistant.helpers import device_registry as dashboard_devices
+
+        devices = dashboard_devices.async_get(hass)
+        expected_entities = {
+            row.entity_id
+            for row in registry.entities.values()
+            if row.config_entry_id == entry.entry_id
+            and row.platform == "deltasol"
+            and row.disabled_by is None
+            and row.hidden_by is None
+            and row.device_id
+            and (device := devices.async_get(row.device_id))
+            and entry.entry_id in device.config_entries
+            and any(domain == "deltasol" for domain, _ in device.identifiers)
+        }
+        projected_entities = [
+            row["entity_id"]
+            for asset in admin_view["objects"]
+            for row in asset["capabilities"]
+        ]
+        assert len(projected_entities) == len(set(projected_entities))
+        assert set(projected_entities) == expected_entities
         admin_sensor = next(
             row
             for asset in admin_view["objects"]
