@@ -417,7 +417,11 @@ def _read_settings(
         # Detect a reassignment during the additional program reads.
         links = {reference.name: reference.index for reference in references}
         observed_links = session.read_parameter_observations(
-            profile.address, links, changeset, expected=links, schema=profile.schema_index
+            profile.address,
+            links,
+            changeset,
+            expected=links,
+            schema=profile.schema_index,
         )
         for name, index in links.items():
             row = observed_links.get(name)
