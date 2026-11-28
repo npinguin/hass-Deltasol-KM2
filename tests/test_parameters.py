@@ -603,11 +603,19 @@ class ParameterTests(unittest.TestCase):
             }
             setting = settings[1]
             self.assertTrue(setting.accepts(values, 1))
-            self.assertFalse(setting.accepts({**values, root + "_Bezugsrelais1_Nr": 258}, 1))
-            self.assertFalse(setting.accepts({**values, parallel + "_dtVerzoegerung": 31}, 1))
+            self.assertFalse(
+                setting.accepts({**values, root + "_Bezugsrelais1_Nr": 258}, 1)
+            )
+            self.assertFalse(
+                setting.accepts({**values, parallel + "_dtVerzoegerung": 31}, 1)
+            )
             self.assertFalse(setting.accepts(values, 2))
-            self.assertTrue(setting.accepts({**values, root + "_Aktiviert_SensorSchalter_Nr": 4}, 2))
-            self.assertTrue(setting.accepts({**values, root + "_Bezugsrelais1_Nr": 0}, 0))
+            self.assertTrue(
+                setting.accepts({**values, root + "_Aktiviert_SensorSchalter_Nr": 4}, 2)
+            )
+            self.assertTrue(
+                setting.accepts({**values, root + "_Bezugsrelais1_Nr": 0}, 0)
+            )
             preheat = root + "_Ruecklaufanhebung"
             mixing = root + "_RLBeimischung"
             for unit, suffix, temp_suffix, high, low, target, maximum, summer in (
@@ -626,14 +634,20 @@ class ParameterTests(unittest.TestCase):
                 }
                 setting = settings[8]
                 self.assertTrue(setting.accepts(thermal, 1))
-                self.assertFalse(setting.accepts({**thermal, preheat + "_OSommerAus": 1}, 1))
-                thermal.update({
-                    preheat + "_OSommerAus": 1,
-                    preheat + "_TSommerAus": summer,
-                    preheat + "_TSommerAus" + temp_suffix: summer,
-                })
+                self.assertFalse(
+                    setting.accepts({**thermal, preheat + "_OSommerAus": 1}, 1)
+                )
+                thermal.update(
+                    {
+                        preheat + "_OSommerAus": 1,
+                        preheat + "_TSommerAus": summer,
+                        preheat + "_TSommerAus" + temp_suffix: summer,
+                    }
+                )
                 self.assertTrue(setting.accepts(thermal, 1))
-                self.assertFalse(setting.accepts({**thermal, root + "_Sensor3_Nr": 0}, 1))
+                self.assertFalse(
+                    setting.accepts({**thermal, root + "_Sensor3_Nr": 0}, 1)
+                )
                 values = {
                     **base,
                     "TemperatureHysteresisSelector": unit,
@@ -653,20 +667,28 @@ class ParameterTests(unittest.TestCase):
                 }
                 setting = settings[11]
                 self.assertTrue(setting.accepts(values, 1))
-                self.assertFalse(setting.accepts({**values, root + "_Relais2_Nr": 71}, 1))
-                self.assertFalse(setting.accepts({**values, mixing + "_Justierzeit": 61}, 1))
-                self.assertFalse(setting.accepts({**values, mixing + "_OHeizkreisIntern": 1}, 1))
+                self.assertFalse(
+                    setting.accepts({**values, root + "_Relais2_Nr": 71}, 1)
+                )
+                self.assertFalse(
+                    setting.accepts({**values, mixing + "_Justierzeit": 61}, 1)
+                )
+                self.assertFalse(
+                    setting.accepts({**values, mixing + "_OHeizkreisIntern": 1}, 1)
+                )
                 selection = next(setting.function_selections())
                 values.update({name: 0 for name in selection.expected})
-                values.update({
-                    mixing + "_OHeizkreisIntern": 1,
-                    selection.name: 2,
-                    "Heizung_Heizkreis2_Type": 1,
-                    "Heizung_Heizkreis2_Nr": 2,
-                    "Heizung_Heizkreis2_System": 0,
-                    "Heizung_Heizkreis2_Sensor1_Nr": 1,
-                    "Heizung_Heizkreis2_Relais1_Nr": 2,
-                })
+                values.update(
+                    {
+                        mixing + "_OHeizkreisIntern": 1,
+                        selection.name: 2,
+                        "Heizung_Heizkreis2_Type": 1,
+                        "Heizung_Heizkreis2_Nr": 2,
+                        "Heizung_Heizkreis2_System": 0,
+                        "Heizung_Heizkreis2_Sensor1_Nr": 1,
+                        "Heizung_Heizkreis2_Relais1_Nr": 2,
+                    }
+                )
                 self.assertTrue(setting.accepts(values, 1))
                 self.assertFalse(setting.accepts({**values, selection.name: 1}, 1))
                 self.assertTrue(setting.accepts({**values, selection.name: 0}, 0))

@@ -4064,7 +4064,9 @@ def _installed_function_activity():
                             (Dependency(parallel + flag, index + ao, (0,)),),
                             (
                                 Dependency(parallel + flag, index + ao, (1,)),
-                                RangeDependency(parallel + duration, index + 1 + ao, 1, 30),
+                                RangeDependency(
+                                    parallel + duration, index + 1 + ao, 1, 30
+                                ),
                             ),
                         )
                     )
@@ -4098,7 +4100,15 @@ def _installed_function_activity():
                                 RangeDependency(root + "_Sensor3_Nr", 6584 + ao, 1, 65),
                                 _activity_thermal(
                                     preheat,
-                                    (("TSommerAus", 6701 + ao, (100, 600, 10), (500, 1400, 20), False),),
+                                    (
+                                        (
+                                            "TSommerAus",
+                                            6701 + ao,
+                                            (100, 600, 10),
+                                            (500, 1400, 20),
+                                            False,
+                                        ),
+                                    ),
                                 ),
                             ),
                         )
@@ -4111,28 +4121,58 @@ def _installed_function_activity():
                     secondary,
                     RangeDependency(root + "_Sensor3_Nr", 6584 + ao, 1, 65),
                     RangeDependency(root + "_Relais2_Nr", 6600 + ao, 1, 100),
-                    PeerComparison(root + "_Relais1_Nr", 6592 + ao, root + "_Relais2_Nr", 6600 + ao, "ne"),
+                    PeerComparison(
+                        root + "_Relais1_Nr",
+                        6592 + ao,
+                        root + "_Relais2_Nr",
+                        6600 + ao,
+                        "ne",
+                    ),
                     RangeDependency(mixing + "_Mischerstellzeit", 6772 + ao, 1, 20),
                     _activity_thermal(
                         mixing,
                         (
                             ("dTEin", 6759 + ao, (10, 250, 5), (20, 500, 10), True),
                             ("dTAus", 6762 + ao, (5, 240, 5), (10, 480, 10), True),
-                            ("dTSoll", 6765 + ao, (-200, 250, 10), (-400, 500, 20), True),
-                            ("TMax_Kesselruecklauf", 6768 + ao, (100, 800, 10), (500, 1760, 20), False),
+                            (
+                                "dTSoll",
+                                6765 + ao,
+                                (-200, 250, 10),
+                                (-400, 500, 20),
+                                True,
+                            ),
+                            (
+                                "TMax_Kesselruecklauf",
+                                6768 + ao,
+                                (100, 800, 10),
+                                (500, 1760, 20),
+                                False,
+                            ),
                         ),
                         (("dTEin", 6759 + ao, "dTAus", 6762 + ao),),
                     ),
                     AnyDependencies(
                         (
                             (
-                                Dependency(mixing + "_OHeizkreisIntern", 6782 + ao, (0,)),
-                                RangeDependency(mixing + "_Mischerlaufzeit", 6771 + ao, 10, 600),
-                                _raw_steps(mixing + "_Justierzeit", 6773 + ao, 0, 1380, 60),
+                                Dependency(
+                                    mixing + "_OHeizkreisIntern", 6782 + ao, (0,)
+                                ),
+                                RangeDependency(
+                                    mixing + "_Mischerlaufzeit", 6771 + ao, 10, 600
+                                ),
+                                _raw_steps(
+                                    mixing + "_Justierzeit", 6773 + ao, 0, 1380, 60
+                                ),
                             ),
                             (
-                                Dependency(mixing + "_OHeizkreisIntern", 6782 + ao, (1,)),
-                                FunctionSelection(mixing + "_HeizkreisInternMaske", 6783 + ao, heating=True),
+                                Dependency(
+                                    mixing + "_OHeizkreisIntern", 6782 + ao, (1,)
+                                ),
+                                FunctionSelection(
+                                    mixing + "_HeizkreisInternMaske",
+                                    6783 + ao,
+                                    heating=True,
+                                ),
                             ),
                         )
                     ),
