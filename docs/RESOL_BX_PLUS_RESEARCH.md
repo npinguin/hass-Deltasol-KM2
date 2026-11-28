@@ -89,7 +89,7 @@ The distinction between index coverage and hash coverage is important: a definit
 
 ### 4.2 Types, menu conditions and dynamic configuration
 
-The catalogue contains inherited types, display and storage scaling, enumerations, units, quantization, defaults and conditional references. The Java MX2Filter selects parameters iteratively using controlling values and menu/storage membership.
+The catalogue contains inherited types, display and storage scaling, enumerations, units, quantization, defaults and conditional references. The Java MX2Filter selects transfer parameters iteratively using storage classification, controlling values and, for applicable categories, explicit editable-action membership. This transfer selection is distinct from menu rendering and authorization.
 
 Examples of selectors include:
 
@@ -110,7 +110,7 @@ Important limitation: the RPT transfer filter is not a complete semantic permiss
 
 The two actual SET exports each contain 107 blocks of 512 bytes and 7,493 unique parameter records. All records map to native IDs; 7,492 map to XML definitions and one maps to extra native ID 54. Both files have the same key set, with 19 changed values. All 107 block-header CRCs per file were verified.
 
-The 7,492 XML-matched stored records omit an explicit XML storage attribute. Absence of that attribute is therefore not sufficient to classify a parameter as nonpersistent or unsupported. Conversely, a parameter appearing in a SET file does not automatically establish that it is safe to write through Home Assistant.
+The 7,492 XML-matched stored records omit an explicit XML storage attribute. The RPT Java model initializes this category to Preferences (storage code 0), rather than unknown. These records cover the entire set of 7,492 XML values with omitted storage attributes in this archive. Preserve both the declared attribute and the effective RPT classification. Absence of that attribute is not sufficient to classify a parameter as nonpersistent or unsupported. Conversely, a parameter appearing in a SET file does not automatically establish that it is safe to write through Home Assistant.
 
 SET files are useful independent evidence for storage layout and round-trip tests. They are not a proposed second live configuration store, and importing a full SET file into a physical controller is outside the agreed integration scope.
 
@@ -169,6 +169,92 @@ Earlier field observations showed intermittent acquisition failures after manual
 
 The integration must serialize all operations, prioritize foreground controls over discovery, distinguish acquisition/command/release/verification failures, and never present a requested relay mode as authoritative readback. A lost response is not permission to retry a physical command. Relay recovery remains a priority regression under issues [#5](https://github.com/npinguin/hass-Deltasol-KM2/issues/5) and [#8](https://github.com/npinguin/hass-Deltasol-KM2/issues/8).
 
+### 4.7 Detailed menu, storage and type model
+
+Further static examination of the exact supplied XML and Java bytecode establishes the following inventory:
+
+| Item | Count |
+| --- | ---: |
+| Named root types | 3,197 |
+| Type nodes including inline types | 18,877 |
+| Menu lines | 13,076 |
+| Lines with valueRef | 8,600 (6,031 distinct values) |
+| Lines with masks | 7,918 |
+| Distinct comma-delimited mask tokens | 1,776 |
+| Mask tokens matching a declared value ID | 204 |
+| maskVal attributes | 336, all resolving to value IDs |
+| extraRef / textRef lines | 1,986 / 1,767 |
+| Compound value references | 3,259 |
+
+MenuSystemInfo.LineInfo splits masks into tokens and joins compound masks with a double underscore. It resolves maskVal in global scope and extraRef in local context. Some tokens are presentation controls (e.g. Indented1), some represent access levels and some refer to native predicates (e.g. Solar_Vorhanden and Solar_WfX_IstVorhandeneFunktion). Most are not direct value IDs. Consequently a generic Boolean expression evaluator over current parameter values would not reproduce native menu visibility.
+
+The Java menu model distinguishes an edit action (action code 3) from a value reference. MX2Filter.initEditableValueInfos selects resolved explicit edit actions. No explicit action attributes or elements were found in the supplied BX Plus menu XML; its line children are text. The generic Java edit-action mechanism therefore does not by itself prove that any particular BX Plus menu line is writable. Native callbacks and semantic contracts remain necessary evidence. Do not create write controls from valueRef, masks or labels alone.
+
+The RPT MenuValue storage constants and exact XML counts are:
+
+| Declared storage | Effective category | Java code | Count |
+| --- | --- | ---: | ---: |
+| Omitted | Preferences | 0 | 7,492 |
+| volatile | Volatile | -1 | 3,123 |
+| abstract | Abstract | -3 | 2,438 |
+| struct | Struct | -2 | 1,915 |
+| persistent | Persistent | 1 | 712 |
+
+The Java model also defines Auto (-10). The default field initialization is zero, and parsing an explicit attribute changes that classification. The existing Python catalogue defaults omitted storage to unspecified; this loses the distinction between omitted declaration and known RPT default. The correct normalization retains raw provenance while recognizing Preferences, without translating all preferences to persistent or granting write access.
+
+The generic getAllStorageParameters path includes preferences and the allowParameterization flag. MX2Filter.getRelevantValueIds first excludes handled IDs and negative storage categories, then considers preference, explicit flag or positive storage with confirmed edit action, deferring unresolved selectors and excluding zero selectors. All 21 explicit allowParameterization entries in this XML belong to abstract (14) or volatile (7) categories, illustrating why a generic flag is not sufficient to authorize a transfer or mutation. The two Java selection paths have different purposes.
+
+Compound references occur across preferences (2,744), persistent (308) and volatile (207). Preserve parent-child identity and resolve current context rather than treating the children as unrelated independent registers.
+
+TypeInfo inherits storage and display factors (default 1), applies storage conversion with rounding, and resolves inherited limits/defaults in integer storage space. The finest quantization is the last declared level; 13 types have multiple quantization levels. Proxy types reference flow, temperature/hysteresis, power or pressure selectors. For example, temperature and hysteresis proxies share a selector; a change in presentation unit must not change native identity or reinterpret a raw value with a stale factor. The HA implementation must reject invalid user input rather than indiscriminately rounding it. Validate each selected type, scaling, limits and step against the actual resolved native representation.
+
+**Architectural implication:** definition, applicability, readability, write authorization and storage behavior are independent attributes of one capability. A menu can display an item that is read-only; a stored value can be inactive; a volatile command can be valid without a durable representation.
+
+### 4.8 Solar topology and optional function dependencies
+
+The native model contains an exact topology lookup table, rather than merely a numeric SystemId interval. The Solar_SystemId parameter (index 3416) has native callbacks for interpretation and presentation. Its positive integer value decomposes into three decimal fields:
+
+```text
+A = (SystemId // 10000) % 100
+B = (SystemId // 100) % 100
+C = SystemId % 100
+SystemId = 10000 * A + 100 * B + C
+```
+
+The exact lookup table contains 28 eight-byte records, one of which is ID 1 (fields 0,0,1; remaining topology attributes zero). This is consistent with a no-topology record, not the value zero. The other 27 recognized IDs are:
+
+```text
+10101 20101 20102 30101 30102
+10201 10202 10203 20201 20202 20203 20204 20205
+30201 30202 30203 30204
+10301 10302 10303 20301 20302 20304 20305
+10401 10402 10403
+```
+
+The lookup validates exact combinations and supports partial selection; for example, 20304 is present but 20303 is absent. A native allocation path uses additional record attributes and the selection routine dispatches according to the decoded fields. The physical meaning of all additional table bytes and variant combinations is not yet proven. Neither the XML numeric interval nor its default 10101 establishes an installed hydraulic topology. In particular, a nonzero selector used in a transfer filter is not a proof of Solar installation.
+
+The XML defines up to three collector groups, five store groups and ten Solar relay slots. It contains 18 dedicated Solar function groups (three tube collector, three bypass, one CS bypass, three frost protection, five external heat exchanger, one target temperature, one readiness and one drainback) and 16 generic Type/Nr groups. Dedicated and generic functions must use the same capability representation, but their dependencies must be resolved from actual function identity, topology and assignments.
+
+For instance, base collector/store sensor-number fields and base relay-number/function fields are volatile, whereas external heat exchanger function sensor and relay assignment fields include Preferences. A name ending in Nr does not establish storage or applicability. Tube collector time window/runtime/pause and external exchanger differential/runtime/target controls need function-specific applicability evidence, not a separate transport or discovery engine. Safety protection and hydraulic reconfiguration remain excluded from operational writes under the agreed scope.
+
+The Java optional-function import postprocessor explicitly orders nonzero Type/Nr configurations as disable type, assign number, restore type. A zero type suppresses that sequence. This establishes that full RPT import can perform disruptive reconfiguration, rather than simply writing independent scalar preferences. Do not reproduce this workflow in routine HA operational edits or silently activate functions.
+
+### 4.9 Commit, inactivity and persistence boundaries
+
+Further inspection of the native begin/stage/commit path shows that the bulk session has an inactivity counter and an associated storage lock. Begin initializes the requested positive timeout and acquires the lock; each stage resets the inactivity counter and mutates the underlying data. Expiry clears transaction state, and no restoration of already mutated words was identified.
+
+On commit, the native handler checks that a transaction exists, clears transaction state, triggers the lock-release path and returns success. When the last storage lock is released, dirty-store flags are scheduled for further processing. The examined return path does not wait for or verify durable physical storage. A successful commit acknowledgement is therefore not a durable-storage receipt.
+
+The Java virtual model also has deferred storage behavior: Storage updates its buffer and schedules a worker after 2,500 ms; StorageMX uses a 5,000 ms deferred path for custom storage and a separate explicit flush path. These are observations of the Java implementation, not a timing guarantee for a deployed controller. Do not turn these delays or native counter values into a fixed physical persistence timeout.
+
+The implementation must distinguish applied/read-back data, acknowledged completion, uncertain partial application and independently verified retention. Reconnect reconciliation must compare all affected words against previous and intended states. The independent test peer must model immediate mutation, lost responses, expiry, deferred persistence and mixed readback. No automatic replay or rollback assumption may hide an uncertain write.
+
+### 4.10 RPT transport recovery versus the current integration
+
+The Java TransferSerial.getValueById path uses bounded retry of a read, then release and reacquisition on the same authenticated connection, awaiting a fresh offer and verifying the expected controller source. AbstractVBusConnection.releaseBus sends 0x0600 without an explicit release acknowledgement. This is a read-recovery reference, not authorization to retry a physical write.
+
+The current Python open_vbus establishes a fresh TCP connection; its release path sends 0x0600 and waits for the expected master's traffic, with a conditional second release only on silence. Both paths distinguish controller identity and communication state, but their connection lifecycle is different. This difference is a concrete diagnostic hypothesis for the field acquisition/release regression, not its established root cause. Compare actual offer/request/release traces before changing session lifetime or weakening address, correlation or safety checks. Preserve the single bus owner.
+
 ## 5. Architecture: a single native Home Assistant integration
 
 The proposed implementation direction builds on the existing Python components instead of importing RPT into Home Assistant. The native controller remains the authority for actual configuration, telemetry and physical control. RPT and other verified sources provide evidence for how to interpret those capabilities.
@@ -215,8 +301,8 @@ The approved functional scope remains DS-PAR-01–05 in issue #10. The table bel
 | Step | Required outcome | Acceptance evidence |
 | --- | --- | --- |
 | Reconcile evidence | Match the pinned and supplied archive members; finish native menu, storage and dependency analysis | Exact artifact fingerprints, reproducible mappings, explicit unresolved cases |
-| Correct catalogue | Read size attributes and inheritance consistently with RPT; retain genuine metadata provenance | Exact archive tests for all 357 daily definitions, conflicting and malformed declarations, no unverified write grants |
-| Complete discovery | Prioritize selectors, preserve full safe readable inventory, distinguish unresolved values | Native IDs, live applicability, bounded interruption/resume and snapshot comparison |
+| Correct catalogue | Read size attributes and inheritance consistently with RPT; retain genuine metadata provenance | Exact archive tests for all 357 daily definitions, storage default, inherited scaling/quantization, conflicting and malformed declarations, no unverified write grants |
+| Complete discovery | Prioritize selectors, exact topology and installed assignments, preserve full safe readable inventory, distinguish unresolved values | Native IDs, live applicability, bounded interruption/resume and snapshot comparison |
 | Correct transport | Remove false atomicity assumptions; reconcile partial or uncertain writes and relay acquisition/release | Independent peer applies words immediately; stage failure, lost commit, reconnect, stale values and no blind retry |
 | Complete native configuration | Verified schedule read/edit, relevant operating parameters and conditional Solar/heating/module functions | Live dependencies, bounds, native actions, exact readback and persistence; no duplicate writer |
 | Qualify the full batch | Preserve existing 1.2.16 functionality and complete the agreed 1.2.17 scope | Exact candidate source gates, actual isolated HA lifecycle, actions, recovery, upgrade, restart and exact predecessor rollback |
@@ -247,10 +333,10 @@ No upstream PR is submitted by this research document. Upstream review should fo
 | --- | --- | --- |
 | Archive identity | Supplied controller/version/changeset match; ZIP digests differ | Member-level comparison with registered archive |
 | Weekly mapping | Statically verified in supplied DLL and supported by SET data | Registered-source reconciliation and live/isolated coherent read and edit journey |
-| Bulk recovery | Native direct mutation contradicts guaranteed rollback | Exact failure/expiry/flush behavior and independent partial-application peer |
-| Persistent storage | Native storage path identified | Complete restart/reconnect proof, physical retention separately |
-| Solar/menu applicability | Selector approach understood | Exact conditions, topology and remaining optional operating families |
-| Relay stability | Protocol and parser evidence identified | Actual recovery root cause and qualified regressions; supervised site acceptance separately |
+| Bulk recovery | Native direct mutation, inactivity and queued storage behavior established; guaranteed rollback contradicted | Independent partial-application peer and qualified recovery behavior |
+| Persistent storage | Preference defaults and native deferred storage path identified; commit is not a durability receipt | Complete restart/reconnect proof, physical retention separately |
+| Solar/menu applicability | Native SystemId decomposition and 28-record lookup verified; menu and transfer selection separated | Meaning of remaining topology attributes, native predicates and all applicable function contracts |
+| Relay stability | RPT read recovery and Python session lifecycle compared | Actual recovery root cause and qualified regressions; supervised site acceptance separately |
 | Overall product | Active development, not feature complete | Full DS-PAR-01–05 and applicable DS-REL journeys, exact qualified HACS bytes |
 
 At the audited source baseline, source CI passed; actual HA candidate qualification and publication were skipped because the PR was Draft ([pipeline](https://github.com/npinguin/hass-Deltasol-KM2/actions/runs/46130468050)). The last published TEST reported in the existing batch is 1.2.16. This document neither changes runtime code nor claims that the next release is complete.
@@ -280,6 +366,15 @@ Native DLL RVAs below are inspection references, not portable entry points or a 
 | Bulk begin / direct stage / commit | 0x476bf / 0x4785d / 0x477b1 |
 | Storage dirty / lock-release and flush path | 0x1069f / 0xd4848 |
 | Bulk expiration | 0x4d6f0 |
+| Native storage lock / deferred store scheduling | 0xd47c1 / 0xd4848 / 0x100d2c |
+| Solar SystemId descriptor / callback | 0x150d18 / 0x23e7b |
+| Solar SystemId split / recomposition | 0x23c60 / 0x23d2f |
+| Solar topology table / exact and partial lookup | 0x123520 / 0x25c79 / 0x25ce0 |
+| Native topology selection / attribute access | 0x2611c / 0x23d4a / 0x01c04 |
+| Java menu and storage model | MenuSystemInfo.LineInfo, MenuValue, TypeInfo |
+| Java transfer selection and import order | MX2Filter.initEditableValueInfos, getRelevantValueIds, postProcessOptionalFunctions |
+| Java deferred storage model | Storage.writeStorage, StorageMX.writeStorage |
+| Java read recovery | TransferSerial.getValueById |
 | Parameter selection and packed IDs | MX2Filter.getRelevantValueIndices |
 | Java transfer lifecycle | Controller.readDataFromLibrary, writeDataToDevice, Controller$7 |
 | Bus acquisition / release | AbstractVBusConnection.waitForFreeBus, releaseBus |
