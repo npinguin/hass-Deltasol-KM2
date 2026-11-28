@@ -568,6 +568,40 @@ class ParameterTests(unittest.TestCase):
             del missing[prefix + "_Bezugsrelais5_Nr"]
             self.assertFalse(mode.accepts(missing, 1))
 
+    def test_demand_minimum_runtime_option(self):
+        c = parameters_configuration
+        for slot in range(1, 3):
+            root = f"Heizung_RelaisAnforderung{slot}"
+            setting = next(
+                s
+                for s in c.BX_PLUS_HEATING_OPERATING_SETTINGS
+                if s.name == root + "_OMindestlaufzeit"
+            )
+            values = {
+                root + "_Type": 1,
+                root + "_Aktiviert_Modus": 1,
+                root + "_ORelais1": 1,
+                root + "_Relais1_Nr": 2,
+                root + "_Mindestlaufzeit_tMin": 20,
+                setting.name: 0,
+            }
+            self.assertTrue(setting.accepts(values, 1))
+            self.assertFalse(
+                setting.accepts({**values, root + "_Mindestlaufzeit_tMin": 21}, 1)
+            )
+            self.assertTrue(
+                setting.accepts({**values, root + "_Mindestlaufzeit_tMin": 21}, 0)
+            )
+            values.update(
+                {
+                    root + "_ORelais1": 0,
+                    root + "_OAusgang1": 1,
+                    root + "_Ausgang1_Nr": 2,
+                }
+            )
+            self.assertTrue(setting.accepts(values, 1))
+            self.assertFalse(setting.accepts({**values, root + "_Ausgang1_Nr": 0}, 1))
+
     def test_arrangement_activity_reference_and_return_contexts(self):
         c = parameters_configuration
         for slot in range(1, 17):

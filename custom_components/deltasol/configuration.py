@@ -4741,9 +4741,7 @@ def _heating_operating_settings():
             Dependency(f"{root}_Aktiviert_Modus", 10727 + offset, (1,)),
             Dependency(f"{root}_OMindestlaufzeit", 10798 + offset, (1,)),
         )
-        # Mutually exclusive variants: relay demand or analogue-only
-        # demand. Never create two entities for the same parameter.
-        for output in (
+        demand_outputs = (
             (
                 Dependency(f"{root}_ORelais1", 10734 + offset, (1,)),
                 RangeDependency(f"{root}_Relais1_Nr", 10735 + offset, 1, 45),
@@ -4753,7 +4751,31 @@ def _heating_operating_settings():
                 Dependency(f"{root}_OAusgang1", 10744 + offset, (1,)),
                 RangeDependency(f"{root}_Ausgang1_Nr", 10745 + offset, 1, 4),
             ),
-        ):
+        )
+        # The runtime reads the flag separately from the duration; changing
+        # it does not change the configured relay or analogue assignment.
+        yield Setting(
+            f"{root}_OMindestlaufzeit",
+            10798 + offset,
+            f"Heating demand {slot} minimum runtime enabled",
+            "switch",
+            True,
+            installed_by=Dependency(f"{root}_Type", 10724 + offset, (1,)),
+            dependencies=(common[0], AnyDependencies(demand_outputs)),
+            requested_conditions=(
+                RequestedCondition(
+                    1,
+                    (
+                        _raw_steps(
+                            f"{root}_Mindestlaufzeit_tMin", 10799 + offset, 0, 120, 5
+                        ),
+                    ),
+                ),
+            ),
+        )
+        # Mutually exclusive variants: relay demand or analogue-only
+        # demand. Never create two entities for the same parameter.
+        for output in demand_outputs:
             yield Setting(
                 f"{root}_Mindestlaufzeit_tMin",
                 10799 + offset,

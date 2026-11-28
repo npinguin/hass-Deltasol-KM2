@@ -1312,6 +1312,10 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(native[1], flags)
             registration_pairs.add(native[2:])
         self.assertEqual(len(registration_pairs), 1)
+        for slot in range(1, 3):
+            name = f"Heizung_RelaisAnforderung{slot}_OMindestlaufzeit"
+            self.assertEqual(descriptor(name)[1], 0xFFF9)
+            self.assertIn(descriptor(name)[2:], registration_pairs)
         delay_pairs = set()
         for slot in range(1, 17):
             root = f"Anlage_Wf{slot}_Funktionsblock"
@@ -2212,7 +2216,7 @@ class DiscoveryTests(unittest.TestCase):
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
         self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 435)
-        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 371)
+        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 373)
         for setting in configuration.BX_PLUS_HEATING_OPERATING_SETTINGS:
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
