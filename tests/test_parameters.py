@@ -1664,7 +1664,11 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(setting.accepts({**values, root + "_Aktiviert_Modus": 2}, 1))
         self.assertTrue(
             setting.accepts(
-                {**values, root + "_Aktiviert_Modus": 2, root + "_Aktiviert_SensorSchalter_Nr": 5},
+                {
+                    **values,
+                    root + "_Aktiviert_Modus": 2,
+                    root + "_Aktiviert_SensorSchalter_Nr": 5,
+                },
                 1,
             )
         )
@@ -1691,10 +1695,12 @@ class ParameterTests(unittest.TestCase):
             root + "_tSommerTagEin": 360,
             root + "_tSommerTagAus": 1320,
         }
-        check(flag, values, ((root + "_System", 1), (root + "_Sensor2_Nr", 0), (day, 181)))
+        check(
+            flag, values, ((root + "_System", 1), (root + "_Sensor2_Nr", 0), (day, 181))
+        )
         self.assertFalse(contracts(mode, values))
         values[flag] = 1
-        select, = contracts(mode, values)
+        (select,) = contracts(mode, values)
         self.assertTrue(select.accepts(values, select.encode("Day/Night")))
         self.assertFalse(select.accepts({**values, root + "_tSommerTagEin": 361}, 1))
         self.assertTrue(select.accepts({**values, root + "_tSommerTagEin": 361}, 0))
@@ -1716,7 +1722,11 @@ class ParameterTests(unittest.TestCase):
         check(
             flag,
             values,
-            ((prefix + "_Sensor1_Nr", 0), (prefix + "_dtPause", 61), (prefix + "_dTAus", 45)),
+            (
+                (prefix + "_Sensor1_Nr", 0),
+                (prefix + "_dtPause", 61),
+                (prefix + "_dTAus", 45),
+            ),
         )
 
         flag = root + "_OUrlaub"
