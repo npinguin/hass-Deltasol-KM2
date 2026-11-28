@@ -1620,8 +1620,10 @@ class DiscoveryTests(unittest.TestCase):
                         catalog.numeric_encoding(child),
                         tuple(Decimal(v) for v in setting.limits),
                     )
-        self.assertEqual(len(configuration.BX_PLUS_HEATING_COMFORT_SETTINGS), 168)
-        for setting in configuration.BX_PLUS_HEATING_COMFORT_SETTINGS:
+        comfort = configuration.BX_PLUS_HEATING_COMFORT_SETTINGS
+        self.assertEqual(len(comfort), 175)
+        self.assertEqual(len([s for s in comfort if s.kind == "select"]), 7)
+        for setting in (s for s in comfort if s.kind == "number"):
             parent = definitions[setting.name]
             self.assertEqual(parent.index, setting.index)
             self.assertTrue(parent.metadata["compound_parent_read_candidate"])
