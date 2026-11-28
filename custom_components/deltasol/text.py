@@ -6,7 +6,9 @@ from .configuration_entity import ConfigurationEntity, register_configuration_en
 
 
 async def async_setup_entry(hass, entry, async_add_entities):
-    register_configuration_entities(entry, async_add_entities, "text", ConfigurationText)
+    register_configuration_entities(
+        entry, async_add_entities, "text", ConfigurationText
+    )
 
 
 class ConfigurationText(ConfigurationEntity, TextEntity):
