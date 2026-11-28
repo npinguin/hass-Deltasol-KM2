@@ -18,6 +18,8 @@ from .catalog import (
     is_sensitive,
     ordinal_options,
 )
+from .configuration import decode_native_day
+from .configuration import encode_native_day as encode_native_day
 from .parameters import device_inventory, find_profile
 from .vbus import ERROR_CODES, ParameterObservation, VBusError, VBusTransientError
 
@@ -30,59 +32,6 @@ SOLAR_DEDICATED = re.compile(
     r"^(Solar_Wf([1-9][0-9]*)_(Roehrenkollektor|Bypass|CsBypass|"
     r"Frostschutz|ExtWT|Zieltemperatur|Bereitschaft|DrainBack))(?:_|$)"
 )
-
-
-def decode_native_day(payload):
-    """Decode the day layout corroborated by BX Plus 2.08 native SET exports.
-
-    Six ordered start/end quarter-hour pairs, unused pairs FF FF.
-    RESOL BX Plus manual 11202383 documents the native 00:00-23:45
-    quarter-hour range for weekly timer channels. Reject malformed and
-    overlapping windows; do not invent a 24:00 sentinel or cross-day format.
-    This codec alone never establishes the VBus subindex mapping or write access.
-    """
-    if not isinstance(payload, bytes) or len(payload) != 12:
-        return None
-    windows = []
-    previous_end = 0
-    unused = False
-    for start, end in zip(payload[::2], payload[1::2], strict=True):
-        if (start, end) == (255, 255):
-            unused = True
-            continue
-        if unused or not previous_end <= start < end <= 95:
-            return None
-        windows.append({"start_minute": start * 15, "end_minute": end * 15})
-        previous_end = end
-    return windows
-
-
-def encode_native_day(windows):
-    """Encode only the established native SET representation, not a VBus write.
-
-    Preserve the six-window limit and the documented native 00:00-23:45
-    quarter-hour grid. Reject 24:00 instead of silently rounding.
-    """
-    if not isinstance(windows, (list, tuple)) or len(windows) > 6:
-        raise ValueError("Invalid native day windows")
-    payload = bytearray([255] * 12)
-    for index, window in enumerate(windows):
-        if not isinstance(window, dict) or set(window) != {
-            "start_minute",
-            "end_minute",
-        }:
-            raise ValueError("Invalid native day windows")
-        start, end = window["start_minute"], window["end_minute"]
-        if any(
-            type(value) is not int or not 0 <= value <= 1425 or value % 15
-            for value in (start, end)
-        ):
-            raise ValueError("Invalid native day windows")
-        payload[2 * index : 2 * index + 2] = bytes((start // 15, end // 15))
-    result = bytes(payload)
-    if decode_native_day(result) is None:
-        raise ValueError("Invalid native day windows")
-    return result
 
 
 @dataclass
