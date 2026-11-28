@@ -56,6 +56,13 @@ class DiscoveryTests(unittest.TestCase):
         limit = definitions["TemperatureLimit"]
         self.assertEqual(limit.metadata["maximum"], "100")
         self.assertEqual(limit.metadata["minimum"], "0")
+        self.assertEqual(limit.metadata["rpt_storage"], "persistent")
+        unknown = definitions["UnknownType"]
+        self.assertEqual(unknown.storage, "unspecified")
+        self.assertEqual(unknown.metadata["rpt_storage"], "preferences")
+        evidence = catalog.configuration_evidence(unknown, definitions)
+        self.assertEqual(evidence["rpt_storage"], "preferences")
+        self.assertEqual(evidence["write_access"], "not_verified")
         self.assertEqual(catalog.decoded_value(limit, 215), 21.5)
         self.assertEqual(definitions["Password"].excluded, "sensitive")
         self.assertEqual(definitions["Struct"].excluded, "non_value_definition")
@@ -508,13 +515,21 @@ class DiscoveryTests(unittest.TestCase):
                 discovery.encode_native_day(windows)
 
     def test_blob_size_inherits_maximum_and_rejects_invalid_evidence(self):
-        for derived, expected in (("8", 12), ("16", 16), ("invalid", None)):
-            with self.subTest(derived=derived):
+        for declaration, expected in (
+            ('size="8"/>', 12),
+            ('size="16"/>', 16),
+            ('size="invalid"/>', None),
+            ('size=""/>', None),
+            ('size="12"><size>12</size></type>', 12),
+            ('size="12"><size>16</size></type>', None),
+            ('><size>16</size></type>', 16),
+        ):
+            with self.subTest(declaration=declaration):
                 xml = (
                     '<root><type id="Blob" isBuiltIn="true"/>'
-                    '<type id="BaseBlob" base="Blob"><size>12</size></type>'
+                    '<type id="BaseBlob" base="Blob" size="12"/>'
                     f'<value id="Day" index="10" idHash="{vbus.parameter_hash("Day")}">'
-                    f'<type id="DayBlob" base="BaseBlob"><size>{derived}</size></type>'
+                    f'<type id="DayBlob" base="BaseBlob" {declaration}'
                     "</value></root>"
                 ).encode()
                 definition = catalog.parse_menu(xml, "test").by_name["Day"]
@@ -571,9 +586,9 @@ class DiscoveryTests(unittest.TestCase):
             )
         del day.metadata["size_bytes"]
         fallback = capture.weekly_program_evidence()["programs"]["Wsu1"]["days"]["Mo"]
-        self.assertEqual(fallback["size_bytes"], 12)
-        self.assertEqual(fallback["size_evidence"], "exact_layout_mx_reference")
-        self.assertEqual(fallback["candidate_windows"], result["candidate_windows"])
+        self.assertIsNone(fallback["size_bytes"])
+        self.assertIsNone(fallback["size_evidence"])
+        self.assertNotIn("candidate_windows", fallback)
         self.assertEqual(result["candidate_status"], "wire_word_mapping_unverified")
         self.assertEqual(
             exported["references"][reference.name]["candidate_program"], "Wsu1"
@@ -1302,6 +1317,16 @@ class DiscoveryTests(unittest.TestCase):
         definitions = {d.name: d for d in parsed.definitions}
         self.assertGreater(len(definitions), 7000)
         self.assertEqual(definitions["Schema"].index, 86)
+        self.assertEqual(
+            Counter(row.metadata["rpt_storage"] for row in definitions.values()),
+            {
+                "preferences": 7492,
+                "volatile": 3123,
+                "abstract": 2438,
+                "struct": 1915,
+                "persistent": 712,
+            },
+        )
         # Independent MX 2xx optimizer and BX Plus SET evidence agree on
         # the 51 x 9 timer layout. Verify the exact pinned RPT independently.
         for slot in range(51):
@@ -1319,9 +1344,8 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(row.index, base + offset)
                 self.assertIn(kind, row.metadata["type_chain"])
                 if kind == "Blob":
-                    # Exact BX Plus 2.08 has no size declarations. Its
-                    # validated shape comes from matching MX/SET evidence.
-                    self.assertNotIn("size_bytes", row.metadata)
+                    self.assertEqual(row.metadata["size_bytes"], 12)
+                    self.assertEqual(row.metadata["rpt_storage"], "preferences")
                 self.assertIsNone(row.excluded)
         # Corroborate the generic Solar function instance selector separately
         # from its type-specific storage. No ordinal-to-instance assumption.
@@ -1339,7 +1363,7 @@ class DiscoveryTests(unittest.TestCase):
         for name in capture.packed_days:
             self.assertEqual(
                 capture.weekly_day_shape(definitions[name]),
-                (12, "exact_layout_mx_reference"),
+                (12, "rpt_declared"),
             )
         slots, members = capture.function_slots
         dedicated = {
