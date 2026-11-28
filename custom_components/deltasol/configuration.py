@@ -11,7 +11,7 @@ import re
 import struct
 from dataclasses import dataclass, replace
 from decimal import Decimal
-from operator import ge, gt, le, lt, ne
+from operator import eq, ge, gt, le, lt, ne
 
 from .catalog import (
     CatalogError,
@@ -195,7 +195,7 @@ class PeerComparison:
 
     def matches(self, values):
         left, right = values.get(self.name), values.get(self.other)
-        compare = {"gt": gt, "ne": ne}.get(self.operation)
+        compare = {"eq": eq, "gt": gt, "ne": ne}.get(self.operation)
         return (
             compare is not None
             and type(left) is int
@@ -285,7 +285,9 @@ class RequestedCondition:
     """Require at least one live condition for a particular requested value."""
 
     raw: int
-    alternatives: tuple[Dependency | RangeDependency | PeerComparison | AnyDependencies, ...]
+    alternatives: tuple[
+        Dependency | RangeDependency | PeerComparison | AnyDependencies, ...
+    ]
 
     def matches(self, raw, values):
         return raw != self.raw or any(dep.matches(values) for dep in self.alternatives)
@@ -2337,9 +2339,7 @@ def _thermal_option_settings():
         arrangement = f"Anlage_Wf{slot}"
         root = arrangement + "_Funktionsblock"
         heating = f"Heizung_Wf{slot}"
-        arrangement_activity = _installed_activity(
-            arrangement, 6566 + ao, 6568 + ao
-        )
+        arrangement_activity = _installed_activity(arrangement, 6566 + ao, 6568 + ao)
         output = RangeDependency(arrangement + "_Relais1_Nr", 6592 + ao, 1, 100)
         sensors = tuple(
             RangeDependency(
@@ -2410,11 +2410,21 @@ def _thermal_option_settings():
                                 _raw_steps(name, idx, lo, hi, step)
                                 for name, idx, _, lo, hi, step in other_companions
                             ),
+                            *(
+                                PeerComparison(
+                                    name, idx, name + alias, idx + selector + 1, "eq"
+                                )
+                                for name, idx, alias, _, _, _ in other_companions
+                            ),
                             *other_relations,
                         )
                         for (
-                            other, other_index, _, other_inputs,
-                            other_companions, other_relations,
+                            other,
+                            other_index,
+                            _,
+                            other_inputs,
+                            other_companions,
+                            other_relations,
                         ) in thermal_groups
                         if other != suffix
                     )
@@ -2433,11 +2443,15 @@ def _thermal_option_settings():
                     ),
                     requested_conditions=(
                         *(
-                            RequestedCondition(1, (_raw_steps(name, idx, lo, hi, step),))
+                            RequestedCondition(
+                                1, (_raw_steps(name, idx, lo, hi, step),)
+                            )
                             for name, idx, _, lo, hi, step in companions
                         ),
                         *(RequestedCondition(1, (rule,)) for rule in relations),
-                        RequestedCondition(0, (remaining,)),
+                        RequestedCondition(
+                            0, (Dependency(root + "_" + suffix, index, (0,)), remaining)
+                        ),
                     ),
                 )
 
@@ -2479,7 +2493,9 @@ def _thermal_option_settings():
                     RangeDependency(heating + "_Sensor1_Nr", 11290 + ho, 1, 65),
                     RangeDependency(heating + "_Sensor2_Nr", 11294 + ho, 1, 65),
                     RangeDependency(heating + "_Sensor3_Nr", 11298 + ho, 1, 65),
-                    RangeDependency(heating + "_SensorDurchfluss1_Nr", 11315 + ho, 1, 65),
+                    RangeDependency(
+                        heating + "_SensorDurchfluss1_Nr", 11315 + ho, 1, 65
+                    ),
                     selected,
                 ),
                 compound_mirrors=(
@@ -2488,10 +2504,12 @@ def _thermal_option_settings():
                 ),
                 requested_conditions=(
                     RequestedCondition(
-                        1, (_raw_steps(on, on_index, 10 * factor, 500 * factor, 5 * factor),)
+                        1,
+                        (_raw_steps(on, on_index, 10 * factor, 500 * factor, 5 * factor),),
                     ),
                     RequestedCondition(
-                        1, (_raw_steps(off, off_index, 5 * factor, 495 * factor, 5 * factor),)
+                        1,
+                        (_raw_steps(off, off_index, 5 * factor, 495 * factor, 5 * factor),),
                     ),
                     RequestedCondition(
                         1, (PeerComparison(on, on_index, off, off_index, "gt"),)
