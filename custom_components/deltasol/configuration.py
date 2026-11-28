@@ -2384,7 +2384,14 @@ def _thermal_option_settings():
             companions = (
                 (on, 6707 + ao, diff_alias, 10 * factor, 500 * factor, 5 * factor),
                 (off, 6710 + ao, diff_alias, 5 * factor, 495 * factor, 5 * factor),
-                (target, 6713 + ao, diff_alias, 20 * factor, 1000 * factor, 10 * factor),
+                (
+                    target,
+                    6713 + ao,
+                    diff_alias,
+                    20 * factor,
+                    1000 * factor,
+                    10 * factor,
+                ),
                 (rise, 6732 + ao, diff_alias, 5 * factor, 200 * factor, 5 * factor),
             )
             thermal_groups.append(
@@ -2450,7 +2457,8 @@ def _thermal_option_settings():
                         ),
                         *(RequestedCondition(1, (rule,)) for rule in relations),
                         RequestedCondition(
-                            0, (Dependency(root + "_" + suffix, index, (0,)), remaining)
+                            0,
+                            (Dependency(root + "_" + suffix, index, (0,)), remaining),
                         ),
                     ),
                 )
@@ -2505,11 +2513,19 @@ def _thermal_option_settings():
                 requested_conditions=(
                     RequestedCondition(
                         1,
-                        (_raw_steps(on, on_index, 10 * factor, 500 * factor, 5 * factor),),
+                        (
+                            _raw_steps(
+                                on, on_index, 10 * factor, 500 * factor, 5 * factor
+                            ),
+                        ),
                     ),
                     RequestedCondition(
                         1,
-                        (_raw_steps(off, off_index, 5 * factor, 495 * factor, 5 * factor),),
+                        (
+                            _raw_steps(
+                                off, off_index, 5 * factor, 495 * factor, 5 * factor
+                            ),
+                        ),
                     ),
                     RequestedCondition(
                         1, (PeerComparison(on, on_index, off, off_index, "gt"),)
