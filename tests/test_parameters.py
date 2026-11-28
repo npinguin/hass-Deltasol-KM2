@@ -1625,6 +1625,63 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(names & controls().keys())
         self.session.write_verified.assert_called_once()
 
+    def test_dhw_overrun_option_rechecks_installed_pump_and_sensor_mode(self):
+        self.session.read.return_value = 0x2734DABC
+        root = "Heizung_Wf1"
+        name = root + "_ThBwErwaermung_ONachlaufzeit"
+        duration = root + "_ThBwErwaermung_Nachlaufzeit"
+        self.values.update(
+            {
+                root + "_Type": (11266, 2),
+                root + "_Aktiviert_Modus": (11273, 1),
+                root + "_ThBwErwaermung_OLadepumpe": (11375, 1),
+                root + "_Relais2_Nr": (11329, 1),
+                root + "_NhRelais1_Nr": (11337, 2),
+                root + "_Sensor1_Nr": (11290, 1),
+                root + "_ThBwErwaermung_Modus": (11378, 0),
+                name: (11376, 0),
+                duration: (11377, 4),
+            }
+        )
+        hints = {root + "_Type": parameters.ParameterObservation(11266, 2, "read")}
+
+        def controls():
+            return {
+                cap.setting.name: cap
+                for cap in self.api.discover(telemetry(), hints).configuration.values()
+            }
+
+        cap = controls()[name]
+        self.assertFalse(cap.value)
+        self.assertNotIn(duration, controls())
+
+        def write(address, index, value, changeset, *, save):
+            self.assertEqual((address, index, save), (0x7112, 11376, True))
+            self.values[name] = (index, value)
+            return value
+
+        self.session.write_verified.side_effect = write
+        self.values[root + "_ThBwErwaermung_Modus"] = (11378, 1)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, True)
+        self.values[root + "_Sensor2_Nr"] = (11294, 2)
+        self.values[root + "_Aktiviert_Modus"] = (11273, 2)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, True)
+        self.values[root + "_Aktiviert_SensorSchalter_Nr"] = (11275, 3)
+        self.values[duration] = (11377, 11)
+        with self.assertRaises(parameters.VBusError):
+            self.api.set_configuration(telemetry(), cap, True)
+        self.session.write_verified.assert_not_called()
+        self.values[duration] = (11377, 4)
+        self.assertTrue(self.api.set_configuration(telemetry(), cap, True).value)
+        self.assertIn(duration, controls())
+        cap = controls()[name]
+        self.assertFalse(self.api.set_configuration(telemetry(), cap, False).value)
+        self.assertNotIn(duration, controls())
+        self.assertEqual(self.values[duration], (11377, 4))
+        self.assertEqual(self.session.write_verified.call_count, 2)
+
     def test_solar_loading_options_save_and_recheck_companions(self):
         self.session.read.return_value = 0x2734DABC
         self.values.update(
