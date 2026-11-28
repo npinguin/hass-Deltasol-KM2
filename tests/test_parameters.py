@@ -1625,6 +1625,99 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(names & controls().keys())
         self.session.write_verified.assert_called_once()
 
+    def test_thermal_options_require_order_and_preserve_remaining_predicate(self):
+        settings = parameters_configuration.BX_PLUS_THERMAL_OPTIONS
+        root = "Anlage_Wf1"
+        prefix = root + "_Funktionsblock"
+        flag = prefix + "_OThermostat1"
+        other = prefix + "_OThermostat2"
+        values = {
+            root + "_Type": 9,
+            root + "_Aktiviert_Modus": 1,
+            root + "_Relais1_Nr": 1,
+            root + "_Sensor1_Nr": 1,
+            root + "_Sensor2_Nr": 2,
+            root + "_Sensor3_Nr": 3,
+            root + "_Sensor4_Nr": 4,
+            "TemperatureHysteresisSelector": 0,
+            flag: 0,
+            other: 1,
+            prefix + "_ODifferenz": 0,
+        }
+        for suffix, raw in (
+            ("TTh1Ein", 400),
+            ("TTh1Aus", 450),
+            ("TTh2Ein", 500),
+            ("TTh2Aus", 450),
+            ("dTEin", 60),
+            ("dTAus", 40),
+            ("dTSoll", 100),
+            ("Anstieg", 20),
+        ):
+            name = prefix + "_" + suffix
+            values[name] = raw
+            values[name + ("_C" if suffix.startswith("TTh") else "_K")] = raw
+
+        def choose(name, observed):
+            (setting,) = [
+                s for s in settings if s.name == name and s.accepts(observed)
+            ]
+            return setting
+
+        setting = choose(flag, values)
+        self.assertTrue(setting.accepts(values, setting.encode(True)))
+        self.assertTrue(setting.accepts(values, setting.encode(False)))
+        self.assertFalse(setting.accepts({**values, other: 0}, 0))
+        self.assertFalse(
+            setting.accepts({**values, root + "_Sensor2_Nr": 0}, 0)
+        )
+        on = prefix + "_TTh1Ein"
+        self.assertFalse(setting.accepts({**values, on: 450, on + "_C": 450}, 1))
+        self.assertFalse(setting.accepts({**values, on: 401, on + "_C": 401}, 1))
+        self.assertTrue(setting.accepts({**values, on: 500, on + "_C": 500}, 1))
+        self.assertFalse(setting.accepts({**values, root + "_Sensor1_Nr": 0}, 1))
+        diff = choose(prefix + "_ODifferenz", values)
+        self.assertTrue(diff.accepts(values, 1))
+        target = prefix + "_dTSoll"
+        self.assertFalse(
+            diff.accepts({**values, target: 50, target + "_K": 50}, 1)
+        )
+        self.assertTrue(diff.accepts(values, 0))
+
+        root = "Anlage_Wf1"
+        prefix = root + "_Feststoffkessel"
+        flag = prefix + "_OZieltemperatur"
+        target = prefix + "_Zieltemperatur_TZiel"
+        values.update({root + "_Type": 6, flag: 0, target: 600, target + "_C": 600})
+        setting = choose(flag, values)
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertFalse(setting.accepts({**values, target: 601, target + "_C": 601}, 1))
+        self.assertFalse(setting.accepts({**values, root + "_Sensor3_Nr": 0}, 1))
+
+        root = "Heizung_Wf1"
+        prefix = root + "_BwVorerwaermung"
+        flag = prefix + "_ODifferenz"
+        on, off = prefix + "_dTEin", prefix + "_dTAus"
+        values = {
+            root + "_Type": 3,
+            root + "_Aktiviert_Modus": 1,
+            root + "_Relais1_Nr": 1,
+            root + "_Sensor1_Nr": 1,
+            root + "_Sensor2_Nr": 2,
+            root + "_Sensor3_Nr": 3,
+            root + "_SensorDurchfluss1_Nr": 4,
+            "TemperatureHysteresisSelector": 1,
+            flag: 0,
+            on: 120,
+            on + "_R": 120,
+            off: 80,
+            off + "_R": 80,
+        }
+        setting = choose(flag, values)
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertFalse(setting.accepts({**values, off: 120, off + "_R": 120}, 1))
+        self.assertFalse(setting.accepts({**values, root + "_SensorDurchfluss1_Nr": 0}, 1))
+
     def test_installed_program_options_preserve_companions_and_context(self):
         settings = parameters_configuration.BX_PLUS_PROGRAM_OPTIONS
 
