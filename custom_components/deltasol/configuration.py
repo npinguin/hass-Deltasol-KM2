@@ -468,6 +468,19 @@ def _normalized_numeric(definition, limits):
                 raise CatalogError("Invalid clock")
             metadata[key] = str(hour * 60 + minute)
         metadata["type_chain"] = [*chain, "Number"]
+    elif "Time" in chain and definition.name.endswith(
+        "_Funktionsblock_dtMindestausschaltzeit"
+    ):
+        # Native restart delay is already expressed in minutes. Its
+        # two editor increments are 60 and 1, not seconds or a clock.
+        if (
+            limits != ("1", "1439", "1", "1")
+            or metadata.get("quant") != "1"
+            or metadata.get("quant_step") != "1"
+        ):
+            raise CatalogError("Unsupported restart delay encoding")
+        metadata.pop("quant_step")
+        metadata["type_chain"] = [*chain, "Number"]
     elif "Time" in chain:
         if limits[3] != "1":
             raise CatalogError("Unsupported duration factor")
@@ -1318,6 +1331,25 @@ def _timing_settings():
                 installed_by=Dependency(f"{arrangement}_Type", 6559 + ao, (1,)),
             )
         yield Setting(
+            f"{arrangement}_Funktionsblock_dtMindestausschaltzeit",
+            6744 + ao,
+            f"Arrangement function {slot} restart delay",
+            "number",
+            True,
+            limits=("1", "1439", "1", "1"),
+            unit="min",
+            installed_by=Dependency(f"{arrangement}_Type", 6559 + ao, (9,)),
+            dependencies=(
+                Dependency(f"{arrangement}_Aktiviert_Modus", 6566 + ao, (1, 2)),
+                Dependency(
+                    f"{arrangement}_Funktionsblock_OMindestausschaltzeit",
+                    6743 + ao,
+                    (1,),
+                ),
+                RangeDependency(f"{arrangement}_Relais1_Nr", 6592 + ao, 1, 100),
+            ),
+        )
+        yield Setting(
             f"{heating}_ThBwErwaermung_Nachlaufzeit",
             11377 + ho,
             f"Heating function {slot} DHW loading pump overrun",
@@ -1741,6 +1773,37 @@ def _heating_operating_settings():
     sensor. Exact 2.08 catalogue validates every slot and selected unit.
     """
     for slot in range(1, 3):
+        offset = (slot - 1) * 221
+        root = f"Heizung_RelaisAnforderung{slot}"
+        common = (
+            Dependency(f"{root}_Aktiviert_Modus", 10727 + offset, (1,)),
+            Dependency(f"{root}_OMindestlaufzeit", 10798 + offset, (1,)),
+        )
+        # Mutually exclusive variants: relay demand or analogue-only
+        # demand. Never create two entities for the same parameter.
+        for output in (
+            (
+                Dependency(f"{root}_ORelais1", 10734 + offset, (1,)),
+                RangeDependency(f"{root}_Relais1_Nr", 10735 + offset, 1, 45),
+            ),
+            (
+                Dependency(f"{root}_ORelais1", 10734 + offset, (0,)),
+                Dependency(f"{root}_OAusgang1", 10744 + offset, (1,)),
+                RangeDependency(f"{root}_Ausgang1_Nr", 10745 + offset, 1, 4),
+            ),
+        ):
+            yield Setting(
+                f"{root}_Mindestlaufzeit_tMin",
+                10799 + offset,
+                f"Heating demand {slot} minimum runtime",
+                "number",
+                True,
+                limits=("0", "120", "5", "1"),
+                unit="min",
+                installed_by=Dependency(f"{root}_Type", 10724 + offset, (1,)),
+                dependencies=(*common, *output),
+            )
+    for slot in range(1, 3):
         offset = (slot - 1) * 29
         root = f"Heizung_RelaisPumpe{slot}"
         installed = Dependency(f"{root}_Type", 11166 + offset, (2,))
@@ -1800,6 +1863,63 @@ def _heating_operating_settings():
         active = Dependency(f"{root}_Aktiviert_Modus", 13689 + offset, (1, 2))
         heating = Dependency(f"{root}_System", 13697 + offset, (0, 2))
         constant = Dependency(f"{root}_Heizsystem", 13978 + offset, (2,))
+        mixer = (
+            active,
+            heating,
+            RangeDependency(f"{root}_Sensor1_Nr", 13796 + offset, 1, 65),
+            RangeDependency(f"{root}_Relais2_Nr", 13772 + offset, 1, 100),
+            RangeDependency(f"{root}_Relais3_Nr", 13780 + offset, 1, 100),
+        )
+        yield Setting(
+            f"{root}_MischerIntervall",
+            13719 + offset,
+            f"Heating circuit {circuit} mixer interval",
+            "number",
+            True,
+            limits=("1", "20", "1", "1"),
+            unit="s",
+            installed_by=installed,
+            dependencies=mixer,
+        )
+        # Native pair callbacks require a larger separation than the
+        # selected-unit editing increment (0.5 K or 1 degree Rankine).
+        for setting in _operating_pair(
+            f"{root}_Mischer_dTEin",
+            14168 + offset,
+            f"{root}_Mischer_dTAus",
+            14171 + offset,
+            f"Heating circuit {circuit} mixer hysteresis",
+            installed,
+            mixer,
+            (
+                (
+                    0,
+                    "_K",
+                    "K",
+                    ("0.5", "5", "0.1", "0.1"),
+                    ("0", "4.5", "0.1", "0.1"),
+                ),
+                (
+                    1,
+                    "_R",
+                    "°R",
+                    ("1", "10", "0.2", "0.1"),
+                    ("0", "9", "0.2", "0.1"),
+                ),
+            ),
+            rising=True,
+        ):
+            peer = setting.relative_constraints[0]
+            yield replace(
+                setting,
+                relative_constraints=(
+                    replace(
+                        peer,
+                        operation="ge" if peer.operation == "gt" else "le",
+                        margin=5 if setting.unit == "K" else 10,
+                    ),
+                ),
+            )
         prefix = f"{root}_Nachheizung"
         # The zone mode uses two sensors; the thermostat mode uses only
         # sensor 4. Mutually exclusive variants preserve the same native ID.

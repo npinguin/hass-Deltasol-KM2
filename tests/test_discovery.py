@@ -1779,7 +1779,7 @@ class DiscoveryTests(unittest.TestCase):
                         catalog.numeric_encoding(definitions[alias]),
                         tuple(Decimal(v) for v in setting.limits),
                     )
-        self.assertEqual(len(configuration.BX_PLUS_TIMING_SETTINGS), 112)
+        self.assertEqual(len(configuration.BX_PLUS_TIMING_SETTINGS), 128)
         for setting in configuration.BX_PLUS_TIMING_SETTINGS:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
@@ -1788,7 +1788,12 @@ class DiscoveryTests(unittest.TestCase):
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
             self.assertTrue(target.metadata["menu_refs"])
-            if "Time" in target.metadata["type_chain"]:
+            if setting.name.endswith("_Funktionsblock_dtMindestausschaltzeit"):
+                self.assertEqual(target.metadata["minimum"], "1")
+                self.assertEqual(target.metadata["maximum"], "1439")
+                self.assertEqual(target.metadata["quant"], "1")
+                self.assertEqual(target.metadata["quant_step"], "1")
+            elif "Time" in target.metadata["type_chain"]:
                 self.assertEqual(target.metadata["minimum"], "1:00")
                 self.assertEqual(target.metadata["maximum"], "15:00")
                 self.assertEqual(target.metadata["quant"], "00:15")
@@ -1885,7 +1890,7 @@ class DiscoveryTests(unittest.TestCase):
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
         self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 403)
-        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 152)
+        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 191)
         for setting in configuration.BX_PLUS_HEATING_OPERATING_SETTINGS:
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)

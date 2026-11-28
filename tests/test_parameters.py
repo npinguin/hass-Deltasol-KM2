@@ -1121,6 +1121,79 @@ class ParameterTests(unittest.TestCase):
         values[pump + "_ORuhemodus"] = 0
         self.assertFalse(duration.accepts(values))
 
+    def test_native_mixer_requires_assignments_and_full_hysteresis_margin(self):
+        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        root = "Heizung_Heizkreis1"
+        name = root + "_Mischer_dTEin"
+        on = next(s for s in settings if s.name == name and s.unit == "K")
+        off = next(
+            s for s in settings if s.name == root + "_Mischer_dTAus" and s.unit == "K"
+        )
+        interval = next(s for s in settings if s.name == root + "_MischerIntervall")
+        values = {
+            root + "_Type": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_System": 0,
+            root + "_Sensor1_Nr": 1,
+            root + "_Relais2_Nr": 2,
+            root + "_Relais3_Nr": 3,
+            interval.name: 4,
+            on.name: 15,
+            on.name + "_K": 15,
+            off.name: 10,
+            off.name + "_K": 10,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(on.accepts(values, on.encode(1.5)))
+        self.assertFalse(on.accepts(values, on.encode(1.4)))
+        self.assertFalse(off.accepts(values, off.encode(1.1)))
+        self.assertTrue(interval.accepts(values, interval.encode(6)))
+        values[root + "_Relais3_Nr"] = 0
+        self.assertFalse(interval.accepts(values))
+        self.assertFalse(on.accepts(values))
+
+    def test_native_demand_runtime_and_function_block_restart_delay(self):
+        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        root = "Heizung_RelaisAnforderung1"
+        name = root + "_Mindestlaufzeit_tMin"
+        relay, analogue = (s for s in settings if s.name == name)
+        values = {
+            root + "_Type": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_OMindestlaufzeit": 1,
+            root + "_ORelais1": 1,
+            root + "_Relais1_Nr": 2,
+            root + "_OAusgang1": 1,
+            root + "_Ausgang1_Nr": 1,
+            name: 10,
+        }
+        self.assertTrue(relay.accepts(values, relay.encode(15)))
+        self.assertFalse(relay.accepts(values, 16))
+        self.assertFalse(analogue.accepts(values))
+        values[root + "_ORelais1"] = 0
+        self.assertFalse(relay.accepts(values))
+        self.assertTrue(analogue.accepts(values, analogue.encode(20)))
+        values[root + "_OMindestlaufzeit"] = 0
+        self.assertFalse(analogue.accepts(values))
+
+        root = "Anlage_Wf1"
+        setting = next(
+            s
+            for s in parameters_configuration.BX_PLUS_TIMING_SETTINGS
+            if s.name == root + "_Funktionsblock_dtMindestausschaltzeit"
+        )
+        values = {
+            root + "_Type": 9,
+            root + "_Aktiviert_Modus": 1,
+            root + "_Funktionsblock_OMindestausschaltzeit": 1,
+            root + "_Relais1_Nr": 1,
+            setting.name: 60,
+        }
+        self.assertTrue(setting.accepts(values, setting.encode(1439)))
+        self.assertFalse(setting.accepts(values, 1440))
+        values[root + "_Relais1_Nr"] = 0
+        self.assertFalse(setting.accepts(values))
+
     def test_heating_pump_start_and_overrun_follow_native_mode(self):
         settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
         root = "Heizung_RelaisPumpe2"

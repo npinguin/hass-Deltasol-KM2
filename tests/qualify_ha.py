@@ -52,6 +52,18 @@ CONFIG_SELECTORS = {
     "Heizung_Heizkreis1_Type": (13684, 1),
     "Heizung_Heizkreis1_Aktiviert_Modus": (13689, 1),
     "Heizung_Heizkreis1_Heizsystem": (13978, 1),
+    "Heizung_Heizkreis1_Sensor1_Nr": (13796, 1),
+    "Heizung_Heizkreis1_Relais2_Nr": (13772, 2),
+    "Heizung_Heizkreis1_Relais3_Nr": (13780, 3),
+    "Heizung_RelaisAnforderung1_Type": (10724, 1),
+    "Heizung_RelaisAnforderung1_Aktiviert_Modus": (10727, 1),
+    "Heizung_RelaisAnforderung1_OMindestlaufzeit": (10798, 1),
+    "Heizung_RelaisAnforderung1_ORelais1": (10734, 1),
+    "Heizung_RelaisAnforderung1_Relais1_Nr": (10735, 2),
+    "Anlage_Wf5_Type": (7563, 9),
+    "Anlage_Wf5_Aktiviert_Modus": (7570, 1),
+    "Anlage_Wf5_Funktionsblock_OMindestausschaltzeit": (7747, 1),
+    "Anlage_Wf5_Relais1_Nr": (7596, 4),
     "Heizung_Heizkreis1_System": (13697, 2),
     "Heizung_Heizkreis1_ONachheizung": (13705, 1),
     "Heizung_Heizkreis1_Nachheizung_Modus": (13706, 0),
@@ -125,6 +137,11 @@ CONFIG_SELECTORS = {
 CONFIG_SETTINGS = {
     "Anlage_Wf1_Mischer_dtIntervall": (6625, 4, 1, 20),
     "Heizung_Heizkreis1_Heizkurve": (13698, 12, 3, 30),
+    "Heizung_Heizkreis1_MischerIntervall": (13719, 4, 1, 20),
+    "Heizung_Heizkreis1_Mischer_dTEin": (14168, 15, 5, 50),
+    "Heizung_Heizkreis1_Mischer_dTAus": (14171, 10, 0, 45),
+    "Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin": (10799, 10, 0, 120),
+    "Anlage_Wf5_Funktionsblock_dtMindestausschaltzeit": (7748, 60, 1, 1439),
     "Heizung_Heizkreis1_Nachheizung_dTEin": (13747, -50, -150, 445),
     "Heizung_Heizkreis1_Nachheizung_dTAus": (13750, 50, -145, 450),
     "Heizung_Heizkreis1_Nachheizung_tFruehstart": (13715, 60, 0, 300),
@@ -190,6 +207,8 @@ CONFIG_SETTINGS = {
 # This peer deliberately models the selected-unit parent contract. It is
 # independent software evidence, not a physical observation of this encoding.
 COMPOUND_NAMES = (
+    "Heizung_Heizkreis1_Mischer_dTEin",
+    "Heizung_Heizkreis1_Mischer_dTAus",
     "Anlage_Wf2_Feststoffkessel_dTEin",
     "Anlage_Wf2_Feststoffkessel_dTAus",
     "Anlage_Wf2_Feststoffkessel_dTSoll",
@@ -569,6 +588,8 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         )
                         else 10
                     )
+                    if index in (14168, 14171):
+                        step = 1
                     assert stored_value % step == 0
                     proposed = {
                         parent: stored_value
@@ -576,7 +597,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         else Peer.settings[parent]
                         for parent in COMPOUND_PARENTS
                     }
-                    if index in (3579, 3582, 3585):
+                    if index in (14168, 14171):
+                        assert proposed[14168] >= proposed[14171] + 5
+                    elif index in (3579, 3582, 3585):
                         assert Peer.extra_values[3452] > 0
                         assert Peer.extra_values[3536] > 0
                         assert Peer.extra_values[3576] > 0
@@ -665,6 +688,25 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index in (13719, 14168, 14171):
+                    assert Peer.extra_values[13684] == 1
+                    assert Peer.extra_values[13689] == 1
+                    assert Peer.extra_values[13697] in (0, 2)
+                    assert Peer.extra_values[13796] > 0
+                    assert Peer.extra_values[13772] > 0
+                    assert Peer.extra_values[13780] > 0
+                if index == 10799:
+                    assert Peer.extra_values[10724] == 1
+                    assert Peer.extra_values[10727] == 1
+                    assert Peer.extra_values[10798] == 1
+                    assert Peer.extra_values[10734] == 1
+                    assert Peer.extra_values[10735] > 0
+                    assert value % 5 == 0
+                if index == 7748:
+                    assert Peer.extra_values[7563] == 9
+                    assert Peer.extra_values[7570] == 1
+                    assert Peer.extra_values[7747] == 1
+                    assert Peer.extra_values[7596] > 0
                 if index in (13747, 13750, 13715, 13717):
                     assert Peer.extra_values[13705] == Peer.extra_values[13708] == 1
                     assert Peer.extra_values[14003] > 0
@@ -2090,6 +2132,35 @@ async def qualify(directory, phase):
         Peer.extra_values[11189] = 6
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert float(hass.states.get(pump).state) == 140
+
+        before_native = Peer.saves
+        for name, value in (
+            ("Heizung_Heizkreis1_MischerIntervall", 6),
+            ("Heizung_Heizkreis1_Mischer_dTEin", 4),
+            ("Heizung_Heizkreis1_Mischer_dTAus", 2.4),
+            ("Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin", 15),
+            ("Anlage_Wf5_Funktionsblock_dtMindestausschaltzeit", 75),
+        ):
+            await number(name, value)
+        assert Peer.saves == before_native + 5
+        for name, value in (
+            ("Heizung_Heizkreis1_Mischer_dTEin", 3.2),
+            ("Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin", 16),
+        ):
+            try:
+                await number(name, value)
+            except HomeAssistantError:
+                pass
+            else:
+                raise AssertionError("Invalid native timing/mixer value accepted")
+        assert Peer.saves == before_native + 5
+        mixer = entity("Heizung_Heizkreis1_MischerIntervall", "number")
+        Peer.extra_values[13780] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(mixer).state == "unavailable"
+        Peer.extra_values[13780] = 3
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert float(hass.states.get(mixer).state) == 6
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"
