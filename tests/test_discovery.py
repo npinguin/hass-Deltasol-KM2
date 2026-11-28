@@ -1226,6 +1226,12 @@ class DiscoveryTests(unittest.TestCase):
         def descriptor(name):
             return descriptors[values[name]]
 
+        for circuit in range(1, 8):
+            name = f"Heizung_Heizkreis{circuit}_Betriebsart"
+            self.assertEqual(values[name], 14014 + 495 * (circuit - 1))
+            self.assertEqual(descriptor(name)[1], 0x10007)
+        self.assertEqual(descriptor("Urlaubsfunktion_Tage")[1], 0x8)
+
         allocation_table = bytes(8)
         for slot in range(51):
             prefix = f"Wsu{slot}"
@@ -1509,6 +1515,29 @@ class DiscoveryTests(unittest.TestCase):
         self.assertEqual(
             catalog.ordinal_options(definitions["Solar_Beladungstyp"]),
             {0: "Pendelladung", 1: "SukzessiveLadung"},
+        )
+        for circuit in range(1, 8):
+            root = f"Heizung_Heizkreis{circuit}"
+            target = definitions[root + "_Betriebsart"]
+            self.assertEqual(
+                catalog.ordinal_options(target),
+                {0: "Automatik", 1: "Tag", 2: "Nacht", 3: "Sommer", 4: "Urlaub", 5: "Aus"},
+            )
+            self.assertEqual(target.storage, "unspecified")
+            self.assertEqual(definitions[root + "_Betriebsstatus"].storage, "volatile")
+            self.assertTrue(
+                any(
+                    ref.get("menu") == f"Status_{root}"
+                    for ref in target.metadata["menu_refs"]
+                )
+            )
+            self.assertFalse(any(s.name == root + "_Betriebsstatus" for s in bound))
+        # All linked status menus refer to the same master preference.
+        master = definitions["Heizung_Heizkreis1_Betriebsart"]
+        self.assertTrue(
+            {f"Status_Heizung_Heizkreis{n}" for n in range(1, 8)}.issubset(
+                {ref.get("menu") for ref in master.metadata["menu_refs"]}
+            )
         )
         solar_optional = configuration.BX_PLUS_SOLAR_DEDICATED_SETTINGS
         self.assertEqual(len({s.name for s in solar_optional}), 52)
