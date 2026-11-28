@@ -1688,7 +1688,9 @@ class ParameterTests(unittest.TestCase):
         values.update({root + "_Type": 6, flag: 0, target: 600, target + "_C": 600})
         setting = choose(flag, values)
         self.assertTrue(setting.accepts(values, 1))
-        self.assertFalse(setting.accepts({**values, target: 601, target + "_C": 601}, 1))
+        self.assertFalse(
+            setting.accepts({**values, target: 601, target + "_C": 601}, 1)
+        )
         self.assertFalse(setting.accepts({**values, root + "_Sensor3_Nr": 0}, 1))
 
         root = "Heizung_Wf1"
@@ -1713,7 +1715,9 @@ class ParameterTests(unittest.TestCase):
         setting = choose(flag, values)
         self.assertTrue(setting.accepts(values, 1))
         self.assertFalse(setting.accepts({**values, off: 120, off + "_R": 120}, 1))
-        self.assertFalse(setting.accepts({**values, root + "_SensorDurchfluss1_Nr": 0}, 1))
+        self.assertFalse(
+            setting.accepts({**values, root + "_SensorDurchfluss1_Nr": 0}, 1)
+        )
 
     def test_installed_program_options_preserve_companions_and_context(self):
         settings = parameters_configuration.BX_PLUS_PROGRAM_OPTIONS
