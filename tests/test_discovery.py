@@ -1582,9 +1582,7 @@ class DiscoveryTests(unittest.TestCase):
                     memory = []
                     immediates = []
                     for line in output.splitlines():
-                        match = re.match(
-                            r"\s*([0-9a-f]+):\s+(\w+)\s*(.*)", line
-                        )
+                        match = re.match(r"\s*([0-9a-f]+):\s+(\w+)\s*(.*)", line)
                         if not match:
                             continue
                         address, mnemonic, operands = match.groups()
@@ -1600,9 +1598,11 @@ class DiscoveryTests(unittest.TestCase):
                                     else "indirect",
                                 )
                             )
-                        if mnemonic in (
-                            "mov", "movzx", "movsx", "and", "or", "test", "cmp"
-                        ) and "PTR [" in operands:
+                        if (
+                            mnemonic
+                            in ("mov", "movzx", "movsx", "and", "or", "test", "cmp")
+                            and "PTR [" in operands
+                        ):
                             memory.append((hex(rva), mnemonic, operands))
                         if mnemonic in ("mov", "push", "cmp", "test", "and", "or") and (
                             re.search(r"(?:^|,)0x[0-9a-f]+$", operands)
