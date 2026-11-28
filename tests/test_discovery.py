@@ -732,6 +732,84 @@ class DiscoveryTests(unittest.TestCase):
         )
         self.assertNotIn(rows[3].name, contexts)
 
+    def test_dedicated_solar_context_is_not_generic_type_or_write_permission(self):
+        rows = (
+            catalog.Definition("Solar_SystemId", 3416, "unspecified", "Number", {}),
+            catalog.Definition(
+                "Solar_Wf1_Type",
+                4409,
+                "unspecified",
+                "Solar_WfX_Type",
+                {
+                    "type_chain": ["Solar_WfX_Type"],
+                    "value_text": [
+                        {"id": name, "value": None} for name in ("Frei", "Alpha")
+                    ],
+                },
+            ),
+            catalog.Definition(
+                "Solar_Wf1_ExtWT_Relais1_Nr",
+                4102,
+                "unspecified",
+                "AktorNr",
+                {"type_chain": ["AktorNr"]},
+            ),
+            catalog.Definition(
+                "Solar_Wf1_Roehrenkollektor_Aktiviert_Modus",
+                3834,
+                "unspecified",
+                "ActivityMode",
+                {},
+            ),
+            catalog.Definition(
+                "Solar_Wf1_Alpha_Target", 4417, "unspecified", "Number", {}
+            ),
+        )
+        source = catalog.CATALOG_SOURCES[0]
+        capture = discovery.ConfigurationCapture(
+            catalog.Catalog(source.digest, rows, source),
+            SimpleNamespace(address=source.address),
+        )
+        for system_id in (None, 0, 1):
+            for generic_type in (0, 1):
+                with self.subTest(system_id=system_id, generic_type=generic_type):
+                    capture.results.clear()
+                    for row, raw in zip(
+                        rows, (system_id, generic_type, 2, 1, 10), strict=True
+                    ):
+                        if raw is not None:
+                            capture.results[row.name] = vbus.ParameterObservation(
+                                row.index, raw, "read"
+                            )
+                    functions, contexts = capture.function_context()
+                    external = functions["Solar_Wf1_ExtWT"]
+                    self.assertEqual(external["status"], "topology_unverified")
+                    self.assertEqual(external["system_id_raw"], system_id)
+                    self.assertEqual(
+                        external["assignments"][rows[2].name]["reference"], 2
+                    )
+                    self.assertEqual(
+                        functions["Solar_Wf1_Roehrenkollektor"]["activity_mode"],
+                        "enabled",
+                    )
+                    self.assertEqual(
+                        contexts[rows[2].name]["applicability"],
+                        "solar_topology_unverified",
+                    )
+                    self.assertEqual(
+                        contexts[rows[4].name]["function_slot"], "Solar_Wf1"
+                    )
+                    self.assertEqual(
+                        functions["Solar_Wf1"]["status"],
+                        "configured" if generic_type else "unused",
+                    )
+                    self.assertEqual(
+                        catalog.configuration_evidence(rows[2], capture.catalog.by_name)[
+                            "write_access"
+                        ],
+                        "not_verified",
+                    )
+
     def test_compound_projection_requires_exact_selector_and_parent_evidence(self):
         parent = catalog.Definition(
             "Target",
@@ -1013,6 +1091,23 @@ class DiscoveryTests(unittest.TestCase):
                 definitions[prefix + "_Type"].index, 4409 + (slot - 1) * 120
             )
             self.assertEqual(definitions[prefix + "_Nr"].index, 4410 + (slot - 1) * 120)
+        # Dedicated native families are separate from generic Solar_Wf Type.
+        capture = discovery.ConfigurationCapture(
+            parsed, SimpleNamespace(address=0x7112)
+        )
+        slots, members = capture.function_slots
+        dedicated = {
+            name for name, (_, family, _) in slots.items() if family == "solar_dedicated"
+        }
+        self.assertEqual(len(dedicated), 18)
+        self.assertIn("Solar_Wf5_ExtWT", dedicated)
+        self.assertIn("Solar_Wf1_DrainBack", dedicated)
+        self.assertIn(
+            definitions["Solar_Wf1_ExtWT_Relais1_Nr"], members["Solar_Wf1_ExtWT"]
+        )
+        self.assertNotIn(
+            definitions["Solar_Wf1_ExtWT_Relais1_Nr"], members["Solar_Wf1"]
+        )
         # Corroborate the production write contracts against the exact RPT,
         # not the earlier optimizer indices.
         configuration = importlib.import_module(f"{PACKAGE}.configuration")
@@ -1459,13 +1554,7 @@ class DiscoveryTests(unittest.TestCase):
                 for node in descriptor.iter()
                 if node.tag.rsplit("}", 1)[-1] == "parameterfilter"
             ]
-            self.assertLessEqual(len(filters), 1)
-            print(
-                "RPT selected parameter filter:",
-                filters[0]
-                if filters and filters[0] in ("BXPlusFilter", "MX2Filter", "MXFilter")
-                else "not identified",
-            )
+            self.assertEqual(filters, ["MX2Filter"])
             # Static research only: identify whether the shipped RPT assembly
             # contains relevant named symbols. No execution, decompilation
             # or vendor binary contents in the release or CI artifacts.

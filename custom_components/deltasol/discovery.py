@@ -24,6 +24,12 @@ from .vbus import ERROR_CODES, ParameterObservation, VBusError, VBusTransientErr
 BATCH_SIZE = 16
 CHECKPOINT_INTERVAL = 128
 RETRY_DELAYS = (2, 5, 10, 20, 30, 60)
+# Exact BX Plus 2.08 descriptor selects MX2Filter. These native families
+# depend on Solar_SystemId, not the generic optional-function type.
+SOLAR_DEDICATED = re.compile(
+    r"^(Solar_Wf([1-9][0-9]*)_(Roehrenkollektor|Bypass|CsBypass|"
+    r"Frostschutz|ExtWT|Zieltemperatur|Bereitschaft|DrainBack))(?:_|$)"
+)
 
 
 def decode_native_day(payload):
@@ -678,11 +684,21 @@ class ConfigurationCapture:
             if selector:
                 name, slot, family = selector
                 slots[name] = (slot, family, definition)
+        system = self.catalog.by_name.get("Solar_SystemId")
+        if (
+            self.catalog.matches(0x7112, BX_PLUS_CHANGESET)
+            and system
+            and system.index == 3416
+        ):
+            for definition in self.catalog.definitions:
+                match = SOLAR_DEDICATED.match(definition.name)
+                if match and not is_sensitive(definition):
+                    slots[match[1]] = (int(match[2]), "solar_dedicated", system)
         members = {name: [] for name in slots}
         for definition in self.catalog.definitions:
-            # A slot owns its prefix only, not slot 10 through slot 19.
+            # Prefer the most specific native slot, including its root.
             parts = definition.name.split("_")
-            for end in range(1, len(parts)):
+            for end in range(len(parts), 0, -1):
                 name = "_".join(parts[:end])
                 if name in slots:
                     members[name].append(definition)
@@ -702,11 +718,14 @@ class ConfigurationCapture:
         contexts = {}
         for name, (slot, family, selector) in slots.items():
             raw = self._observed_raw(selector)
+            dedicated = family == "solar_dedicated"
             options = ordinal_options(selector)
-            kind = options.get(raw)
+            kind = name.split("_", 2)[2] if dedicated else options.get(raw)
             activity = self._observed_raw(definitions.get(f"{name}_Aktiviert_Modus"))
             status = (
-                "unknown"
+                "topology_unverified"
+                if dedicated
+                else "unknown"
                 if kind is None
                 else "unused"
                 if kind == "Frei"
@@ -727,6 +746,13 @@ class ConfigurationCapture:
                 }.get(activity),
                 "assignments": {},
             }
+            if dedicated:
+                # The system ID is transfer relevance evidence, not a type
+                # ordinal or proof of installed hydraulic topology.
+                item.pop("type_parameter")
+                item.pop("type_raw")
+                item["system_parameter"] = selector.name
+                item["system_id_raw"] = raw
             typed_menus = {
                 f"{name}_{option}" for option in options.values() if option != "Frei"
             }
@@ -749,7 +775,9 @@ class ConfigurationCapture:
                         (selected if menu == f"{name}_{kind}" else other).append(ref)
                     elif menu and (menu == name or menu.startswith(name + "_")):
                         common.append(ref)
-                if definition.name == selector.name:
+                if dedicated:
+                    applicability = "solar_topology_unverified"
+                elif definition.name == selector.name:
                     applicability = "function_selector"
                 elif status == "unknown":
                     applicability = "function_unknown"
@@ -790,12 +818,13 @@ class ConfigurationCapture:
                     "RelaisOderAusgangAlleNr",
                 }
                 if (
-                    status != "configured"
+                    (not dedicated and status != "configured")
                     or applicability
                     not in (
                         "selected_function_reference",
                         "conditional_unverified",
                         "slot_menu_unverified",
+                        "solar_topology_unverified",
                     )
                     or not reference_types.intersection(chain)
                 ):
