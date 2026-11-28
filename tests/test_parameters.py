@@ -91,6 +91,102 @@ class ParameterTests(unittest.TestCase):
     def discover(self, data=None):
         return self.api.discover(telemetry() if data is None else data).capabilities
 
+    def test_shared_activity_modes_use_installed_context_and_preserve_companions(self):
+        config = parameters_configuration
+        settings = config.BX_PLUS_ACTIVITY_SETTINGS
+        root = "Anlage_Wf1"
+        mode = root + "_Aktiviert_Modus"
+        values = {
+            root + "_Type": 2,
+            mode: 0,
+            root + "_Sensor1_Nr": 1,
+            root + "_Relais1_Nr": 2,
+            root + "_Relais2_Nr": 3,
+            root + "_Mischer_dtIntervall": 5,
+            root + "_Mischer_TZiel": 500,
+            root + "_Mischer_TZiel_C": 500,
+            "TemperatureHysteresisSelector": 0,
+        }
+
+        def contract(name, observed):
+            (setting,) = [
+                s for s in settings if s.name == name and s.accepts(observed)
+            ]
+            return setting
+
+        setting = contract(mode, values)
+        self.assertTrue(setting.accepts(values, 0))
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertFalse(setting.accepts(values, 2))
+        values[root + "_Aktiviert_SensorSchalter_Nr"] = 4
+        self.assertTrue(setting.accepts(values, 2))
+        self.assertFalse(setting.accepts({**values, root + "_Relais2_Nr": 2}, 1))
+        self.assertFalse(
+            setting.accepts({**values, root + "_Mischer_TZiel_C": 510}, 1)
+        )
+        self.assertTrue(
+            setting.accepts({**values, root + "_Mischer_TZiel_C": 510}, 0)
+        )
+        self.assertFalse(setting.accepts({**values, root + "_Type": 6}, 0))
+        self.assertFalse(
+            any(
+                s.accepts({**values, root + "_Type": 6})
+                for s in settings
+                if s.name == mode
+            )
+        )
+
+        root = "Anlage_Wf1"
+        mode = root + "_Aktiviert_Modus"
+        values = {
+            root + "_Type": 3,
+            mode: 0,
+            root + "_Sensor1_Nr": 1,
+            root + "_Sensor2_Nr": 2,
+            root + "_Relais1_Nr": 3,
+            root + "_OSchaltuhr": 1,
+            root + "_SchaltuhrNr": 1,
+            root + "_Boilerladung_TBoilerEin": 450,
+            root + "_Boilerladung_TBoilerEin_C": 450,
+            root + "_Boilerladung_TBoilerAus": 550,
+            root + "_Boilerladung_TBoilerAus_C": 550,
+            "TemperatureHysteresisSelector": 0,
+        }
+        setting = contract(mode, values)
+        self.assertFalse(setting.accepts(values, 1))
+        self.assertTrue(setting.accepts(values, 0))
+        allocation, days = config.WeeklyProgram.layout(1)
+        values.update(dict.fromkeys(allocation, 1))
+        values.update(dict.fromkeys(days, bytes([255]) * 12))
+        self.assertTrue(setting.accepts(values, 1))
+        values[next(iter(days))] = b"bad"
+        self.assertFalse(setting.accepts(values, 1))
+        values[root + "_OSchaltuhr"] = 0
+        self.assertTrue(setting.accepts(values, 1))
+
+        root = "Wmz1"
+        mode = root + "_Aktiviert_Modus"
+        values = {
+            root + "_Type": 2,
+            mode: 1,
+            root + "_Impulszaehler_Sensor1_Nr": 1,
+        }
+        setting = contract(mode, values)
+        self.assertIsNone(setting.owner_address)
+        self.assertTrue(setting.accepts(values, 0))
+        self.assertTrue(setting.accepts({**values, mode: 0}, 1))
+        self.assertFalse(setting.accepts(values, 2))
+        values[root + "_Aktiviert_SensorSchalter_Nr"] = 3
+        self.assertTrue(setting.accepts(values, 2))
+        values[root + "_Type"] = 1
+        values[root + "_OVolumenstromSensor"] = 1
+        values[root + "_OBezugsrelais1"] = 0
+        for sensor in range(1, 4):
+            values[f"{root}_Sensor{sensor}_Nr"] = sensor
+        setting = contract(mode, values)
+        self.assertTrue(setting.accepts(values, 1))
+        self.assertFalse(setting.accepts({**values, root + "_OVolumenstromSensor": 0}, 1))
+
     def test_room_activation_preserves_required_sensor_and_timer(self):
         config = parameters_configuration
         root = "Heizung_Heizkreis1"
