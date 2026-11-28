@@ -448,34 +448,12 @@ class ConfigurationCapture:
         return capture
 
     def weekly_day_shape(self, definition):
-        """Separate declared byte size from the exact compatible reference."""
+        """Use the inherited native declaration, never an inferred Blob size."""
         metadata = definition.metadata
         if metadata.get("size_unverified") or metadata.get("unresolved_base"):
             return None, None
-        if "size_bytes" in metadata:
-            size = metadata["size_bytes"]
-            return (size, "rpt_declared") if type(size) is int else (None, None)
-        # BX Plus 2.08 omits size elements. Independent MX 2xx MIT optimizer
-        # definitions and native SET exports establish the exact 12-byte
-        # layout, but not the word-to-storage byte order or write permission.
-        match = re.fullmatch(
-            r"Wsu([0-9]+)_Schaltuhr_Woche_Tag(Mo|Di|Mi|Do|Fr|Sa|So)_Daten",
-            definition.name,
-        )
-        if (
-            match
-            and self.catalog.matches(self.controller.address, self.changeset)
-            and self.controller.address == 0x7112
-            and self.changeset == BX_PLUS_CHANGESET
-            and 0 <= int(match[1]) < 51
-            and definition.index
-            == 18406
-            + 13 * int(match[1])
-            + ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").index(match[2])
-            and "Blob" in metadata.get("type_chain", ())
-        ):
-            return 12, "exact_layout_mx_reference"
-        return None, None
+        size = metadata.get("size_bytes")
+        return (size, "rpt_declared") if type(size) is int else (None, None)
 
     @cached_property
     def packed_days(self):
