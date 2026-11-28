@@ -577,7 +577,10 @@ class WeeklyOwner:
         return all(d.matches(values) for d in self.conditions)
 
     def inactive(self, values):
-        return any(type(values.get(d.name)) is int and not d.matches(values) for d in self.conditions)
+        return any(
+            type(values.get(d.name)) is int and not d.matches(values)
+            for d in self.conditions
+        )
 
 
 def _weekly_owners():
@@ -638,16 +641,25 @@ def weekly_settings_for(definitions):
                 or is_sensitive(definition)
             ):
                 return ()
-        if "WochenschaltuhrNr" not in definitions[owner.name].metadata.get("type_chain", ()):
+        if "WochenschaltuhrNr" not in definitions[owner.name].metadata.get(
+            "type_chain", ()
+        ):
             return ()
     result = []
     for slot in range(1, 51):
         root = f"Wsu{slot}"
         index = 18401 + 13 * slot
-        for offset, (day, label) in enumerate((
-            ("Mo", "Monday"), ("Di", "Tuesday"), ("Mi", "Wednesday"),
-            ("Do", "Thursday"), ("Fr", "Friday"), ("Sa", "Saturday"), ("So", "Sunday"),
-        )):
+        for offset, (day, label) in enumerate(
+            (
+                ("Mo", "Monday"),
+                ("Di", "Tuesday"),
+                ("Mi", "Wednesday"),
+                ("Do", "Thursday"),
+                ("Fr", "Friday"),
+                ("Sa", "Saturday"),
+                ("So", "Sunday"),
+            )
+        ):
             setting = Setting(
                 f"{root}_Schaltuhr_Woche_Tag{day}_Daten",
                 index + 5 + offset,
@@ -655,7 +667,11 @@ def weekly_settings_for(definitions):
                 "text",
                 True,
                 installed_by=Dependency(root + "_Belegt", index, (1,)),
-                dependencies=(Dependency(root + "_Schaltuhr_Woche_Initialisiert", index + 4, (1,)),),
+                dependencies=(
+                    Dependency(
+                        root + "_Schaltuhr_Woche_Initialisiert", index + 4, (1,)
+                    ),
+                ),
                 weekly_slot=slot,
             )
             try:
