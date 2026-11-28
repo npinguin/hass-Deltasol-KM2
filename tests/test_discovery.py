@@ -1527,6 +1527,62 @@ class DiscoveryTests(unittest.TestCase):
             "normalized families",
         )
         print("Unbound native menu families:", sorted(families.items()))
+        # Targeted evidence for the remaining operational contracts. Report
+        # only first-slot reference metadata, not the vendor XML or DLL.
+        review_names = (
+            "Heizung_Heizkreis1_Heizsystem_Raumeinfluss_Faktor",
+            "Heizung_Heizkreis1_Heizsystem_Raumeinfluss_Abweichung",
+            "Heizung_Heizkreis1_Heizsystem",
+            "Heizung_Heizkreis1_System",
+            "Heizung_Heizkreis1_MischerIntervall",
+            "Heizung_Heizkreis1_Relais1_Nr",
+            "Heizung_Heizkreis1_Relais2_Nr",
+            "Heizung_Heizkreis1_Relais3_Nr",
+            "Heizung_Heizkreis1_Relais4_Nr",
+            "Heizung_Heizkreis1_Sensor1_Nr",
+            "Heizung_Heizkreis1_Sensor2_Nr",
+            "Heizung_Heizkreis1_Sensor4_Nr",
+            "Heizung_Heizkreis1_Raumthermostat1_Option",
+            "Heizung_Heizkreis1_Raumthermostat1_Typ",
+            "Heizung_RelaisAnforderung1_Type",
+            "Heizung_RelaisAnforderung1_OMindestlaufzeit",
+            "Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin",
+            "Heizung_RelaisAnforderung1_ORelais1",
+            "Heizung_RelaisAnforderung1_Relais1_Nr",
+            "Heizung_RelaisAnforderung1_OAusgang1",
+            "Heizung_RelaisAnforderung1_Ausgang1_Nr",
+            "Anlage_Wf1_Funktionsblock_OMindestausschaltzeit",
+            "Anlage_Wf1_Funktionsblock_dtMindestausschaltzeit",
+            "Anlage_Wf1_Relais1_Nr",
+            "Anlage_Wf1_Bezugsrelais1_Nr",
+            "Anlage_Wf1_Parallelrelais_ONachlauf",
+            "Anlage_Wf1_Parallelrelais_OVerzoegerung",
+        )
+        for name in review_names:
+            row = definitions.get(name)
+            if row is None:
+                print("Operational review missing:", name)
+                continue
+            print(
+                "Operational review:",
+                name,
+                row.index,
+                {
+                    key: row.metadata[key]
+                    for key in (
+                        "type_chain",
+                        "minimum",
+                        "maximum",
+                        "quant",
+                        "quant_step",
+                        "storeFactor",
+                        "unit",
+                        "menu_refs",
+                        "rpt_storage",
+                    )
+                    if key in row.metadata
+                },
+            )
         for slot in range(1, 17):
             prefix = f"Anlage_Wf{slot}"
             self.assertEqual(
