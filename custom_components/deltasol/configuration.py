@@ -53,13 +53,37 @@ class RangeDependency:
 
 # Exact topology table in the BX Plus 2.08 native model; zero/1 are not
 # installed solar topologies. Counts are encoded in the first two fields.
-BX_PLUS_SOLAR_SYSTEMS = frozenset((
-    10101, 20101, 20102, 30101, 30102,
-    10201, 10202, 10203, 20201, 20202, 20203, 20204, 20205,
-    30201, 30202, 30203, 30204,
-    10301, 10302, 10303, 20301, 20302, 20304, 20305,
-    10401, 10402, 10403,
-))
+BX_PLUS_SOLAR_SYSTEMS = frozenset(
+    (
+        10101,
+        20101,
+        20102,
+        30101,
+        30102,
+        10201,
+        10202,
+        10203,
+        20201,
+        20202,
+        20203,
+        20204,
+        20205,
+        30201,
+        30202,
+        30203,
+        30204,
+        10301,
+        10302,
+        10303,
+        20301,
+        20302,
+        20304,
+        20305,
+        10401,
+        10402,
+        10403,
+    )
+)
 
 
 @dataclass(frozen=True)
@@ -75,8 +99,12 @@ class SolarSelection:
         if self.stores:
             return tuple(
                 (
-                    RangeDependency(f"Solar_Sp{n}_Sensor1_Nr", 3576 + 36 * (n - 1), 1, 65),
-                    Dependency(f"Solar_Sp{n}_Aktiviert_Modus", 3604 + 36 * (n - 1), (1, 2)),
+                    RangeDependency(
+                        f"Solar_Sp{n}_Sensor1_Nr", 3576 + 36 * (n - 1), 1, 65
+                    ),
+                    Dependency(
+                        f"Solar_Sp{n}_Aktiviert_Modus", 3604 + 36 * (n - 1), (1, 2)
+                    ),
                 )
                 for n in range(1, 5)
             )
@@ -136,7 +164,11 @@ class RelativeConstraint:
             compare is not None
             and type(raw) is int
             and type(other) is int
-            and compare(raw, other + (self.margin if self.operation in ("gt", "ge") else -self.margin))
+            and compare(
+                raw,
+                other
+                + (self.margin if self.operation in ("gt", "ge") else -self.margin),
+            )
         )
 
 
@@ -1919,7 +1951,9 @@ def _solar_tube_exchanger_settings():
                 installed_by=installed,
                 dependencies=deps,
                 relative_constraints=(
-                    RelativeConstraint(root + "_" + other, other_index + offset, relation, 30),
+                    RelativeConstraint(
+                        root + "_" + other, other_index + offset, relation, 30
+                    ),
                 ),
                 peer_limits=((root + "_" + other, clock),),
             )
@@ -1928,9 +1962,15 @@ def _solar_tube_exchanger_settings():
             ("Pausezeit", 3843, ("1", "60", "1", "1"), "min", "pause"),
         ):
             yield Setting(
-                root + "_" + suffix, index + offset,
-                f"Solar tube collector {slot} {label}", "number", True,
-                limits=bounds, unit=unit, installed_by=installed, dependencies=deps,
+                root + "_" + suffix,
+                index + offset,
+                f"Solar tube collector {slot} {label}",
+                "number",
+                True,
+                limits=bounds,
+                unit=unit,
+                installed_by=installed,
+                dependencies=deps,
             )
     for slot in range(1, 6):
         offset = (slot - 1) * 49
@@ -1946,43 +1986,81 @@ def _solar_tube_exchanger_settings():
             ("Mindestlaufzeit", 4092, ("1", "15", "1", "1"), "minimum runtime"),
         ):
             yield Setting(
-                root + "_" + suffix, index + offset,
-                f"Solar exchanger {slot} {label}", "number", True,
-                limits=bounds, unit="min", installed_by=installed, dependencies=deps,
+                root + "_" + suffix,
+                index + offset,
+                f"Solar exchanger {slot} {label}",
+                "number",
+                True,
+                limits=bounds,
+                unit="min",
+                installed_by=installed,
+                dependencies=deps,
             )
         yield from _operating_pair(
-            root + "_dTein", 4112 + offset,
-            root + "_dTaus", 4115 + offset,
-            f"Solar exchanger {slot} differential", installed, deps,
+            root + "_dTein",
+            4112 + offset,
+            root + "_dTaus",
+            4115 + offset,
+            f"Solar exchanger {slot} differential",
+            installed,
+            deps,
             (
-                (0, "_K", "K", ("1", "20", "0.5", "0.1"), ("0.5", "19.5", "0.5", "0.1")),
+                (
+                    0,
+                    "_K",
+                    "K",
+                    ("1", "20", "0.5", "0.1"),
+                    ("0.5", "19.5", "0.5", "0.1"),
+                ),
                 (1, "_R", "°R", ("2", "40", "1", "0.1"), ("1", "39", "1", "0.1")),
             ),
             rising=True,
         )
         for suffix, index, label, variants in (
-            ("ZieltemperaturSekundaer", 4109, "target", (
-                (0, "_C", "°C", ("15", "95", "1", "0.1")),
-                (1, "_F", "°F", ("60", "204", "2", "0.1")),
-            )),
-            ("dTAnstieg", 4121, "rise", (
-                (0, "_K", "K", ("1", "30", "1", "0.1")),
-                (1, "_R", "°R", ("2", "60", "2", "0.1")),
-            )),
+            (
+                "ZieltemperaturSekundaer",
+                4109,
+                "target",
+                (
+                    (0, "_C", "°C", ("15", "95", "1", "0.1")),
+                    (1, "_F", "°F", ("60", "204", "2", "0.1")),
+                ),
+            ),
+            (
+                "dTAnstieg",
+                4121,
+                "rise",
+                (
+                    (0, "_K", "K", ("1", "30", "1", "0.1")),
+                    (1, "_R", "°R", ("2", "60", "2", "0.1")),
+                ),
+            ),
         ):
             name = root + "_" + suffix
             for selector, alias, unit, limits in variants:
                 yield Setting(
-                    name, index + offset,
-                    f"Solar exchanger {slot} {label}", "number", True,
-                    limits=limits, unit=unit, installed_by=installed,
+                    name,
+                    index + offset,
+                    f"Solar exchanger {slot} {label}",
+                    "number",
+                    True,
+                    limits=limits,
+                    unit=unit,
+                    installed_by=installed,
                     dependencies=(
                         *deps,
                         Dependency(root + "_OZieltemperatur", 4091 + offset, (1,)),
                         RangeDependency(root + "_Sensor2_Nr", 4098 + offset, 1, 65),
                         Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                     ),
-                    compound_mirrors=((name, index + offset, name + alias, index + offset + selector + 1),),
+                    compound_mirrors=(
+                        (
+                            name,
+                            index + offset,
+                            name + alias,
+                            index + offset + selector + 1,
+                        ),
+                    ),
                 )
 
 
