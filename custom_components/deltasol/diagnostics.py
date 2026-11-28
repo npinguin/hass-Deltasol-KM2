@@ -239,7 +239,8 @@ async def async_get_config_entry_diagnostics(hass, entry):
                 and definition.metadata.get("menu_refs")
                 and not definition.metadata.get("compound_ref")
                 and (
-                    definition.metadata.get("rpt_storage") in ("preferences", "persistent")
+                    definition.metadata.get("rpt_storage")
+                    in ("preferences", "persistent")
                     or definition.metadata.get("compound_parent_read_candidate")
                 )
             ):

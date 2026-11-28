@@ -1531,13 +1531,16 @@ class DiscoveryTests(unittest.TestCase):
         print("Unbound native menu families:", sorted(families.items()))
         # Every remaining preference is explicitly accounted for, including
         # open reviews. A read-only scope reason is not a native access bit.
-        reasons = Counter(configuration.native_menu_review_reason(name) for name in unbound)
+        reasons = Counter(
+            configuration.native_menu_review_reason(name) for name in unbound
+        )
         self.assertEqual(sum(reasons.values()), len(unbound))
         print("Native menu review categories:", sorted(reasons.items()))
         pending = Counter(
             re.sub(r"(?<=\D)\d+", "X", name)
             for name in unbound
-            if configuration.native_menu_review_reason(name) in (
+            if configuration.native_menu_review_reason(name)
+            in (
                 "program_option_review_required",
                 "native_operating_contract_unverified",
                 "hydraulic_applicability_review_required",

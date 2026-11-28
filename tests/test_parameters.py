@@ -1149,7 +1149,12 @@ class ParameterTests(unittest.TestCase):
             voltage.name: 1,
             interval.name: 30,
         }
-        for setting, value in ((offset, 7), (hysteresis, 1.5), (voltage, 0.2), (interval, 35)):
+        for setting, value in (
+            (offset, 7),
+            (hysteresis, 1.5),
+            (voltage, 0.2),
+            (interval, 35),
+        ):
             self.assertTrue(setting.accepts(values, setting.encode(value)))
         self.assertFalse(hysteresis.accepts(values, 11))
         self.assertFalse(voltage.accepts(values, 11))
@@ -1167,10 +1172,19 @@ class ParameterTests(unittest.TestCase):
             ("Relais_Modul1_R1_Handbetrieb", "existing_relay_owner"),
             ("Wmz1_WertJahr_Wh", "runtime_or_history_preserved"),
             ("Heizung_Heizkreis1_Relais2_Nr", "hardware_or_topology_assignment"),
-            ("Heizung_Heizkreis1_Kuehlung_Taupunkt_dTErhoehung", "protection_or_safety_configuration"),
-            ("Heizung_RelaisAnforderung1_Ausgang_Spannung1", "commissioning_or_control_scheme"),
+            (
+                "Heizung_Heizkreis1_Kuehlung_Taupunkt_dTErhoehung",
+                "protection_or_safety_configuration",
+            ),
+            (
+                "Heizung_RelaisAnforderung1_Ausgang_Spannung1",
+                "commissioning_or_control_scheme",
+            ),
             ("Solar_Sp5_Vorrang", "unsupported_native_topology_slot"),
-            ("Solar_Wf1_DrainBack_Befuellzeit", "hydraulic_applicability_review_required"),
+            (
+                "Solar_Wf1_DrainBack_Befuellzeit",
+                "hydraulic_applicability_review_required",
+            ),
             ("Heizung_Heizkreis1_OSchaltuhr", "program_option_review_required"),
             ("Solar_Spreizladung_dTDifferenz", "native_operating_contract_unverified"),
         ):

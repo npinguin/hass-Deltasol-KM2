@@ -534,7 +534,10 @@ def _normalized_numeric(definition, limits):
         metadata["quant"] = metadata["storeFactor"]
         metadata["type_chain"] = [*chain, "Number"]
     elif (
-        re.fullmatch(r"Heizung_RelaisAnforderung[12]_Ausgang_Vorlauf_dVKorrektur", definition.name)
+        re.fullmatch(
+            r"Heizung_RelaisAnforderung[12]_Ausgang_Vorlauf_dVKorrektur",
+            definition.name,
+        )
         and limits == ("0", "1", "0.1", "0.1")
         and metadata.get("storeFactor") == "0.1"
         and "quant" not in metadata
@@ -606,7 +609,10 @@ def native_menu_review_reason(name):
         return "manual_override_contract_unverified"
     if "_DrainBack_" in family:
         return "hydraulic_applicability_review_required"
-    if re.search(r"_Aktiviert(?:_Modus)?$|_Modus$|_O[A-Z][A-Za-z]*X?$|_Option$|_ModusSchaltuhr$", family):
+    if re.search(
+        r"_Aktiviert(?:_Modus)?$|_Modus$|_O[A-Z][A-Za-z]*X?$|_Option$|_ModusSchaltuhr$",
+        family,
+    ):
         return "program_option_review_required"
     return "native_operating_contract_unverified"
 
@@ -2011,7 +2017,9 @@ def _heating_operating_settings():
         feedback = (
             *output,
             Dependency(f"{root}_Ausgang_OVorlauf", 10773 + offset, (1,)),
-            RangeDependency(f"{root}_Ausgang_Vorlauf_Sensor1_Nr", 10775 + offset, 1, 65),
+            RangeDependency(
+                f"{root}_Ausgang_Vorlauf_Sensor1_Nr", 10775 + offset, 1, 65
+            ),
         )
         for suffix, index, label, k, r, deps in (
             (
@@ -2050,7 +2058,9 @@ def _heating_operating_settings():
                         *deps,
                         Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                     ),
-                    compound_mirrors=((name, index, name + alias, index + selector + 1),),
+                    compound_mirrors=(
+                        (name, index, name + alias, index + selector + 1),
+                    ),
                 )
         for suffix, index, label, limits, unit in (
             ("dVKorrektur", 10781, "voltage correction", ("0", "1", "0.1", "0.1"), "V"),
