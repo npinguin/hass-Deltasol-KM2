@@ -804,9 +804,9 @@ class DiscoveryTests(unittest.TestCase):
                         "configured" if generic_type else "unused",
                     )
                     self.assertEqual(
-                        catalog.configuration_evidence(rows[2], capture.catalog.by_name)[
-                            "write_access"
-                        ],
+                        catalog.configuration_evidence(
+                            rows[2], capture.catalog.by_name
+                        )["write_access"],
                         "not_verified",
                     )
 
@@ -1097,7 +1097,9 @@ class DiscoveryTests(unittest.TestCase):
         )
         slots, members = capture.function_slots
         dedicated = {
-            name for name, (_, family, _) in slots.items() if family == "solar_dedicated"
+            name
+            for name, (_, family, _) in slots.items()
+            if family == "solar_dedicated"
         }
         self.assertEqual(len(dedicated), 18)
         self.assertIn("Solar_Wf5_ExtWT", dedicated)

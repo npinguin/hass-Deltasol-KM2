@@ -686,7 +686,7 @@ class ConfigurationCapture:
                 slots[name] = (slot, family, definition)
         system = self.catalog.by_name.get("Solar_SystemId")
         if (
-            self.catalog.matches(0x7112, BX_PLUS_CHANGESET)
+            self.catalog.matches(self.controller.address, self.changeset)
             and system
             and system.index == 3416
         ):
