@@ -3982,8 +3982,7 @@ class ParameterTests(unittest.TestCase):
             prefix + "_Mischerstellzeit": 2,
         }
         settings = {
-            (s.name, s.unit): s
-            for s in bx_plus.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            (s.name, s.unit): s for s in bx_plus.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
         }
         for suffix, unit, wanted, invalid in (
             ("dTSoll", "K", -10, 26),

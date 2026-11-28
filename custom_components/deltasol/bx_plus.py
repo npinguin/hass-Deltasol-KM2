@@ -1964,9 +1964,7 @@ def _thermal_option_settings():
                     ),
                     requested_conditions=(
                         *(
-                            RequestedCondition(
-                                1, (raw_steps(name, idx, lo, hi, step),)
-                            )
+                            RequestedCondition(1, (raw_steps(name, idx, lo, hi, step),))
                             for name, idx, _, lo, hi, step in companions
                         ),
                         *(RequestedCondition(1, (rule,)) for rule in relations),

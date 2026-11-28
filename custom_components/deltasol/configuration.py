@@ -1183,6 +1183,7 @@ def raw_steps(name, index, minimum, maximum, step):
     """Exact integer encoding of a companion preference, not an authorization."""
     return Dependency(name, index, tuple(range(minimum, maximum + 1, step)))
 
+
 def encode_action(setting, value):
     """Return the validated wire value or a fixed, non-sensitive error."""
     try:
