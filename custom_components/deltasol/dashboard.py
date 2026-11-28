@@ -46,7 +46,9 @@ def enabled(entry):
 
 
 def engineering_enabled(entry, user):
-    return bool(enabled(entry) and user.is_admin and entry.options.get(CONF_ENGINEERING))
+    return bool(
+        enabled(entry) and user.is_admin and entry.options.get(CONF_ENGINEERING)
+    )
 
 
 def capability_section(setting, state):
@@ -56,7 +58,8 @@ def capability_section(setting, state):
         if setting.weekly_slot is not None:
             return "schedule"
         if name.startswith("Heizung_") and any(
-            part in name for part in ("_ThBwErwaermung", "_BwVorerwaermung", "_Zirkulation")
+            part in name
+            for part in ("_ThBwErwaermung", "_BwVorerwaermung", "_Zirkulation")
         ):
             return "hot_water"
         if name.startswith("Solar_"):
@@ -80,8 +83,7 @@ def capability_access(registered, setting, state, user, engineering, *, relay=Fa
         if setting and (
             setting.name.endswith("_Betriebsart")
             or (
-                setting.kind == "number"
-                and setting.name.endswith(("_TSoll", "_Tsoll"))
+                setting.kind == "number" and setting.name.endswith(("_TSoll", "_Tsoll"))
             )
         ):
             depth = "controls"
@@ -192,7 +194,9 @@ def dashboard_objects(hass, user):
                     "name": f"RESOL {len(installations) + 1}",
                     "settings": bool(user.is_admin),
                     "engineering": engineering,
-                    "objects": sorted(objects.values(), key=lambda asset: asset["name"]),
+                    "objects": sorted(
+                        objects.values(), key=lambda asset: asset["name"]
+                    ),
                 }
             )
     return installations
@@ -285,9 +289,7 @@ def observed_result(kind, state, value):
 async def ws_action(hass, connection, msg):
     """Use native HA services with caller identity; never write the bus here."""
     try:
-        row = scoped_control(
-            hass, connection.user, msg["entry_id"], msg["entity_id"]
-        )
+        row = scoped_control(hass, connection.user, msg["entry_id"], msg["entity_id"])
         kind, service, data = service_request(row, msg["value"])
         if msg["preview"]:
             if not row["schedule"]:

@@ -99,6 +99,8 @@ class RuntimeData:
 
     coordinator: DataUpdateCoordinator
     relay_coordinator: "DeltasolRelayCoordinator | None" = None
+    # One verified catalogue, independent of historical capture compatibility.
+    catalogue_identity: tuple | None = None
     capture: ConfigurationCapture | None = None
     previous_capture: ConfigurationCapture | None = None
     capture_task: asyncio.Task | None = None
@@ -307,6 +309,12 @@ async def _async_catalog(hass, source, *, acquire=False):
         return await hass.async_add_executor_job(download_catalog, path, source)
 
 
+def _remember_catalogue(runtime, controller, source, catalog):
+    """Keep the exact catalogue independently of snapshot restore success."""
+    if catalog.matches(controller.address, source.changeset):
+        runtime.catalogue_identity = (controller, source.changeset, catalog)
+
+
 async def _async_restore_capture(hass, runtime, *, catalog=None):
     """Restore only against the current verified controller and exact local archive."""
     if not runtime.coordinator.api.supports_parameter_access:
@@ -319,6 +327,7 @@ async def _async_restore_capture(hass, runtime, *, catalog=None):
         controller, source = _catalog_identity(runtime)
         if catalog is None:
             catalog = await _async_catalog(hass, source)
+        _remember_catalogue(runtime, controller, source, catalog)
         capture = ConfigurationCapture.restore(
             stored["capture"], catalog, controller, source.changeset
         )
@@ -363,8 +372,13 @@ async def _async_restore_and_resume(hass, entry, runtime):
                 await _start_capture(hass, entry, runtime)
             runtime.notify_capture()
         elif (
-            runtime.checkpoint_error in (None, "checkpoint_catalogue_missing")
+            runtime.checkpoint_error
+            in (None, "checkpoint_catalogue_missing", "checkpoint_incompatible")
             and runtime.auto_start_task is None
+            and not (
+                runtime.checkpoint_error == "checkpoint_incompatible"
+                and runtime.catalogue_identity is not None
+            )
         ):
             runtime.auto_start_task = entry.async_create_background_task(
                 hass,
@@ -381,6 +395,7 @@ async def _async_start_initial_capture(hass, entry, runtime):
         if runtime.closing or runtime.capture is not None:
             return
         restore_required = runtime.checkpoint_error == "checkpoint_catalogue_missing"
+        incompatible = runtime.checkpoint_error == "checkpoint_incompatible"
         try:
             controller, source = _catalog_identity(runtime)
         except (CatalogError, VBusError):
@@ -405,6 +420,12 @@ async def _async_start_initial_capture(hass, entry, runtime):
             return
         if (current_controller, current_source) != (controller, source):
             runtime.checkpoint_error = "discovery_controller_unverified"
+            runtime.notify_capture()
+            return
+        _remember_catalogue(runtime, controller, source, catalog)
+        if incompatible:
+            # Keep the rejected checkpoint untouched. Operational selectors
+            # now progress in normal bounded refreshes without a full scan.
             runtime.notify_capture()
             return
         if restore_required:
@@ -443,8 +464,9 @@ async def _async_toggle_capture_locked(hass, entry, runtime):
         catalog = await _async_catalog(hass, source, acquire=True)
     except (CatalogError, VBusError) as err:
         raise HomeAssistantError(str(err)) from err
+    _remember_catalogue(runtime, controller, source, catalog)
     if runtime.capture is None:
-        await _async_restore_capture(hass, runtime)
+        await _async_restore_capture(hass, runtime, catalog=catalog)
     capture = runtime.capture
     if (
         capture is None
@@ -578,16 +600,20 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
             await asyncio.sleep(self.api.parameter_cooldown_remaining())
 
     def _configuration_catalog(self):
-        """Use the existing capture's verified catalogue, no second cache."""
-        capture = self.runtime.capture
-        if capture is None:
+        """Resolve static metadata independently from historical observations."""
+        identity = self.runtime.catalogue_identity
+        if identity is None or not self.data:
             return None
+        owner, changeset, catalog = identity
         _, controller = find_profile(self.telemetry.observed_inventory)
-        if capture.controller != controller:
+        if (
+            owner != controller
+            or self.data.controller != controller
+            or self.data.changeset != changeset
+            or not catalog.matches(owner.address, changeset)
+        ):
             return None
-        if not capture.catalog.matches(capture.controller.address, capture.changeset):
-            return None
-        return capture.catalog
+        return catalog
 
     def _configuration_hints(self):
         profile, controller = find_profile(self.telemetry.observed_inventory)
@@ -620,6 +646,15 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
         return hints
 
     async def _async_update_data(self):
+        # A replaced controller or temporarily missing local archive can
+        # recover on normal polling. No additional VBus session is opened.
+        if self.data and self._configuration_catalog() is None:
+            try:
+                controller, source = _catalog_identity(self.runtime)
+                catalog = await _async_catalog(self.hass, source)
+                _remember_catalogue(self.runtime, controller, source, catalog)
+            except (CatalogError, VBusError, OSError, ValueError):
+                pass
         try:
             result = await refresh_relay_modes(
                 self.telemetry,

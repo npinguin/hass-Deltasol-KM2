@@ -93,7 +93,9 @@ class DashboardTests(unittest.TestCase):
 
     def test_no_optimistic_readback(self):
         observed = self.ns["observed_result"]
-        self.assertEqual(observed("number", SimpleNamespace(state="42"), 42), "observed")
+        self.assertEqual(
+            observed("number", SimpleNamespace(state="42"), 42), "observed"
+        )
         self.assertEqual(
             observed("number", SimpleNamespace(state="41"), 42), "not_confirmed"
         )
