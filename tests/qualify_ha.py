@@ -12,7 +12,7 @@ import socketserver
 import struct
 import sys
 import threading
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import MappingProxyType
@@ -1375,6 +1375,7 @@ async def qualify(directory, phase):
             ConfigurationCapture, "base_candidates", property(qualification_base)
         )
     candidate_filter.__enter__()
+    semantic_pacing = ExitStack()
 
     fixture = Catalog(
         "isolated-test-catalogue",
@@ -2220,6 +2221,18 @@ async def qualify(directory, phase):
         assert Peer.mode == 2 and Peer.settings[60] == 1
         assert Peer.writes == writes_before + 1
         assert Peer.saves == 4
+
+        # The previous lifecycle, contention, retry and release tests use
+        # production pacing. For the extensive native semantic matrix below,
+        # accelerate only idle gaps on the independent loopback peer. Every
+        # actual TCP request, reply, save and verification is still executed.
+        semantic_pacing.enter_context(
+            patch("custom_components.deltasol.parameters.SESSION_GAP_SECONDS", 0.05)
+        )
+        semantic_pacing.enter_context(
+            patch("custom_components.deltasol.DISCOVERY_BATCH_GAP_SECONDS", 0.02)
+        )
+        print("ISOLATED_HA native semantic matrix started", flush=True)
 
         # Discover the actual installed-function selectors through TCP, not
         # direct runtime injection. Then operate native Number/Select/Switch
@@ -3331,6 +3344,11 @@ async def qualify(directory, phase):
         assert entity("Wsu1_Schaltuhr_Woche_TagMo_Daten", "text") == schedule
         assert hass.states.get(schedule).state == "08:30-10:00, 18:00-20:00"
 
+        # Restore production pacing before the uncertain packed write and
+        # active capture shutdown/restart lifecycle cases.
+        semantic_pacing.close()
+        print("ISOLATED_HA native semantic matrix PASS", flush=True)
+
         # Lose the first stage acknowledgement after it changed the day.
         # The requested third interval lives in word two, which is never sent.
         Peer.fail_bulk_subindex = 0
@@ -3382,6 +3400,7 @@ async def qualify(directory, phase):
         assert checkpoint["capture"]["started_at"] == marker["started_at"]
         assert 1 <= checkpoint["capture"]["offset"] < expected_config_count
     finally:
+        semantic_pacing.close()
         try:
             if not stopped:
                 await hass.async_stop(force=True)
