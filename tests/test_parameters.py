@@ -1628,7 +1628,8 @@ class ParameterTests(unittest.TestCase):
     def test_native_spread_loading_uses_live_eligibility_and_actual_store_pair(self):
         name = "Solar_Spreizladung_dTDifferenz"
         setting = next(
-            s for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
+            s
+            for s in parameters_configuration.BX_PLUS_SOLAR_LOADING_LOGIC_SETTINGS
             if s.name == name and s.unit == "K"
         )
         values = {

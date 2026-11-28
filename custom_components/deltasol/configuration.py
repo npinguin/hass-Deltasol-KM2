@@ -2886,8 +2886,13 @@ def _solar_loading_logic_settings():
                 Dependency(
                     "Solar_SystemId",
                     3416,
-                    tuple(sorted(system for system in BX_PLUS_SOLAR_SYSTEMS
-                                 if (system // 100) % 100 >= second)),
+                    tuple(
+                        sorted(
+                            system
+                            for system in BX_PLUS_SOLAR_SYSTEMS
+                            if (system // 100) % 100 >= second
+                        )
+                    ),
                 ),
                 *(
                     dep
@@ -2897,7 +2902,9 @@ def _solar_loading_logic_settings():
                             f"Solar_Sp{slot}_Sensor1_Nr", 3576 + 36 * (slot - 1), 1, 65
                         ),
                         Dependency(
-                            f"Solar_Sp{slot}_Aktiviert_Modus", 3604 + 36 * (slot - 1), (1, 2)
+                            f"Solar_Sp{slot}_Aktiviert_Modus",
+                            3604 + 36 * (slot - 1),
+                            (1, 2),
                         ),
                     )
                 ),

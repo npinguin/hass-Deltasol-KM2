@@ -1631,7 +1631,9 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertTrue(
                     any(
                         "Solar_ParallelbeladungMoeglich" in ref.get("mask", "")
-                        for ref in definitions["Solar_OSpreizladung"].metadata["menu_refs"]
+                        for ref in definitions["Solar_OSpreizladung"].metadata[
+                            "menu_refs"
+                        ]
                     )
                 )
             else:

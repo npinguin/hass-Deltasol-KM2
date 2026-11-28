@@ -674,8 +674,12 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     elif index == 3425:
                         assert Peer.extra_values[3439] == Peer.extra_values[3424] == 1
                         assert Peer.extra_values[3416] == 20201
-                        assert Peer.extra_values[3452] > 0 and Peer.extra_values[3536] > 0
-                        assert Peer.extra_values[3576] > 0 and Peer.extra_values[3612] > 0
+                        assert (
+                            Peer.extra_values[3452] > 0 and Peer.extra_values[3536] > 0
+                        )
+                        assert (
+                            Peer.extra_values[3576] > 0 and Peer.extra_values[3612] > 0
+                        )
                         assert Peer.extra_values[3604] == Peer.extra_values[3640] == 1
                     elif index == 7912:
                         assert Peer.extra_values[7814] == 5
