@@ -649,13 +649,18 @@ class DeltasolRelayCoordinator(DataUpdateCoordinator):
 
     async def _async_action_failed(self, error):
         """Refresh capabilities, not the failed command; preserve real errors."""
-        if str(error).startswith("VBus write outcome uncertain") or isinstance(error, VBusTransientError) or str(error) in (
-            "VBus write outcome uncertain",
-            "VBus write acknowledgement differs",
-            "VBus write readback differs",
-            "Configuration reconnect readback differs",
-            "Configuration parameter is no longer supported",
-            "Configuration conditional constraint rejected",
+        if (
+            str(error).startswith("VBus write outcome uncertain")
+            or isinstance(error, VBusTransientError)
+            or str(error)
+            in (
+                "VBus write outcome uncertain",
+                "VBus write acknowledgement differs",
+                "VBus write readback differs",
+                "Configuration reconnect readback differs",
+                "Configuration parameter is no longer supported",
+                "Configuration conditional constraint rejected",
+            )
         ):
             await self.async_refresh()
 
