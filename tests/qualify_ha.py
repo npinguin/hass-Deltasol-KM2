@@ -422,8 +422,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert Peer.extra_values[7061] == 11
                     assert Peer.extra_values[7068] == 1
                     assert all(
-                        Peer.extra_values[i] > 0
-                        for i in (7078, 7082, 7086, 7094, 7102)
+                        Peer.extra_values[i] > 0 for i in (7078, 7082, 7086, 7094, 7102)
                     )
                 if index in (1974, 1975):
                     assert Peer.extra_values[1977] == 2
