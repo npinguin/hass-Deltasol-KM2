@@ -1507,11 +1507,19 @@ def _additional_operating_settings():
     for suffix, index, limits, unit, label, extra in (
         ("SollDrehzahl", 10646, ("20", "100", "1", "1"), "%", "speed", ()),
         (
-            "Nachlaufzeit", 10648, ("0", "60", "1", "1"), "s", "overrun",
+            "Nachlaufzeit",
+            10648,
+            ("0", "60", "1", "1"),
+            "s",
+            "overrun",
             (Dependency(f"{pump}_ONachlauf", 10647, (1,)),),
         ),
         (
-            "RuhemodusDauer", 10651, ("0.5", "24", "0.5", "0.1"), "h", "idle duration",
+            "RuhemodusDauer",
+            10651,
+            ("0.5", "24", "0.5", "0.1"),
+            "h",
+            "idle duration",
             (Dependency(f"{pump}_ORuhemodus", 10650, (1,)),),
         ),
     ):
@@ -1767,12 +1775,16 @@ def _heating_operating_settings():
                 supplementary,
                 (
                     (
-                        0, "_K", "K",
+                        0,
+                        "_K",
+                        "K",
                         ("-15", "44.5", "0.5", "0.1"),
                         ("-14.5", "45", "0.5", "0.1"),
                     ),
                     (
-                        1, "_R", "°R",
+                        1,
+                        "_R",
+                        "°R",
                         ("-30", "89", "1", "0.1"),
                         ("-29", "90", "1", "0.1"),
                     ),
@@ -1814,7 +1826,9 @@ def _heating_operating_settings():
                     active,
                     Dependency(f"{root}_System", 13697 + offset, (1, 2)),
                     Dependency(f"{root}_Kuehlung_OTimer", 14098 + offset, (1,)),
-                    RangeDependency(f"{root}_Kuehlung_Relais1_Nr", 14059 + offset, 1, 100),
+                    RangeDependency(
+                        f"{root}_Kuehlung_Relais1_Nr", 14059 + offset, 1, 100
+                    ),
                 ),
             )
         minimum = f"{root}_TVorlaufMin"
