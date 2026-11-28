@@ -2044,9 +2044,7 @@ async def qualify(directory, phase):
         soak_definitions = tuple(
             Definition(f"Soak{n}", 30000 + n, "volatile", None, {}) for n in range(3200)
         )
-        soak_lookups = {
-            semantic_hash(f"Soak{n}"): 30000 + n for n in range(0, 3200, 2)
-        }
+        soak_lookups = {semantic_hash(f"Soak{n}"): 30000 + n for n in range(0, 3200, 2)}
         soak_values = {30000 + n: n for n in range(0, 3200, 2)}
         # A discovery stress fixture must not overwrite native BX Plus
         # settings, function selectors or timer references. Restore the peer
