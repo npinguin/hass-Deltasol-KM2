@@ -1696,7 +1696,9 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(target.metadata["maximum"], "1200")
                 self.assertEqual(target.metadata["quant_step"], "1")
             else:
-                self.assertEqual(catalog.ordinal_options(target), {0: "Linear", 1: "Zyklisch"})
+                self.assertEqual(
+                    catalog.ordinal_options(target), {0: "Linear", 1: "Zyklisch"}
+                )
         # Every generated mixer slot must match the exact firmware layout,
         # documented setting and ordinal semantics. The live Type and
         # ActivityMode checks still gate every native action.

@@ -729,7 +729,9 @@ class VBusHandler(socketserver.StreamRequestHandler):
                             assert Peer.extra_values[13800] > 0
                         else:
                             assert Peer.extra_values[13796] > 0
-                            assert Peer.extra_values[14075] == (0 if index == 14076 else 1)
+                            assert Peer.extra_values[14075] == (
+                                0 if index == 14076 else 1
+                            )
                             if index != 14076:
                                 assert Peer.extra_values[13800] > 0
                     elif index in (13979, 13982, 13985, 13988, 13991):
@@ -1391,7 +1393,7 @@ async def qualify(directory, phase):
                     ("SDKarte_Logging_Intervall", "number", 120),
                     ("SDKarte_Logging_Methode", "select", "Cyclic (overwrite oldest)"),
                     ("Heizung_Heizkreis1_Kuehlung_Aussen_TAussen", "number", 86),
-                    ("Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf", "number", 68),
+                    ("Heizung_Heizkreis1_Kuehlung_Kuehlsystem_TVorlauf", "number", 50),
                     ("Heizung_Heizkreis1_Mischer_dTEin", "number", 4),
                     ("Heizung_Heizkreis1_Mischer_dTAus", "number", 2.4),
                     ("Heizung_RelaisAnforderung1_Mindestlaufzeit_tMin", "number", 15),
@@ -1465,14 +1467,16 @@ async def qualify(directory, phase):
                 await entry.runtime_data.relay_coordinator.async_refresh()
                 await hass.async_block_till_done()
                 for suffix, value in (
-                    ("TAussen1", 68),
-                    ("TVorlauf1", 68),
-                    ("TAussen2", 104),
-                    ("TVorlauf2", 50),
+                    ("TAussen1", 86),
+                    ("TVorlauf1", 50),
+                    ("TAussen2", 86),
+                    ("TVorlauf2", 68),
                 ):
                     name = "Heizung_Heizkreis1_Kuehlung_Kuehlsystem_" + suffix
                     target = registry.async_get_entity_id(
-                        "number", "deltasol", f"isolated-gateway_7112_{name}_configuration"
+                        "number",
+                        "deltasol",
+                        f"isolated-gateway_7112_{name}_configuration",
                     )
                     assert target and float(hass.states.get(target).state) == value
                 Peer.extra_values[14075] = 0
@@ -2343,19 +2347,19 @@ async def qualify(directory, phase):
         )
         cooling = "Heizung_Heizkreis1_Kuehlung_"
         await number(cooling + "Aussen_TAussen", 86)
-        await number(cooling + "Kuehlsystem_TVorlauf", 68)
-        # The last request is a no-op at the default 20 Celsius.
-        assert Peer.saves == before_cooling + 5
+        await number(cooling + "Kuehlsystem_TVorlauf", 50)
+        assert Peer.saves == before_cooling + 6
         Peer.extra_values[14075] = 1
         await entry.runtime_data.relay_coordinator.async_refresh()
         await hass.async_block_till_done()
         for suffix, value in (
-            ("TAussen1", 68),
-            ("TVorlauf1", 68),
-            ("TAussen2", 104),
-            ("TVorlauf2", 50),
+            ("TAussen1", 86),
+            ("TVorlauf1", 50),
+            ("TAussen2", 86),
+            ("TVorlauf2", 68),
         ):
             await number(cooling + "Kuehlsystem_" + suffix, value)
+        assert Peer.saves == before_cooling + 10
         constant = entity(cooling + "Kuehlsystem_TVorlauf", "number")
         assert hass.states.get(constant).state == "unavailable"
         Peer.extra_values[14075] = 0
@@ -2365,7 +2369,7 @@ async def qualify(directory, phase):
         Peer.extra_values[18231] = 0
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert hass.states.get(logging_method).state == "Cyclic (overwrite oldest)"
-        assert float(hass.states.get(constant).state) == 68
+        assert float(hass.states.get(constant).state) == 50
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"

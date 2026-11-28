@@ -2236,7 +2236,11 @@ def _heating_operating_settings():
                 "linear cooling outdoor point 1",
                 ("15", "45"),
                 ("60", "114"),
-                (flow, outdoor, Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,))),
+                (
+                    flow,
+                    outdoor,
+                    Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,)),
+                ),
             ),
             (
                 "Kuehlsystem_TVorlauf1",
@@ -2244,7 +2248,11 @@ def _heating_operating_settings():
                 "linear cooling flow point 1",
                 ("5", "25"),
                 ("40", "76"),
-                (flow, outdoor, Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,))),
+                (
+                    flow,
+                    outdoor,
+                    Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,)),
+                ),
             ),
             (
                 "Kuehlsystem_TAussen2",
@@ -2252,7 +2260,11 @@ def _heating_operating_settings():
                 "linear cooling outdoor point 2",
                 ("15", "45"),
                 ("60", "114"),
-                (flow, outdoor, Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,))),
+                (
+                    flow,
+                    outdoor,
+                    Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,)),
+                ),
             ),
             (
                 "Kuehlsystem_TVorlauf2",
@@ -2260,7 +2272,11 @@ def _heating_operating_settings():
                 "linear cooling flow point 2",
                 ("5", "25"),
                 ("40", "76"),
-                (flow, outdoor, Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,))),
+                (
+                    flow,
+                    outdoor,
+                    Dependency(f"{cooling}_Kuehlsystem", 14075 + offset, (1,)),
+                ),
             ),
         ):
             name = f"{cooling}_{suffix}"
@@ -2283,7 +2299,9 @@ def _heating_operating_settings():
                         *extra,
                         Dependency("TemperatureHysteresisSelector", 60, (selector,)),
                     ),
-                    compound_mirrors=((name, index, name + alias, index + selector + 1),),
+                    compound_mirrors=(
+                        (name, index, name + alias, index + selector + 1),
+                    ),
                 )
         for suffix, index, label in (
             ("tEin", 14099, "start"),

@@ -1159,8 +1159,7 @@ class ParameterTests(unittest.TestCase):
 
         def find(suffix):
             return next(
-                s for s in settings
-                if s.name == prefix + suffix and s.unit == "°C"
+                s for s in settings if s.name == prefix + suffix and s.unit == "°C"
             )
 
         outside = find("_Aussen_TAussen")
@@ -1198,7 +1197,8 @@ class ParameterTests(unittest.TestCase):
 
         root = "Anlage_Wf1"
         target = next(
-            s for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
+            s
+            for s in parameters_configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS
             if s.name == root + "_Mischer_TZiel" and s.unit == "°C"
         )
         values = {
@@ -1229,7 +1229,9 @@ class ParameterTests(unittest.TestCase):
         }
         self.assertTrue(interval.accepts(values, interval.encode(1200)))
         self.assertFalse(interval.accepts(values, 1201))
-        self.assertTrue(method.accepts(values, method.encode("Cyclic (overwrite oldest)")))
+        self.assertTrue(
+            method.accepts(values, method.encode("Cyclic (overwrite oldest)"))
+        )
         for status in ("KarteVoll", "KarteSchreibgeschuetzt", "Schreibfehler"):
             name = "SDKarte_Status_" + status
             values[name] = 1
