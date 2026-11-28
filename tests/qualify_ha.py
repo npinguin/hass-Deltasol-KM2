@@ -553,7 +553,20 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     step = (
                         5
                         if index
-                        in (3579, 3582, 3585, 7261, 7264, 3908, 3911, 4347, 4112, 4115, 13747, 13750)
+                        in (
+                            3579,
+                            3582,
+                            3585,
+                            7261,
+                            7264,
+                            3908,
+                            3911,
+                            4347,
+                            4112,
+                            4115,
+                            13747,
+                            13750,
+                        )
                         else 10
                     )
                     assert stored_value % step == 0
