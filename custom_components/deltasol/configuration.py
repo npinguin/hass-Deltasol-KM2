@@ -1040,13 +1040,17 @@ def native_menu_review_reason(name):
         return "unsupported_native_topology_slot"
     # Exact BX Plus native lifecycle evidence (research sections 4.38/4.40).
     # These are unresolved operational contracts, not a scope exclusion.
+    # Exact setup helpers clear associated persistent sensor/actor references
+    # on disable (research 4.43). These are native hardware allocation options,
+    # read-only in DS-PAR-03, not unresolved ordinary operating controls.
     if family in (
         "Anlage_WfX_Feststoffkessel_OMischer",
         "Anlage_WfX_Funktionsblock_OVolumenstrom",
-        "Heizung_HeizkreisX_RaumthermostatX_Option",
         "Heizung_WfX_BwVorerwaermung_OVentil",
         "Heizung_WfX_ThBwErwaermung_OLadepumpe",
     ):
+        return "native_registration_clears_assignment"
+    if family == "Heizung_HeizkreisX_RaumthermostatX_Option":
         return "native_registration_transition_unverified"
     if family in (
         "Heizung_RelaisAnforderungX_Aktiviert_Modus",

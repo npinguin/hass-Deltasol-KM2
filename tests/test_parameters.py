@@ -2519,11 +2519,11 @@ class ParameterTests(unittest.TestCase):
             ),
             (
                 "Anlage_Wf16_Feststoffkessel_OMischer",
-                "native_registration_transition_unverified",
+                "native_registration_clears_assignment",
             ),
             (
                 "Anlage_Wf1_Funktionsblock_OVolumenstrom",
-                "native_registration_transition_unverified",
+                "native_registration_clears_assignment",
             ),
             (
                 "Heizung_Heizkreis7_Raumthermostat5_Option",
@@ -2531,11 +2531,11 @@ class ParameterTests(unittest.TestCase):
             ),
             (
                 "Heizung_Wf16_BwVorerwaermung_OVentil",
-                "native_registration_transition_unverified",
+                "native_registration_clears_assignment",
             ),
             (
                 "Heizung_Wf1_ThBwErwaermung_OLadepumpe",
-                "native_registration_transition_unverified",
+                "native_registration_clears_assignment",
             ),
             (
                 "Heizung_RelaisAnforderung2_Aktiviert_Modus",
@@ -2553,6 +2553,23 @@ class ParameterTests(unittest.TestCase):
             ("Solar_Spreizladung_dTDifferenz", "native_operating_contract_unverified"),
         ):
             self.assertEqual(reason(name), expected)
+
+    def test_all_native_allocation_options_preserve_installed_assignments(self):
+        c = parameters_configuration
+        names = {setting.name for setting in c.BX_PLUS_SETTINGS}
+        for prefix, suffix in (
+            ("Anlage_Wf", "Feststoffkessel_OMischer"),
+            ("Anlage_Wf", "Funktionsblock_OVolumenstrom"),
+            ("Heizung_Wf", "ThBwErwaermung_OLadepumpe"),
+            ("Heizung_Wf", "BwVorerwaermung_OVentil"),
+        ):
+            for slot in range(1, 17):
+                name = f"{prefix}{slot}_{suffix}"
+                self.assertEqual(
+                    c.native_menu_review_reason(name),
+                    "native_registration_clears_assignment",
+                )
+                self.assertNotIn(name, names)
 
     def test_native_mixer_requires_assignments_and_full_hysteresis_margin(self):
         settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
