@@ -1733,9 +1733,7 @@ class DiscoveryTests(unittest.TestCase):
                 if displacement < 128:
                     pattern = bytes((opcode, 0x40, displacement))
                 else:
-                    pattern = bytes((opcode, 0x80)) + struct.pack(
-                        "<I", displacement
-                    )
+                    pattern = bytes((opcode, 0x80)) + struct.pack("<I", displacement)
                 # Ignore only the destination register in ModR/M.
                 self.assertTrue(
                     any(
@@ -1748,8 +1746,20 @@ class DiscoveryTests(unittest.TestCase):
                 )
 
         for name, companion, call, address_at, flag in (
-            ("Solar_OVorlaufSensor", "Solar_VorlaufSensor_Nr", 0x2C021, 0x2C013, 0xFFFB),
-            ("Solar_ORuecklaufSensor", "Solar_RuecklaufSensor_Nr", 0x2C05E, 0x2C050, 0xFFFA),
+            (
+                "Solar_OVorlaufSensor",
+                "Solar_VorlaufSensor_Nr",
+                0x2C021,
+                0x2C013,
+                0xFFFB,
+            ),
+            (
+                "Solar_ORuecklaufSensor",
+                "Solar_RuecklaufSensor_Nr",
+                0x2C05E,
+                0x2C050,
+                0xFFFA,
+            ),
         ):
             self.assertEqual(descriptor(name)[1], flag)
             self.assertEqual(direct_call_target(call), 0x10082)
@@ -1795,10 +1805,20 @@ class DiscoveryTests(unittest.TestCase):
         # Native scheme setup sets the output-type bit with the companion
         # physical output number. This is not the existing manual mode.
         for name, companion, bit_at, number_at, bit in (
-            ("Heizung_RelaisAnforderung1_ORelais1",
-             "Heizung_RelaisAnforderung1_Relais1_Nr", 0x3718D, 0x3719B, 1),
-            ("Heizung_RelaisAnforderung1_OAusgang1",
-             "Heizung_RelaisAnforderung1_Ausgang1_Nr", 0x3945D, 0x3946B, 2),
+            (
+                "Heizung_RelaisAnforderung1_ORelais1",
+                "Heizung_RelaisAnforderung1_Relais1_Nr",
+                0x3718D,
+                0x3719B,
+                1,
+            ),
+            (
+                "Heizung_RelaisAnforderung1_OAusgang1",
+                "Heizung_RelaisAnforderung1_Ausgang1_Nr",
+                0x3945D,
+                0x3946B,
+                2,
+            ),
         ):
             for target, address in ((name, bit_at), (companion, number_at)):
                 offset = locate(base + address, 4, ".text")
