@@ -21,6 +21,18 @@ Component uses webservice to get all the sensor data and makes it available in [
 
 ## Features
 
+### Optional RESOL Dashboard (development scope, issue #19)
+
+The qualified 1.2.17 native integration remains the only data, identity and command owner. One optional RESOL sidebar panel for all enabled installations and controller/module/function objects, not a separate dashboard per device or persona. One context selector and shared object detail navigation. Settings and Engineering are separate sections within the same shell; Engineering is optional, default off and server-side administrator-only. Native HA permissions, not persona selection, authorize reads and controls.
+
+- **DS-UX-01 — Understand and inspect:** current status, attention, safe action, actual observed capabilities, history and unknown/stale states; responsive EN/NL/FR; no raw technical IDs in routine views.
+- **DS-UX-02 — Operate:** permitted heating modes and supported setpoints through native HA entities and their existing writer, with verified outcome and rejection on unavailable, unauthorized or uncertain commands; no optimistic success.
+- **DS-UX-03 — Settings:** existing native integration configuration and opt-in options; guided operating preferences and visual weekly schedule editor with shared references, constraints, no-write preview, save and readback. No parallel configuration store; no structural commissioning, SET/JobParam or arbitrary register edits.
+- **DS-UX-04 — Engineering:** same selected object traced to native source, firmware/profile, applicability and ownership, parameter inventory, discovery, capture comparisons, redacted export and transport recovery evidence. Admin-only and explicitly enabled. No credentials or unverified write paths.
+- **DS-UX-05 — Lifecycle and parity:** one panel across multiple entries, role and per-entity permission scope, native entities/automations and discovery unchanged when disabled, no extra VBus requests from viewing, stable identity/history, actual HA/browser tests on desktop/tablet/mobile, enable/disable/reload/unload, exact 1.2.17 upgrade and rollback. No fabricated values or topology; unverified controller profiles remain observable without unsupported writes.
+
+The existing [issue #19](https://github.com/npinguin/hass-Deltasol-KM2/issues/19) records the domain model and acceptance details. Implementation and qualification are in progress; this section is not a release claim.
+
 ### Currently Available Features
 
 - :computer: This integration supports all Resol devices: KM1/KM2, DL2/DL2Plus/DL3, VBus/LAN and VBus/USB. Welcome the *DL2Plus* as the newest family member.
