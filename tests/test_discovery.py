@@ -1787,7 +1787,7 @@ class DiscoveryTests(unittest.TestCase):
                         catalog.numeric_encoding(definitions[alias]),
                         tuple(Decimal(v) for v in setting.limits),
                     )
-        self.assertEqual(len(configuration.BX_PLUS_TIMING_SETTINGS), 128)
+        self.assertEqual(len(configuration.BX_PLUS_TIMING_SETTINGS), 144)
         for setting in configuration.BX_PLUS_TIMING_SETTINGS:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)
@@ -1796,7 +1796,16 @@ class DiscoveryTests(unittest.TestCase):
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
             self.assertTrue(target.metadata["menu_refs"])
-            if setting.name.endswith("_Funktionsblock_dtMindestausschaltzeit"):
+            if setting.kind == "switch":
+                self.assertIn("Boolean", target.metadata["type_chain"])
+                self.assertTrue(
+                    any(
+                        ref.get("menu") == setting.name.removesuffix("_ONachlaufzeit")
+                        and "BooleanNop" in ref.get("mask", "")
+                        for ref in target.metadata["menu_refs"]
+                    )
+                )
+            elif setting.name.endswith("_Funktionsblock_dtMindestausschaltzeit"):
                 self.assertEqual(target.metadata["minimum"], "1")
                 self.assertEqual(target.metadata["maximum"], "1439")
                 self.assertEqual(target.metadata["quant"], "1")
