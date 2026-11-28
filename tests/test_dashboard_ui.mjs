@@ -67,3 +67,12 @@ test("settings-only native function remains visible in the object overview",()=>
   const object={id:"thermostat",capabilities:[{entity_id:"number.thermostat",depth:"settings",section:"overview",kind:"number",control:true}]};
   assert.equal(p.visibleRows(object).length,1);
 });
+
+test("engineering inventory merges live and historical evidence without claiming write access",()=>{
+  const p=model(true,true);
+  p.query="";p.filter="all";p.report={configuration_discovery:{parameters:{Old:{status:"stale"}},comparison:{changes:{Old:{before_raw:1,after_raw:2}}}},configuration_controls:{Live:{status:"supported",write_access:"profile_verified"}},operational_contracts:{Live:{label:"Heating target"},Other:{label:"Unverified"}}};
+  assert.equal(p.inventoryEntries().length,3);
+  p.filter="live";assert.equal(p.inventoryEntries()[0][0],"Live");
+  p.filter="changes";assert.equal(p.inventoryEntries()[0][0],"Old");
+  p.filter="all";p.query="heating";assert.equal(p.inventoryEntries()[0][0],"Live");
+});

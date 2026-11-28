@@ -9,6 +9,7 @@ const STATUS_COPY = {
   nl:{solid_fuel:"Vastebrandstofverwarming",function:"Controllerfunctie",store:"Zonneboiler",collector:"Zonnecollector",circuit:"Verwarmingscircuit",heating_function:"Verwarmingsfunctie",meter:"Warmtemeter",solar_function:"Zonnefunctie",telemetry_ok:"Telemetrie beschikbaar",telemetry_bad:"Telemetrie niet beschikbaar",catalogue_pending:"Firmwarecapabilities nog niet bevestigd",selectors:"Live functiedetectie",checkpoint:"Historische discovery vraagt aandacht; live capabilities worden afzonderlijk gecontroleerd.",available:"Beschikbaar",not_confirmed:"Momenteel niet bevestigd",controls:"Bediening",summary:"Installatiestatus"},
   fr:{solid_fuel:"Chauffage à combustible solide",function:"Fonction du régulateur",store:"Ballon solaire",collector:"Capteur solaire",circuit:"Circuit de chauffage",heating_function:"Fonction de chauffage",meter:"Compteur de chaleur",solar_function:"Fonction solaire",telemetry_ok:"Télémétrie disponible",telemetry_bad:"Télémétrie indisponible",catalogue_pending:"Fonctions du micrologiciel non confirmées",selectors:"Détection des fonctions en direct",checkpoint:"La découverte historique nécessite une vérification ; les fonctions actuelles sont contrôlées séparément.",available:"Disponible",not_confirmed:"Non confirmé actuellement",controls:"Commandes",summary:"État de l’installation"}
 };
+const ENGINEERING_COPY={en:{live:"Live",capture:"Historical capture",comparison:"Comparison",changes:"changes",transport:"Transport and source evidence",filter:"Filter parameters",readonly:"Not verified writable",object:"Selected object",next:"Next"},nl:{live:"Actueel",capture:"Historische snapshot",comparison:"Vergelijking",changes:"wijzigingen",transport:"Transport en bronbewijs",filter:"Parameters filteren",readonly:"Niet bevestigd schrijfbaar",object:"Geselecteerd object",next:"Volgende"},fr:{live:"En direct",capture:"Capture historique",comparison:"Comparaison",changes:"modifications",transport:"Transport et preuves source",filter:"Filtrer les paramètres",readonly:"Écriture non confirmée",object:"Objet sélectionné",next:"Suivant"}};
 const SECTIONS = ["overview","solar","heating","hot_water","energy","settings","engineering"];
 const escape = value => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const style = " :host{display:block;color:var(--primary-text-color);background:var(--primary-background-color);min-height:100%;font:inherit}*{box-sizing:border-box}main{max-width:1440px;margin:auto;padding:clamp(12px,3vw,32px)}header{display:flex;gap:12px;align-items:center;flex-wrap:wrap}h1{font-size:1.8rem;margin:0}h2{font-size:1.1rem;margin:0 0 12px}h3{font-size:1rem;margin:0 0 6px}p{line-height:1.45}nav{display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--divider-color);padding:12px 0;margin:10px 0 18px}button,input,select{font:inherit;color:inherit;background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;padding:9px;max-width:100%}button{cursor:pointer;min-height:40px}button:disabled{opacity:.5;cursor:not-allowed}button.active,button.primary{background:var(--primary-color);color:var(--text-primary-color,#fff);border-color:transparent}button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,320px),1fr));gap:14px}.card{padding:16px;border:1px solid var(--divider-color);border-radius:14px;background:var(--card-background-color);min-width:0}.line{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--divider-color)}.line:last-child{border:0}.value{font-weight:600;overflow-wrap:anywhere}.muted,small{color:var(--secondary-text-color)}.warning{color:var(--warning-color,#aa6b00)}.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.grow{flex:1}.toolbar{margin:12px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}.technical{overflow:auto;max-height:65vh}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:.85rem}.notice{padding:10px 0;min-height:1.8em}.interval{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0}.interval input{max-width:135px}table{width:100%;border-collapse:collapse;text-align:left;font-size:.85rem}th,td{padding:8px;border-bottom:1px solid var(--divider-color);overflow-wrap:anywhere}a{color:var(--primary-color)}@media(max-width:520px){main{padding:12px}nav button{font-size:.9rem;padding:8px}.card{padding:12px}.line{align-items:flex-start}.actions{width:100%}header select{width:100%}}";
@@ -26,12 +27,14 @@ class ResolDashboard extends HTMLElement {
     this.pending = false;
     this.report = null;
     this.query = "";
+    this.filter = "all";
+    this.page = 0;
     this.editor = null;
     this.history = null;
     this.shadowRoot.addEventListener("click", event => this.click(event));
     this.shadowRoot.addEventListener("change", event => this.change(event));
     this.shadowRoot.addEventListener("input", event => {
-      if(event.target.id==="technical-search"){this.query=event.target.value;this.renderInventory();}
+      if(event.target.id==="technical-search"){this.query=event.target.value;this.page=0;this.renderInventory();}
     });
   }
   connectedCallback(){this.render();if(this._hass&&!this.loaded)this.load();this.subscribeRegistry();}
@@ -60,7 +63,7 @@ class ResolDashboard extends HTMLElement {
       this.render();
     }
   }
-  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||key;}
+  t(key){const lang=(this._hass?.language||"en").slice(0,2);return (COPY[lang]||COPY.en)[key]||(STATUS_COPY[lang]||STATUS_COPY.en)[key]||(ENGINEERING_COPY[lang]||ENGINEERING_COPY.en)[key]||COPY.en[key]||STATUS_COPY.en[key]||ENGINEERING_COPY.en[key]||key;}
   current(){return this.installations.find(item=>item.id===this.context);}
   rows(){return this.current()?.objects.flatMap(asset=>asset.capabilities)||[];}
   row(id){return this.rows().find(row=>row.entity_id===id);}
@@ -164,15 +167,36 @@ class ResolDashboard extends HTMLElement {
   }
   engineeringView(){
     if(!this.report)return '<p>'+escape(this.t("loading"))+'</p>';
-    const summary={...this.report};
-    if(summary.configuration_discovery){summary.configuration_discovery={...summary.configuration_discovery};delete summary.configuration_discovery.parameters;}
-    return '<section class="card"><h2>'+escape(this.t("diagnostics"))+'</h2><button data-export>'+escape(this.t("export"))+'</button><details><summary>'+escape(this.t("details"))+'</summary><pre>'+escape(JSON.stringify(summary,null,2))+'</pre></details><h2>'+escape(this.t("inventory"))+'</h2><input id="technical-search" aria-label="'+escape(this.t("search"))+'" placeholder="'+escape(this.t("search"))+'" value="'+escape(this.query)+'"><div class="technical" id="inventory"></div></section>';
+    const report=this.report, discovery=report.configuration_discovery||{},access=report.parameter_access||{};
+    const summary={gateway:report.gateway,telemetry:report.telemetry,parameter_access:access,configuration_discovery:{status:discovery.status,checkpoint_error:discovery.checkpoint_error,coverage:discovery.coverage,counts:discovery.counts,started_at:discovery.started_at,finished_at:discovery.finished_at,catalogue_source:discovery.catalogue_source},operational_contracts_source:report.operational_contracts_source};
+    const comparison=discovery.comparison||{};
+    const changes=Object.keys(comparison.changes||{}).length;
+    const object=this.current()?.objects.find(asset=>asset.id===this.object);
+    return '<section class="card"><div class="toolbar"><h2 class="grow">'+escape(this.t("diagnostics"))+'</h2><button data-report-refresh>'+escape(this.t("refresh"))+'</button><button data-export>'+escape(this.t("export"))+'</button></div><div class="grid"><div><h3>'+escape(this.t("live"))+'</h3><p>'+escape(access.status||this.t("unknown"))+'</p><p>'+escape(access.reference_profile||"")+' · '+escape(access.discovery_changeset||"")+'</p></div><div><h3>'+escape(this.t("capture"))+'</h3><p>'+escape(discovery.status||this.t("unknown"))+'</p><p>'+escape(discovery.finished_at||discovery.started_at||"")+'</p></div><div><h3>'+escape(this.t("comparison"))+'</h3><p>'+escape(comparison.status||this.t("not_confirmed"))+' · '+changes+' '+escape(this.t("changes"))+'</p></div></div><details><summary>'+escape(this.t("transport"))+'</summary><pre>'+escape(JSON.stringify(summary,null,2))+'</pre></details><h2>'+escape(this.t("inventory"))+'</h2>'+(object?'<p>'+escape(this.objectTitle(object))+'</p>':"")+'<div class="toolbar"><input id="technical-search" aria-label="'+escape(this.t("search"))+'" placeholder="'+escape(this.t("search"))+'" value="'+escape(this.query)+'"><select id="technical-filter" aria-label="'+escape(this.t("filter"))+'">'+["all","live","readonly","changes","object"].map(key=>'<option value="'+key+'" '+(this.filter===key?"selected":"")+'>'+escape(this.t(key))+'</option>').join("")+'</select></div><div class="technical" id="inventory"></div></section>';
+  }
+  inventoryEntries(){
+    const discovery=this.report?.configuration_discovery||{}, live=this.report?.configuration_controls||{}, contracts=this.report?.operational_contracts||{}, history=discovery.parameters||{}, changes=discovery.comparison?.changes||{};
+    const selected=new Set((this.current()?.objects.find(asset=>asset.id===this.object)?.capabilities||[]).map(row=>row.parameter).filter(Boolean));
+    const rows=[];
+    for(const key of new Set([...Object.keys(history),...Object.keys(contracts),...Object.keys(live)])){
+      const row={label:contracts[key]?.label||key,live:live[key],capture:history[key],contract:contracts[key],change:changes[key]};
+      if(this.filter==="live"&&row.live?.status!=="supported")continue;
+      if(this.filter==="readonly"&&row.live?.write_access==="profile_verified")continue;
+      if(this.filter==="changes"&&!row.change)continue;
+      if(this.filter==="object"&&!selected.has(key))continue;
+      if(!(key+" "+row.label+" "+(row.capture?.reference_index??"")).toLowerCase().includes((this.query||"").toLowerCase()))continue;
+      rows.push([key,row]);
+    }
+    return rows;
   }
   renderInventory(){
     const host=this.shadowRoot.querySelector("#inventory");
     if(!host)return;
-    const entries=Object.entries(this.report?.configuration_discovery?.parameters||{}).filter(([key,row])=>(key+" "+JSON.stringify(row)).toLowerCase().includes(this.query.toLowerCase()));
-    host.innerHTML=entries.length?'<table><thead><tr><th>Parameter</th><th>'+escape(this.t("status"))+'</th><th>'+escape(this.t("details"))+'</th></tr></thead><tbody>'+entries.map(([key,row])=>'<tr><td>'+escape(key)+'</td><td>'+escape(row.write_access||row.status||"")+'</td><td><details><summary>'+escape(this.t("details"))+'</summary><pre>'+escape(JSON.stringify(row,null,2))+'</pre></details></td></tr>').join("")+'</tbody></table>':'<p>'+escape(this.t("none"))+'</p>';
+    const entries=this.inventoryEntries(), size=50;
+    const pages=Math.max(1,Math.ceil(entries.length/size));
+    this.page=Math.min(this.page||0,pages-1);
+    const visible=entries.slice(this.page*size,(this.page+1)*size);
+    host.innerHTML=entries.length?'<div class="toolbar"><span>'+entries.length+' · '+(this.page+1)+' / '+pages+'</span><button data-page="-1" '+(!this.page?"disabled":"")+'>'+escape(this.t("back"))+'</button><button data-page="1" '+(this.page+1>=pages?"disabled":"")+'>'+escape(this.t("next"))+'</button></div><table><thead><tr><th>'+escape(this.t("inventory"))+'</th><th>'+escape(this.t("status"))+'</th><th>'+escape(this.t("details"))+'</th></tr></thead><tbody>'+visible.map(([key,row])=>'<tr><td>'+escape(row.label)+'<br><small>'+escape(key)+'</small></td><td>'+escape(row.live?.status||row.capture?.status||this.t("not_confirmed"))+'<br><small>'+escape(row.live?.write_access||row.capture?.write_access_reason||row.contract?.catalogue_binding||"")+'</small></td><td><details><summary>'+escape(this.t("details"))+'</summary><pre>'+escape(JSON.stringify(row,null,2))+'</pre></details></td></tr>').join("")+'</tbody></table>':'<p>'+escape(this.t("none"))+'</p>';
   }
   edit(row){
     const observed=this.state(row)?.state;
@@ -216,7 +240,8 @@ class ResolDashboard extends HTMLElement {
   change(event){
     const target=event.target;
     if(target.id==="installation"){this.context=target.value;this.object="";this.editor=null;this.history=null;this.report=null;if(!this.tabs().includes(this.tab))this.tab="overview";this.render();if(this.tab==="engineering")this.engineering();}
-    if(target.id==="object"){this.object=target.value;this.render();}
+    if(target.id==="object"){this.object=target.value;this.page=0;this.render();}
+    if(target.id==="technical-filter"){this.filter=target.value;this.page=0;this.renderInventory();}
     if(target.dataset.window!==undefined&&this.editor){this.editor.windows[Number(target.dataset.window)][Number(target.dataset.edge)]=target.value;this.editor.review=null;this.render();}
   }
   click(event){
@@ -235,6 +260,8 @@ class ResolDashboard extends HTMLElement {
     else if(d.cancel!==undefined){this.editor=null;this.render();}
     else if(d.preview!==undefined&&this.editor){this.action(this.row(this.editor.id),this.editor.windows.map(pair=>pair.join("-")).join(", "),true);}
     else if(d.save!==undefined&&this.editor?.review){this.action(this.row(this.editor.id),this.editor.review.value);}
+    else if(d.reportRefresh!==undefined){this.engineering();}
+    else if(d.page!==undefined){this.page+=Number(d.page);this.renderInventory();}
     else if(d.export!==undefined&&this.report){const url=URL.createObjectURL(new Blob([JSON.stringify(this.report,null,2)],{type:"application/json"}));const a=document.createElement("a");a.href=url;a.download="resol-diagnostics.json";a.click();setTimeout(()=>URL.revokeObjectURL(url),0);}
   }
 }

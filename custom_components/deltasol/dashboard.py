@@ -114,7 +114,12 @@ def weekly_owner_label(name):
 def capability_access(registered, setting, state, user, engineering, *, relay=False):
     """UI eligibility is additional to, never a substitute for, HA permissions."""
     domain = registered.entity_id.split(".", 1)[0]
-    if domain == "button" or relay or (setting and not setting.save):
+    if (
+        domain == "button"
+        or relay
+        or registered.entity_category == "diagnostic"
+        or (setting and not setting.save)
+    ):
         depth = "engineering"
     elif domain in ("select", "number", "switch", "text"):
         depth = "settings"
@@ -213,10 +218,7 @@ def dashboard_objects(hass, user):
             if kind and (
                 not asset["object_kind"]
                 or (confirmed and not asset["object_confirmed"])
-                or (
-                    confirmed == asset["object_confirmed"]
-                    and kind[0] == "solid_fuel"
-                )
+                or (confirmed == asset["object_confirmed"] and kind[0] == "solid_fuel")
             ):
                 asset["object_kind"], asset["object_number"] = kind
                 asset["object_confirmed"] = confirmed
@@ -224,6 +226,7 @@ def dashboard_objects(hass, user):
                 {
                     "entity_id": row.entity_id,
                     "name": row.name or row.original_name or "RESOL",
+                    "renamed": bool(row.name),
                     "kind": row.entity_id.split(".", 1)[0],
                     "section": section,
                     "depth": depth,
@@ -233,18 +236,22 @@ def dashboard_objects(hass, user):
                         else "not_confirmed"
                     ),
                     "native_label": setting.label if setting else None,
+                    **(
+                        {"parameter": setting.name, "reference_index": setting.index}
+                        if engineering and setting
+                        else {}
+                    ),
                     "control": control,
                     "schedule": bool(setting and setting.weekly_slot is not None),
                     "shared_references": (
-                        [
-                            weekly_owner_label(owner)
-                            for owner in cap.owners
-                        ]
+                        [weekly_owner_label(owner) for owner in cap.owners]
                         if cap and setting and setting.weekly_slot is not None
                         else []
                     ),
                     "reference_token": (
-                        sha256(repr((cap.owners, cap.active_owners)).encode()).hexdigest()
+                        sha256(
+                            repr((cap.owners, cap.active_owners)).encode()
+                        ).hexdigest()
                         if cap and setting and setting.weekly_slot is not None
                         else None
                     ),
@@ -254,7 +261,7 @@ def dashboard_objects(hass, user):
             installations.append(
                 {
                     "id": entry.entry_id,
-                    "name": f"RESOL {len(installations) + 1}",
+                    "name": entry.title or "RESOL",
                     "settings": bool(user.is_admin),
                     "engineering": engineering,
                     "health": {
@@ -299,6 +306,34 @@ async def ws_engineering(hass, connection, msg):
         connection.send_error(msg["id"], "not_allowed", "Engineering is not enabled")
         return
     report = await async_get_config_entry_diagnostics(hass, entry)
+    # Include the operational contracts even when no engineering capture can
+    # be restored. This is an admin-only projection of the existing catalogue.
+    relay = entry.runtime_data.relay_coordinator
+    discovery = relay.data if relay else None
+    catalog = relay._configuration_catalog() if relay else None
+    if catalog and discovery and discovery.profile:
+        profile = discovery.profile
+        bound, rejected = profile.binding_review(discovery.changeset, catalog)
+        labels = {setting.name: setting.label for setting in bound}
+        verified = set(labels)
+        for setting in profile.settings:
+            labels.setdefault(setting.name, setting.label)
+        report["operational_contracts"] = {
+            name: {
+                "label": label,
+                "catalogue_binding": "verified" if name in verified else "not_confirmed",
+                "reasons": list(rejected.get(name, ())),
+            }
+            for name, label in labels.items()
+        }
+        report["operational_contracts_source"] = {
+            "changeset": f"{discovery.changeset:08X}",
+            "digest": catalog.digest,
+        }
+    # Recheck opt-in and lifecycle after the asynchronous diagnostics call.
+    if not engineering_enabled(entry, connection.user):
+        connection.send_error(msg["id"], "not_allowed", "Engineering is not enabled")
+        return
     connection.send_result(msg["id"], report)
 
 
