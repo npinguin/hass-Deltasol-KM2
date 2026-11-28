@@ -2266,9 +2266,7 @@ def _installed_program_options():
                 ),
                 dependencies=(
                     RangeDependency("Solar_Relais1_Nr", 3452, 1, 100),
-                    SolarSelection(
-                        root + "_SpeicherMaske", 4089 + offset, stores=True
-                    ),
+                    SolarSelection(root + "_SpeicherMaske", 4089 + offset, stores=True),
                     RangeDependency(root + "_Relais1_Nr", 4102 + offset, 1, 100),
                     RangeDependency(root + "_Sensor2_Nr", 4098 + offset, 1, 65),
                     Dependency("TemperatureHysteresisSelector", 60, (selector,)),
