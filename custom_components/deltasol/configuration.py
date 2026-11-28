@@ -2361,6 +2361,9 @@ def _loading_temperature_settings():
         ):
             installed = Dependency(f"{family}_Type", type_index, (kind,))
             activity = Dependency(f"{family}_Aktiviert_Modus", activity_index, (1, 2))
+            label_family = (
+                "Arrangement function" if family.startswith("Anlage_") else "Heating function"
+            )
             for selector, suffix, unit, low, high in (
                 (0, "_C", "°C", ("0", "94", "1", "0.1"), ("1", "95", "1", "0.1")),
                 (1, "_F", "°F", ("32", "202", "2", "0.1"), ("34", "204", "2", "0.1")),
@@ -2384,7 +2387,7 @@ def _loading_temperature_settings():
                     yield Setting(
                         name,
                         index,
-                        f"{family} loading {'on' if operation == 'lt' else 'off'} temperature",
+                        f"{label_family} {slot} loading {'on' if operation == 'lt' else 'off'} temperature",
                         "number",
                         True,
                         limits=limits,
@@ -4813,6 +4816,7 @@ def _remaining_operating_settings():
 
     for holiday in (False, True):
         root = "Solar_Urlaubsfunktion" if holiday else "Solar_Wf1_Bereitschaft"
+        label_root = "Solar holiday" if holiday else "Solar standby"
         mode, mi = (root + "_Kuehlung", 6329) if holiday else (root + "_Variante", 4363)
         flag, fi = (
             (root + "_Speicherkuehlung_Aktiviert", 6338)
@@ -5018,7 +5022,7 @@ def _remaining_operating_settings():
         yield Setting(
             flag,
             fi,
-            f"{root} store cooling",
+            f"{label_root} store cooling",
             "switch",
             True,
             installed_by=collector,
@@ -5030,7 +5034,7 @@ def _remaining_operating_settings():
             oi,
             off,
             ai,
-            f"{root} store cooling differential",
+            f"{label_root} store cooling differential",
             collector,
             (*deps, Dependency(flag, fi, (1,))),
             (
@@ -5052,7 +5056,7 @@ def _remaining_operating_settings():
             yield Setting(
                 tmax,
                 ti,
-                f"{root} collector cooling limit",
+                f"{label_root} collector cooling limit",
                 "number",
                 True,
                 limits=limits,
@@ -5096,7 +5100,7 @@ def _remaining_operating_settings():
             yield Setting(
                 f"{root}_Vorrang{slot}",
                 priority + slot - 1,
-                f"{root} cooling priority {slot}",
+                f"{label_root} cooling priority {slot}",
                 "number",
                 True,
                 limits=("0", "5", "1", "1"),

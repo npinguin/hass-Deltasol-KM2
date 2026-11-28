@@ -240,7 +240,13 @@ def capability_access(registered, setting, state, user, engineering, *, relay=Fa
             setting.name.endswith("_Betriebsart")
             or (
                 setting.kind == "number"
-                and setting.name.endswith(("_TSoll", "_Tsoll", "_TVorlaufVorgabe"))
+                and (
+                    setting.name.endswith(("_TSoll", "_Tsoll", "_TVorlaufVorgabe"))
+                    or re.fullmatch(
+                        r"Heizung_Heizkreis\d+_Raumthermostat\d+_TRaum",
+                        setting.name,
+                    )
+                )
             )
         ):
             depth = "controls"

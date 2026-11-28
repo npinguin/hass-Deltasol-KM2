@@ -1,6 +1,7 @@
 """Source-level dashboard authorization and native action contract regression."""
 
 import ast
+import re
 import unittest
 from math import isclose
 from pathlib import Path
@@ -43,6 +44,7 @@ class DashboardTests(unittest.TestCase):
             "POLICY_CONTROL": "control",
             "HomeAssistantError": ValueError,
             "isclose": isclose,
+            "re": re,
         }
         tree.body = [
             node
@@ -303,7 +305,7 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(connection.send_event.call_count, 1)
         self.assertEqual(len(callbacks), 6)
         self.assertEqual(len(runtime.capture_listeners), 1)
-        for notify in list(callbacks):
+        for notify in callbacks:
             notify()
         self.assertEqual(len(queued), 1)
         queued.pop()()
@@ -326,3 +328,22 @@ class DashboardTests(unittest.TestCase):
         connection.subscriptions[1]()
         self.assertFalse(callbacks)
         self.assertFalse(queued)
+
+    def test_room_setpoint_is_a_daily_control_but_hysteresis_is_not(self):
+        access = self.ns["capability_access"]
+        user = SimpleNamespace(
+            is_admin=False,
+            permissions=SimpleNamespace(check_entity=lambda *_: True),
+        )
+        registered = SimpleNamespace(
+            entity_id="number.room", entity_category=None
+        )
+        state = SimpleNamespace(state="21")
+        setting = SimpleNamespace(
+            name="Heizung_Heizkreis2_Raumthermostat3_TRaum",
+            save=True,
+            kind="number",
+        )
+        self.assertEqual(access(registered, setting, state, user, False), ("controls", True))
+        setting.name = "Heizung_Heizkreis2_Raumthermostat3_dTRaum"
+        self.assertEqual(access(registered, setting, state, user, False), ("settings", False))

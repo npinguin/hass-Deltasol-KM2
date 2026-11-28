@@ -225,3 +225,14 @@ test("newer native subscription projection wins over an older list response",asy
   resolveList(older);await loading;
   assert.equal(p.current().engineering,false);
 });
+
+
+test("room controls and native schedule owner labels use the selected locale",()=>{
+  const p=model(true,true);
+  assert.equal(p.capabilityLabel({native_label:"Heating circuit 2 thermostat 3 room setpoint"}),"Verwarmingscircuit 2 · Kamerthermostaat 3 · Gewenste kamertemperatuur");
+  assert.equal(p.weeklyOwnerLabel("Heating circuit 2 / Room thermostat 3"),"Verwarmingscircuit 2 / Kamerthermostaat 3");
+  assert.equal(p.capabilityLabel({native_label:"Solar standby cooling priority 2"}),"Zonnefunctie stand-by · Koelvoorrang 2");
+  p._hass.language="fr";
+  assert.equal(p.capabilityLabel({native_label:"Heating function 1 loading on temperature"}),"Fonction de chauffage 1 · Température d’enclenchement de charge");
+  assert.equal(p.weeklyOwnerLabel("Heating circuit 2 / Room thermostat 3"),"Circuit de chauffage 2 / Thermostat d’ambiance 3");
+});
