@@ -257,6 +257,7 @@ class ActorReferences:
     name: str
     index: int
     references: tuple[tuple[str, int], ...]
+    physical: tuple[str, str, int] | None = None
 
     @property
     def expected(self):
@@ -264,6 +265,7 @@ class ActorReferences:
             self.name: self.index,
             self.name.removesuffix("_Nr") + "_Funktion": self.index + 1,
             **dict(self.references),
+            **({self.physical[1]: self.physical[2]} if self.physical else {}),
         }
 
     @staticmethod
@@ -386,7 +388,11 @@ class ActorReferences:
             ):
                 return False
             refs.append(output)
-        return bool(refs) and len(refs) == len(set(refs))
+        if self.physical:
+            kind, name, _ = self.physical
+            if (kind, values.get(name)) not in owners:
+                return False
+        return (bool(refs) or not self.references) and len(refs) == len(set(refs))
 
     def context(self, values):
         layout = {
@@ -5159,14 +5165,150 @@ def _remaining_operating_settings():
         )
 
 
+def _heating_circuit_activity():
+    """Change the activity of an existing circuit, not its registration."""
+    for circuit in range(1, 8):
+        root = f"Heizung_Heizkreis{circuit}"
+        off = 495 * (circuit - 1)
+        pump = RangeDependency(root + "_Relais1_Nr", 13764 + off, 1, 100)
+        flow = RangeDependency(root + "_Sensor1_Nr", 13796 + off, 1, 65)
+        outdoor = RangeDependency(root + "_Sensor2_Nr", 13800 + off, 1, 65)
+        mixer = AnyDependencies(
+            (
+                (
+                    Dependency(root + "_Relais2_Nr", 13772 + off, (0,)),
+                    Dependency(root + "_Relais3_Nr", 13780 + off, (0,)),
+                ),
+                (
+                    RangeDependency(root + "_Relais2_Nr", 13772 + off, 1, 100),
+                    RangeDependency(root + "_Relais3_Nr", 13780 + off, 1, 100),
+                    PeerComparison(root + "_Relais2_Nr", 13772 + off, root + "_Relais3_Nr", 13780 + off, "ne"),
+                    PeerComparison(root + "_Relais1_Nr", 13764 + off, root + "_Relais2_Nr", 13772 + off, "ne"),
+                    PeerComparison(root + "_Relais1_Nr", 13764 + off, root + "_Relais3_Nr", 13780 + off, "ne"),
+                ),
+            )
+        )
+        room = AnyDependencies(
+            tuple(
+                (
+                    Dependency(prefix + "_Option", base, (1,)),
+                    Dependency(prefix + "_Aktiviert", base + 1, (1,)),
+                    *group,
+                )
+                for n in range(1, 6)
+                for prefix, base in ((root + f"_Raumthermostat{n}", 13819 + off + 32 * (n - 1)),)
+                for group in _room_sensor_groups(prefix, base)
+            )
+        )
+        heat = AnyDependencies(
+            (
+                (Dependency(root + "_Heizsystem", 13978 + off, (1, 3)), outdoor),
+                (Dependency(root + "_Heizsystem", 13978 + off, (2,)),),
+                (Dependency(root + "_Heizsystem", 13978 + off, (4,)), room),
+                (Dependency(root + "_Heizsystem", 13978 + off, (5,)), room, outdoor),
+            )
+        )
+        cool = AnyDependencies(
+            (
+                (Dependency(root + "_Kuehlung_Modus", 14066 + off, (0,)), outdoor),
+                (Dependency(root + "_Kuehlung_Modus", 14066 + off, (1,)), RangeDependency(root + "_Kuehlung_ExtSchalter_Sensor1_Nr", 14068 + off, 1, 65)),
+                (Dependency(root + "_Kuehlung_Modus", 14066 + off, (2,)), outdoor, RangeDependency(root + "_Kuehlung_ExtSchalter_Sensor1_Nr", 14068 + off, 1, 65)),
+            )
+        )
+        yield _activity_setting(
+            root, 13689 + off, Dependency(root + "_Type", 13684 + off, (1,)),
+            (
+                pump, flow, mixer, _configured_timer(root, 13703 + off, 13817 + off),
+                AnyDependencies(
+                    (
+                        (Dependency(root + "_System", 13697 + off, (0,)), heat),
+                        (Dependency(root + "_System", 13697 + off, (1,)), cool, RangeDependency(root + "_Kuehlung_Relais1_Nr", 14059 + off, 1, 100)),
+                        (Dependency(root + "_System", 13697 + off, (2,)), heat, cool, RangeDependency(root + "_Kuehlung_Relais1_Nr", 14059 + off, 1, 100)),
+                    )
+                ),
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class AssignedOutputRole:
+    """Positive native physical output registration, not an inferred default."""
+
+    name: str
+    index: int
+
+    def matches(self, values):
+        return ActorReferences.assigned_role(values.get(self.name))
+
+
+def _manual_output_settings():
+    """Native volatile overrides; preserve the existing VBus write owner."""
+    options = (("Off", 0), ("Auto", 2), ("On", 4))
+    for slot in range(1, 3):
+        off = 221 * (slot - 1)
+        root = f"Heizung_RelaisAnforderung{slot}"
+        relay = ActorReferences(root + "_ARelais1_Nr", 10737 + off, (), ("relay", root + "_Relais1_Nr", 10735 + off))
+        analog = ActorReferences(root + "_AAusgang1_Nr", 10747 + off, (), ("analog", root + "_Ausgang1_Nr", 10745 + off))
+        yield Setting(
+            root + "_Handbetrieb", 10800 + off, f"Heating demand {slot} manual mode",
+            "select", False, options=options, native_options=(0, 1, 2, 3, 4),
+            installed_by=Dependency(root + "_Type", 10724 + off, (1,)),
+            dependencies=(
+                Dependency(root + "_Aktiviert_Modus", 10727 + off, (1,)),
+                AnyDependencies(
+                    (
+                        (Dependency(root + "_ORelais1", 10734 + off, (1,)), Dependency(root + "_OAusgang1", 10744 + off, (0,)), relay),
+                        (Dependency(root + "_ORelais1", 10734 + off, (0,)), Dependency(root + "_OAusgang1", 10744 + off, (1,)), analog),
+                        (Dependency(root + "_ORelais1", 10734 + off, (1,)), Dependency(root + "_OAusgang1", 10744 + off, (1,)), relay, analog),
+                    )
+                ),
+            ),
+        )
+        for family, base, stride, kind, actor, manual in (
+            ("Pumpe", 11166, 29, 2, 11171, 11192),
+            ("Ventil", 11224, 21, 3, 11234, 11242),
+        ):
+            off = stride * (slot - 1)
+            root = f"Heizung_Relais{family}{slot}"
+            yield Setting(
+                root + "_Handbetrieb", manual + off, f"Heating {family} {slot} manual mode",
+                "select", False, options=options, native_options=(0, 1, 2, 3, 4),
+                installed_by=Dependency(root + "_Type", base + off, (kind,)),
+                dependencies=(
+                    Dependency(root + "_Aktiviert_Modus", base + 3 + off, (1,)),
+                    ActorReferences(root + "_Relais1_Nr", actor + off, ()),
+                ),
+            )
+    for n in range(1, 5):
+        root = f"Ausgang_Regler_A{n}"
+        off = 15 * (n - 1)
+        speed = AnyDependencies(
+            ((
+                Dependency(root + "_ODrehzahl", 2606 + off, (1,)),
+                RangeDependency(root + "_MinDrehzahl", 2607 + off, 0, 100),
+                RangeDependency(root + "_MaxDrehzahl", 2608 + off, 0, 100),
+                PeerComparison(root + "_MaxDrehzahl", 2608 + off, root + "_MinDrehzahl", 2607 + off, "ge"),
+            ),)
+        )
+        yield Setting(
+            root + "_Handbetrieb", 2612 + off, f"Analog output {n} manual mode",
+            "select", False,
+            options=(("Off", 0), ("Min", 1), ("Auto", 2), ("Max", 3), ("On", 4)),
+            installed_by=AssignedOutputRole(root + "_AktorFunktion", 2602 + off),
+            requested_conditions=(RequestedCondition(1, (speed,)), RequestedCondition(3, (speed,))),
+        )
+
+
 _remaining = tuple(_remaining_operating_settings())
-BX_PLUS_REMAINING_OPERATING_SETTINGS = tuple(
-    setting for setting in _remaining if not setting.name.endswith("_Aktiviert_Modus")
+BX_PLUS_REMAINING_OPERATING_SETTINGS = (
+    *(setting for setting in _remaining if not setting.name.endswith("_Aktiviert_Modus")),
+    *_manual_output_settings(),
 )
 
 BX_PLUS_ACTIVITY_SETTINGS = (
     *_installed_function_activity(),
     *_dedicated_solar_activity(),
+    *_heating_circuit_activity(),
     *(setting for setting in _remaining if setting.name.endswith("_Aktiviert_Modus")),
 )
 

@@ -1279,6 +1279,25 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(flags, 7)
             pairs.add((first, second))
         self.assertEqual(len(pairs), 1)
+        # The six shared-heating activity editors install an actual change
+        # callback (unlike the generic registration flags below).
+        for family in ("Anforderung", "Pumpe", "Ventil"):
+            for slot in (1, 2):
+                name = f"Heizung_Relais{family}{slot}_Aktiviert_Modus"
+                _, flags, editor, _ = descriptor(name)
+                self.assertEqual(flags, 0x10007)
+                offset = locate(editor, 52, ".text")
+                wrapper = bytearray(binary[offset : offset + 52])
+                self.assertEqual(wrapper[34], 0xE8)
+                self.assertEqual(wrapper[42:45], bytes.fromhex("c7405c"))
+                callback = struct.unpack_from("<I", wrapper, 45)[0]
+                locate(callback, 1, ".text")
+                wrapper[35:39] = bytes(4)
+                wrapper[45:49] = bytes(4)
+                self.assertEqual(
+                    hashlib.sha256(wrapper).hexdigest(),
+                    "5d5f9fc28f3b333a17f0b8f675e830870e80ac6a92a2e4743dd2a968bb44d533",
+                )
         registration_pairs = set()
         registration_flags = {
             f"Anlage_Wf{slot}_{suffix}": flags
@@ -1731,8 +1750,8 @@ class DiscoveryTests(unittest.TestCase):
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
         activity = configuration.BX_PLUS_ACTIVITY_SETTINGS
-        self.assertEqual(len({setting.name for setting in activity}), 76)
-        self.assertEqual(len(activity), 211)
+        self.assertEqual(len({setting.name for setting in activity}), 83)
+        self.assertEqual(len(activity), 218)
         for setting in activity:
             target = definitions[setting.name]
             self.assertEqual(target.index, setting.index)

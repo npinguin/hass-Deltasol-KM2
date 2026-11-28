@@ -74,6 +74,50 @@ class ParameterTests(unittest.TestCase):
             for name in names
         }
 
+    def test_main_heating_activity_and_native_manual(self):
+        configuration = parameters_configuration
+        for slot in range(1, 8):
+            root = f"Heizung_Heizkreis{slot}"
+            setting = next(s for s in configuration.BX_PLUS_ACTIVITY_SETTINGS if s.name == root + "_Aktiviert_Modus")
+            values = {
+                root + "_Type": 1, setting.name: 0,
+                root + "_Relais1_Nr": 3, root + "_Relais2_Nr": 4, root + "_Relais3_Nr": 5,
+                root + "_Sensor1_Nr": 2, root + "_Sensor2_Nr": 3,
+                root + "_System": 0, root + "_Heizsystem": 1, root + "_OSchaltuhr": 0,
+            }
+            self.assertTrue(setting.accepts(values, 1))
+            self.assertFalse(setting.accepts(values, 2))
+            values[root + "_Aktiviert_SensorSchalter_Nr"] = 6
+            self.assertTrue(setting.accepts(values, 2))
+            values[root + "_Relais3_Nr"] = 4
+            self.assertFalse(setting.accepts(values, 1))
+            self.assertTrue(setting.accepts(values, 0))
+        settings = configuration.BX_PLUS_REMAINING_OPERATING_SETTINGS
+        for slot in range(1, 5):
+            root = f"Ausgang_Regler_A{slot}"
+            setting = next(s for s in settings if s.name == root + "_Handbetrieb")
+            values = {setting.name: 2, root + "_AktorFunktion": 7, root + "_ODrehzahl": 0}
+            self.assertFalse(setting.save)
+            self.assertTrue(setting.accepts(values, 0))
+            self.assertFalse(setting.accepts(values, 1))
+            values.update({root + "_ODrehzahl": 1, root + "_MinDrehzahl": 30, root + "_MaxDrehzahl": 100})
+            self.assertTrue(setting.accepts(values, 1))
+            self.assertTrue(setting.accepts(values, 3))
+            values[root + "_AktorFunktion"] = 1
+            self.assertFalse(setting.accepts(values, 4))
+        root = "Heizung_RelaisPumpe1"
+        setting = next(s for s in settings if s.name == root + "_Handbetrieb")
+        values = {
+            setting.name: 2, root + "_Type": 2, root + "_Aktiviert_Modus": 1,
+            root + "_Relais1_Nr": 1, root + "_Relais1_Funktion": 7,
+            "Aktor1_Funktion": 7, "Aktor1_RelaisNr": 1, "Aktor1_AusgangNr": 0,
+            "Relais_Regler_R1_AktorFunktion": 7,
+        }
+        self.assertTrue(setting.accepts(values, 4))
+        self.assertFalse(setting.accepts(values, 1))
+        values["Relais_Regler_R1_AktorFunktion"] = 8
+        self.assertFalse(setting.accepts(values, 4))
+
     def test_cooling_priority_bounds(self):
         RelativeConstraint = parameters_configuration.RelativeConstraint
 
