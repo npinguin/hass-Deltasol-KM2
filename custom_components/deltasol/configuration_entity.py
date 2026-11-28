@@ -122,6 +122,10 @@ class ConfigurationEntity(CoordinatorEntity):
             "storage_action": "save" if self.setting.save else "volatile",
             "changeset": f"{capability.changeset:08X}" if capability else None,
         }
+        if self.setting.timer_reference:
+            attributes["weekly_program_reference"] = (
+                capability.program_reference if capability else None
+            )
         if self.setting.weekly_slot is not None:
             attributes.update(
                 weekly_program=self.setting.weekly_slot,
