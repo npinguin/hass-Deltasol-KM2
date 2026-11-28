@@ -778,7 +778,8 @@ class ParameterTests(unittest.TestCase):
         setback = next(
             s
             for s in settings
-            if s.name == "Heizung_Heizkreis1_Raumthermostat1_dTAbsenkung" and s.unit == "K"
+            if s.name == "Heizung_Heizkreis1_Raumthermostat1_dTAbsenkung"
+            and s.unit == "K"
         )
         values.update({setback.name: 50, setback.name + "_K": 50})
         self.assertFalse(setback.accepts(values))
@@ -789,17 +790,23 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(room.accepts(values))
         values["Heizung_Heizkreis1_Raumthermostat1_Sensor1_Nr"] = 2
         cutoff = next(
-            s for s in settings
+            s
+            for s in settings
             if s.name == "Heizung_Heizkreis1_TSommerNacht" and s.unit == "°C"
         )
-        clock = next(s for s in settings if s.name == "Heizung_Heizkreis1_tSommerTagEin")
-        values.update({
-            "Heizung_Heizkreis1_OHeizgrenze": 1,
-            "Heizung_Heizkreis1_Sensor2_Nr": 3,
-            "Heizung_Heizkreis1_Heizgrenze": 1,
-            cutoff.name: 140, cutoff.name + "_C": 140,
-            clock.name: 540,
-        })
+        clock = next(
+            s for s in settings if s.name == "Heizung_Heizkreis1_tSommerTagEin"
+        )
+        values.update(
+            {
+                "Heizung_Heizkreis1_OHeizgrenze": 1,
+                "Heizung_Heizkreis1_Sensor2_Nr": 3,
+                "Heizung_Heizkreis1_Heizgrenze": 1,
+                cutoff.name: 140,
+                cutoff.name + "_C": 140,
+                clock.name: 540,
+            }
+        )
         self.assertTrue(cutoff.accepts(values, cutoff.encode(15)))
         self.assertTrue(clock.accepts(values, clock.encode(555)))
         self.assertFalse(clock.accepts(values, 556))
