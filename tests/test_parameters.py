@@ -1152,6 +1152,59 @@ class ParameterTests(unittest.TestCase):
         self.assertFalse(interval.accepts(values))
         self.assertFalse(on.accepts(values))
 
+    def test_native_linear_and_room_control_follow_installed_mode(self):
+        root = "Heizung_Heizkreis1"
+        settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
+        def find(suffix, unit=None):
+            return next(s for s in settings if s.name == root + "_Heizsystem_" + suffix and s.unit == unit)
+
+        linear = find("Gerade_TAussen1", "°C")
+        initial = find("Raum_TStart", "°C")
+        factor = find("Raumeinfluss_Faktor")
+        aggregation = find("Raumeinfluss_Abweichung")
+        values = {
+            root + "_Type": 1,
+            root + "_Aktiviert_Modus": 1,
+            root + "_System": 0,
+            root + "_Sensor1_Nr": 1,
+            root + "_Sensor2_Nr": 2,
+            root + "_Heizsystem": 3,
+            linear.name: 100,
+            linear.name + "_C": 100,
+            root + "_Heizsystem_Gerade_TAussen2": 0,
+            initial.name: 400,
+            initial.name + "_C": 400,
+            factor.name: 4,
+            aggregation.name: 2,
+            "TemperatureHysteresisSelector": 0,
+        }
+        self.assertTrue(linear.accepts(values, linear.encode(0)))
+        self.assertFalse(initial.accepts(values))
+        values[root + "_Heizsystem"] = 4
+        self.assertFalse(linear.accepts(values))
+        self.assertFalse(initial.accepts(values))
+        for n in (2, 5):
+            room = f"{root}_Raumthermostat{n}"
+            values.update({
+                room + "_Option": 1,
+                room + "_Aktiviert": 1,
+                room + "_Typ": 0,
+                room + "_Sensor1_Nr": n,
+            })
+        self.assertTrue(initial.accepts(values, initial.encode(50)))
+        self.assertTrue(aggregation.accepts(values, aggregation.encode("Maximum")))
+        self.assertEqual(aggregation.decode(1), "Minimum")
+        self.assertFalse(factor.accepts(values))
+        values[root + "_Heizsystem"] = 5
+        self.assertTrue(factor.accepts(values, factor.encode(9)))
+        self.assertFalse(factor.accepts(values, 10))
+        self.assertTrue(aggregation.accepts(values))
+        values[root + "_Raumthermostat2_Aktiviert"] = 0
+        self.assertTrue(factor.accepts(values))
+        values[root + "_Raumthermostat5_Sensor1_Nr"] = 0
+        self.assertFalse(factor.accepts(values))
+        self.assertFalse(aggregation.accepts(values))
+
     def test_native_demand_runtime_and_function_block_restart_delay(self):
         settings = parameters_configuration.BX_PLUS_HEATING_OPERATING_SETTINGS
         root = "Heizung_RelaisAnforderung1"

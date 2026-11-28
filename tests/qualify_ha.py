@@ -137,6 +137,13 @@ CONFIG_SELECTORS = {
 CONFIG_SETTINGS = {
     "Anlage_Wf1_Mischer_dtIntervall": (6625, 4, 1, 20),
     "Heizung_Heizkreis1_Heizkurve": (13698, 12, 3, 30),
+    "Heizung_Heizkreis1_Heizsystem_Gerade_TAussen1": (13979, 100, -200, 200),
+    "Heizung_Heizkreis1_Heizsystem_Gerade_TVorlauf1": (13982, 400, 200, 900),
+    "Heizung_Heizkreis1_Heizsystem_Gerade_TAussen2": (13985, -100, -200, 200),
+    "Heizung_Heizkreis1_Heizsystem_Gerade_TVorlauf2": (13988, 600, 200, 900),
+    "Heizung_Heizkreis1_Heizsystem_Raum_TStart": (13991, 400, 200, 600),
+    "Heizung_Heizkreis1_Heizsystem_Raumeinfluss_Faktor": (14174, 4, 1, 9),
+    "Heizung_Heizkreis1_Heizsystem_Raumeinfluss_Abweichung": (14175, 2, 1, 3),
     "Heizung_Heizkreis1_MischerIntervall": (13719, 4, 1, 20),
     "Heizung_Heizkreis1_Mischer_dTEin": (14168, 15, 5, 50),
     "Heizung_Heizkreis1_Mischer_dTAus": (14171, 10, 0, 45),
@@ -244,6 +251,11 @@ TEMPERATURE_NAMES = (
     "Heizung_Heizkreis1_TSommerTag",
     "Heizung_Heizkreis1_TSommerNacht",
     "Heizung_RelaisPumpe1_Nachlauf_TNachlauf",
+    "Heizung_Heizkreis1_Heizsystem_Gerade_TAussen1",
+    "Heizung_Heizkreis1_Heizsystem_Gerade_TVorlauf1",
+    "Heizung_Heizkreis1_Heizsystem_Gerade_TAussen2",
+    "Heizung_Heizkreis1_Heizsystem_Gerade_TVorlauf2",
+    "Heizung_Heizkreis1_Heizsystem_Raum_TStart",
 )
 TEMPERATURE_PARENTS = {CONFIG_SETTINGS[name][0] for name in TEMPERATURE_NAMES}
 TEMPERATURE_ALIASES = {
@@ -675,6 +687,11 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert (
                             Peer.extra_values[3576] > 0 and Peer.extra_values[3604] == 1
                         )
+                    elif index in (13979, 13982, 13985, 13988, 13991):
+                        assert Peer.extra_values[13978] == (4 if index == 13991 else 3)
+                        assert Peer.extra_values[13796] > 0
+                        if index != 13991:
+                            assert Peer.extra_values[13800] > 0
                     else:
                         assert Peer.extra_values[6810] == 6
                         assert Peer.extra_values[6817] == 1
@@ -688,6 +705,16 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert stored_value > Peer.settings[11408]
                 assert low <= stored_value <= high
                 # Peer independently verifies installed program constraints.
+                if index in (13991, 14174, 14175):
+                    assert Peer.extra_values[13819] == 1
+                    assert Peer.extra_values[13820] == 1
+                    assert Peer.extra_values[13823] == 0
+                    assert Peer.extra_values[13834] > 0
+                    assert Peer.extra_values[13796] > 0
+                    if index == 14174:
+                        assert Peer.extra_values[13978] == 5
+                    elif index == 14175:
+                        assert Peer.extra_values[13978] in (4, 5)
                 if index in (13719, 14168, 14171):
                     assert Peer.extra_values[13684] == 1
                     assert Peer.extra_values[13689] == 1
@@ -2161,6 +2188,39 @@ async def qualify(directory, phase):
         Peer.extra_values[13780] = 3
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert float(hass.states.get(mixer).state) == 6
+
+        before_curve = Peer.saves
+        root = "Heizung_Heizkreis1_Heizsystem_"
+        Peer.extra_values[13978] = 3
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        await hass.async_block_till_done()
+        for suffix, value in (
+            ("Gerade_TAussen1", 32),
+            ("Gerade_TAussen2", 32),
+            ("Gerade_TVorlauf1", 122),
+            ("Gerade_TVorlauf2", 158),
+        ):
+            await number(root + suffix, value)
+        assert Peer.saves == before_curve + 4
+        Peer.extra_values[13978] = 4
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        await hass.async_block_till_done()
+        await number(root + "Raum_TStart", 122)
+        aggregation = entity(root + "Raumeinfluss_Abweichung", "select")
+        assert aggregation
+        await set_mode(aggregation, "Maximum")
+        assert Peer.saves == before_curve + 6
+        Peer.extra_values[13978] = 5
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        await hass.async_block_till_done()
+        await number(root + "Raumeinfluss_Faktor", 7)
+        assert Peer.saves == before_curve + 7
+        Peer.extra_values[13834] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(aggregation).state == "unavailable"
+        Peer.extra_values[13834] = 4
+        Peer.extra_values[13978] = 1
+        await entry.runtime_data.relay_coordinator.async_refresh()
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"

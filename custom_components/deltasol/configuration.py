@@ -180,6 +180,22 @@ BX_PLUS_SOLAR_SYSTEMS = frozenset(
 
 
 @dataclass(frozen=True)
+class AnyDependencies:
+    """At least one complete positively verified native assignment group."""
+
+    groups: tuple[tuple[Dependency | RangeDependency, ...], ...]
+
+    @property
+    def expected(self):
+        return {
+            dep.name: dep.index for group in self.groups for dep in group
+        }
+
+    def matches(self, values):
+        return any(all(dep.matches(values) for dep in group) for group in self.groups)
+
+
+@dataclass(frozen=True)
 class SolarSelection:
     """Require a valid native topology and each selected live assignment."""
 
@@ -289,7 +305,9 @@ class Setting:
     # Exact static engineering-unit limits, not inferred vendor metadata.
     limits: tuple[str, str, str, str] | None = None  # min, max, step, factor
     unit: str | None = None
-    dependencies: tuple[Dependency | RangeDependency | SolarSelection, ...] = ()
+    dependencies: tuple[
+        Dependency | RangeDependency | SolarSelection | AnyDependencies, ...
+    ] = ()
     owner_address: int | None = None
     relative_constraints: tuple[RelativeConstraint, ...] = ()
     # Installed program selector: may be used as a Discovery hint, never as
@@ -397,7 +415,7 @@ class Setting:
         result = {self.name: self.index}
         installed = (self.installed_by,) if self.installed_by else ()
         for dependency in (*installed, *self.dependencies, *self.relative_constraints):
-            if isinstance(dependency, SolarSelection):
+            if isinstance(dependency, (SolarSelection, AnyDependencies)):
                 result.update(dependency.expected)
             else:
                 result[dependency.name] = dependency.index
@@ -571,6 +589,10 @@ def bind_setting(setting, definitions):
             raise CatalogError("Catalogue boolean contract differs")
     elif setting.kind == "select":
         options = explicit_options(target) or ordinal_options(target)
+        if setting.limits == ("1", "3", "1", "1"):
+            # Explicit native min/mean/max aggregation, stored as a number.
+            _normalized_numeric(target, setting.limits)
+            options = (1, 2, 3)
         if set(options) != {raw for _, raw in setting.options}:
             raise CatalogError("Catalogue enumeration contract differs")
     else:
@@ -1863,6 +1885,102 @@ def _heating_operating_settings():
         active = Dependency(f"{root}_Aktiviert_Modus", 13689 + offset, (1, 2))
         heating = Dependency(f"{root}_System", 13697 + offset, (0, 2))
         constant = Dependency(f"{root}_Heizsystem", 13978 + offset, (2,))
+        flow = RangeDependency(f"{root}_Sensor1_Nr", 13796 + offset, 1, 65)
+        outdoor = RangeDependency(f"{root}_Sensor2_Nr", 13800 + offset, 1, 65)
+        mode_name = f"{root}_Heizsystem"
+        mode_index = 13978 + offset
+        rooms = AnyDependencies(
+            tuple(
+                (
+                    Dependency(f"{room}_Option", 13819 + delta, (1,)),
+                    Dependency(f"{room}_Aktiviert", 13820 + delta, (1,)),
+                    Dependency(f"{room}_Typ", 13823 + delta, (0,)),
+                    RangeDependency(f"{room}_Sensor1_Nr", 13834 + delta, 1, 65),
+                )
+                for n in range(1, 6)
+                for room, delta in ((f"{root}_Raumthermostat{n}", offset + 32 * (n - 1)),)
+            )
+        )
+        # The native interpolator handles either endpoint order, including
+        # identical outdoor points (first flow target fallback).
+        for suffix, index, label, celsius, fahrenheit, dependencies in (
+            (
+                "Gerade_TAussen1", 13979, "linear outdoor point 1",
+                ("-20", "20"), ("-4", "68"),
+                (Dependency(mode_name, mode_index, (3,)), outdoor),
+            ),
+            (
+                "Gerade_TVorlauf1", 13982, "linear flow point 1",
+                ("20", "90"), ("68", "194"),
+                (Dependency(mode_name, mode_index, (3,)), outdoor),
+            ),
+            (
+                "Gerade_TAussen2", 13985, "linear outdoor point 2",
+                ("-20", "20"), ("-4", "68"),
+                (Dependency(mode_name, mode_index, (3,)), outdoor),
+            ),
+            (
+                "Gerade_TVorlauf2", 13988, "linear flow point 2",
+                ("20", "90"), ("68", "194"),
+                (Dependency(mode_name, mode_index, (3,)), outdoor),
+            ),
+            (
+                "Raum_TStart", 13991, "room control initial flow temperature",
+                ("20", "60"), ("68", "140"),
+                (Dependency(mode_name, mode_index, (4,)), rooms),
+            ),
+        ):
+            name = f"{root}_Heizsystem_{suffix}"
+            index += offset
+            for selector, alias, unit, bounds, step in (
+                (0, "_C", "°C", celsius, "1"),
+                (1, "_F", "°F", fahrenheit, "2"),
+            ):
+                yield Setting(
+                    name,
+                    index,
+                    f"Heating circuit {circuit} {label}",
+                    "number",
+                    True,
+                    limits=(*bounds, step, "0.1"),
+                    unit=unit,
+                    installed_by=installed,
+                    dependencies=(
+                        active, heating, flow, *dependencies,
+                        Dependency("TemperatureHysteresisSelector", 60, (selector,)),
+                    ),
+                    compound_mirrors=((name, index, name + alias, index + selector + 1),),
+                )
+        yield Setting(
+            f"{root}_Heizsystem_Raumeinfluss_Faktor",
+            14174 + offset,
+            f"Heating circuit {circuit} room influence factor",
+            "number",
+            True,
+            limits=("1", "9", "1", "1"),
+            installed_by=installed,
+            dependencies=(
+                active, heating, flow, outdoor, rooms,
+                Dependency(mode_name, mode_index, (5,)),
+            ),
+        )
+        yield Setting(
+            f"{root}_Heizsystem_Raumeinfluss_Abweichung",
+            14175 + offset,
+            f"Heating circuit {circuit} room deviation aggregation",
+            "select",
+            True,
+            options=(("Minimum", 1), ("Average", 2), ("Maximum", 3)),
+            limits=("1", "3", "1", "1"),
+            installed_by=installed,
+            dependencies=(
+                active, heating, flow, rooms,
+                AnyDependencies((
+                    (Dependency(mode_name, mode_index, (4,)),),
+                    (Dependency(mode_name, mode_index, (5,)), outdoor),
+                )),
+            ),
+        )
         mixer = (
             active,
             heating,

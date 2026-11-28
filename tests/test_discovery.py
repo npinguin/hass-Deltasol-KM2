@@ -1506,13 +1506,15 @@ class DiscoveryTests(unittest.TestCase):
             name
             for name, row in definitions.items()
             if row.metadata.get("menu_refs")
-            and not row.excluded
+            and (not row.excluded or row.metadata.get("compound_parent_read_candidate"))
             and (
                 row.metadata.get("rpt_storage") in ("preferences", "persistent")
                 or row.metadata.get("compound_parent_read_candidate")
             )
             and not row.metadata.get("compound_ref")
         }
+        self.assertIn("Heizung_Heizkreis1_Heizsystem_Gerade_TAussen1", menu_preferences)
+        self.assertIn("Heizung_Heizkreis1_Mischer_dTEin", menu_preferences)
         unbound = menu_preferences - bound_names
         families = Counter(re.sub(r"(?<=\D)\d+", "X", name) for name in unbound)
         print(
@@ -1890,7 +1892,7 @@ class DiscoveryTests(unittest.TestCase):
                 [modes[i]["id"] for i in (1, 5)], ["Kennlinie", "Raumeinfluss"]
             )
         self.assertEqual(len(configuration.BX_PLUS_ADDITIONAL_OPERATING_SETTINGS), 403)
-        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 191)
+        self.assertEqual(len(configuration.BX_PLUS_HEATING_OPERATING_SETTINGS), 275)
         for setting in configuration.BX_PLUS_HEATING_OPERATING_SETTINGS:
             for name, index in setting.expected.items():
                 self.assertEqual(definitions[name].index, index)
