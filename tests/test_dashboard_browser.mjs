@@ -56,6 +56,9 @@ function journey(){
     check(calls.some(x=>x.entity_id==="text.week"&&!x.preview&&x.expected==="08:00-10:00"&&x.reference_token==="known-links"),"Missing reviewed schedule save");
     click('[data-tab="engineering"]');await tick();
     check(root.textContent.includes("Schema"),"Missing native parameter inventory");
+    choose("#object","native");
+    check(root.textContent.includes("Buffer temperature"),"Engineering cannot trace a readable measurement");
+    choose("#object","");
     check(root.textContent.includes("Historical discovery needs attention"),"Missing engineering checkpoint warning");
     check(root.textContent.includes("12 / 16"),"Missing engineering discovery coverage");
     choose("#installation","two");

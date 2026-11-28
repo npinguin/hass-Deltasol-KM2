@@ -236,3 +236,18 @@ test("room controls and native schedule owner labels use the selected locale",()
   assert.equal(p.capabilityLabel({native_label:"Heating function 1 loading on temperature"}),"Fonction de chauffage 1 · Température d’enclenchement de charge");
   assert.equal(p.weeklyOwnerLabel("Heating circuit 2 / Room thermostat 3"),"Circuit de chauffage 2 / Thermostat d’ambiance 3");
 });
+
+test("selected Engineering object exposes exact telemetry source without promoting it to a control",()=>{
+  const p=model(true,true);p.tab="engineering";p.object="device";
+  const row=p.row("sensor.temperature");row.telemetry_packet="00_0010_7112_0100";row.telemetry_field="000_2_0";
+  assert.ok(p.visibleRows(p.current().objects[0]).includes(row));
+  assert.ok(p.detail(row,false).includes("000_2_0"));
+  p.tab="overview";assert.ok(!p.detail(row,false).includes("000_2_0"));
+});
+test("configured function with no observed measurement explicitly shows unknown measurement coverage",()=>{
+  const p=model(true,true);const asset=p.current().objects[0];
+  asset.name="RESOL Heating circuit 1";asset.object_kind="circuit";asset.object_number=1;
+  asset.capabilities=asset.capabilities.filter(row=>row.kind!=="sensor");
+  p.tab="heating";
+  const html=p.cards();assert.ok(html.includes(p.t("unconfirmed")));assert.ok(!html.includes("1 / 1"));
+});

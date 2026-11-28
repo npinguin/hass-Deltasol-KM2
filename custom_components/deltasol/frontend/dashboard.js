@@ -150,7 +150,7 @@ class ResolDashboard extends HTMLElement {
   }
   tabs(){
     const installation=this.current();
-    const groups=new Set(this.rows().map(row=>row.section));
+    const groups=new Set(this.rows().filter(row=>row.depth!=="engineering").map(row=>row.section));
     return SECTIONS.filter(tab=>tab==="settings"?Boolean(installation?.settings):tab==="engineering"?Boolean(installation?.engineering):tab==="overview"||tab==="energy"||groups.has(tab));
   }
   objectsForTab(tab=this.tab){
@@ -230,13 +230,13 @@ class ResolDashboard extends HTMLElement {
     const attrs=state?.attributes||{};
     const limits=control&&row.kind==="number"&&Number.isFinite(attrs.min)&&Number.isFinite(attrs.max)?'<small style="display:block">'+escape(this.t("range_limits")+": "+attrs.min+" – "+attrs.max+(attrs.unit_of_measurement?" "+attrs.unit_of_measurement:"")+(Number.isFinite(attrs.step)?" · "+this.t("increment")+" "+attrs.step:""))+'</small>':"";
     const access=control&&["number","select","switch","text"].includes(row.kind)&&!row.control&&this.valid(row)?'<small>'+escape(this.t("not_writable"))+'</small>':"";
-    const evidence=this.tab==="engineering"&&row.parameter?'<details><summary>'+escape(this.t("source"))+'</summary><pre>'+escape(JSON.stringify({entity_id:row.entity_id,parameter:row.parameter,index:row.reference_index,source_address:row.source_address,controller_address:row.controller_address,references:row.live_reference_context},null,2))+'</pre></details>':"";
+    const evidence=this.tab==="engineering"?'<details><summary>'+escape(this.t("source"))+'</summary><pre>'+escape(JSON.stringify({entity_id:row.entity_id,parameter:row.parameter,index:row.reference_index,source_address:row.source_address,controller_address:row.controller_address,references:row.live_reference_context,telemetry_packet:row.telemetry_packet,telemetry_field:row.telemetry_field,availability:row.availability},null,2))+'</pre></details>':"";
     return '<div class="line"><div class="grow"><div>'+escape(this.capabilityLabel(row))+'</div><div class="value'+(this.valid(row)?"":" warning")+'">'+escape(this.value(row))+'</div>'+(reason?'<small class="warning">'+escape(reason)+'</small>':"")+(updated?'<small style="display:block">'+escape(this.t("last_observed"))+': '+escape(updated)+'</small>':"")+limits+access+evidence+'</div><div class="actions">'+(control?this.control(row):"")+'<button data-history="'+escape(row.entity_id)+'" aria-label="'+escape(this.t("history")+' '+this.capabilityLabel(row))+'">'+escape(this.t("history"))+'</button></div></div>';
   }
   visibleRows(asset){
     const rows=asset.capabilities;
     if(this.tab==="settings")return rows.filter(row=>row.depth==="settings"||row.depth==="controls");
-    if(this.tab==="engineering")return rows.filter(row=>row.depth==="engineering");
+    if(this.tab==="engineering")return this.object?rows:rows.filter(row=>row.depth==="engineering");
     if(this.tab==="overview"){
       const operational=rows.filter(row=>row.depth==="status"||row.depth==="controls"||row.role==="configured_activity");
       return operational.length&&!this.object?operational:rows.filter(row=>row.depth!=="engineering");
@@ -360,13 +360,16 @@ class ResolDashboard extends HTMLElement {
       const rows=this.visibleRows(asset).filter(row=>this.tab!=="settings"||!row.schedule||!row.program);
       if(!rows.length)return "";
       const available=rows.filter(row=>this.valid(row)).length;
-      const header='<div class="toolbar"><div class="grow"><h2>'+escape(this.objectTitle(asset))+'</h2><small>'+available+' / '+rows.length+' '+escape(this.t("available"))+'</small></div>'+(this.object?"":'<button data-object="'+escape(asset.id)+'">'+escape(this.t("details"))+'</button>')+'</div>';
+      const technical=this.tab==="engineering";
+      const header='<div class="toolbar"><div class="grow"><h2>'+escape(this.objectTitle(asset))+'</h2>'+(technical?'<small>'+available+' / '+rows.length+' '+escape(this.t("available"))+'</small>':"")+'</div>'+(this.object?"":'<button data-object="'+escape(asset.id)+'">'+escape(this.t("details"))+'</button>')+'</div>';
+      const measurementMissing=!technical&&this.tab!=="settings"&&asset.object_kind&&!rows.some(row=>row.depth==="status"&&this.valid(row));
+      const measurementNotice=measurementMissing?'<p class="muted">'+escape(this.t("unconfirmed"))+'</p>':"";
       if(this.tab==="overview"&&!this.object){
         const prominent=this.prominentRows(rows);
-        return '<article class="card">'+header+prominent.map(row=>this.detail(row,false)).join("")+(!prominent.length?'<p class="muted">'+escape(this.t("unconfirmed"))+'</p>':"")+(available!==rows.length?'<p class="warning">'+(rows.length-available)+' '+escape(this.t("not_confirmed"))+'</p>':"")+'</article>';
+        return '<article class="card">'+header+measurementNotice+prominent.map(row=>this.detail(row,false)).join("")+(!prominent.length&&!measurementNotice?'<p class="muted">'+escape(this.t("unconfirmed"))+'</p>':"")+(available!==rows.length?'<p class="warning">'+escape(this.t("not_confirmed"))+'</p>':"")+'</article>';
       }
       const ordinary=this.tab!=="settings"&&this.tab!=="engineering";
-      return '<article class="card">'+header+(ordinary?this.objectDetail(rows):rows.map(row=>this.detail(row,true)).join(""))+(this.object?this.relationView(asset):"")+((this.tab!=="settings"&&this.tab!=="engineering"&&this.object&&this.current()?.settings&&rows.some(row=>row.depth==="settings"))?'<button data-tab="settings">'+escape(this.t("more_preferences"))+'</button>':"")+'</article>';
+      return '<article class="card">'+header+measurementNotice+(ordinary?this.objectDetail(rows):rows.map(row=>this.detail(row,row.depth!=="status")).join(""))+(this.object?this.relationView(asset):"")+((this.tab!=="settings"&&this.tab!=="engineering"&&this.object&&this.current()?.settings&&rows.some(row=>row.depth==="settings"))?'<button data-tab="settings">'+escape(this.t("more_preferences"))+'</button>':"")+'</article>';
     }).filter(Boolean);
     return cards.length?'<div class="grid">'+cards.join("")+'</div>':this.tab==="settings"&&this.weekPrograms().length?"":'<p class="muted">'+escape(this.t("empty"))+'</p>';
   }

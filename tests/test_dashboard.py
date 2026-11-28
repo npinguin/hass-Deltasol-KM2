@@ -35,6 +35,8 @@ class DashboardTests(unittest.TestCase):
             "observed_result",
             "scoped_control",
             "service_request",
+            "telemetry_sources",
+            "telemetry_evidence",
         }
         cls.ns = {
             "ConfigEntryState": SimpleNamespace(LOADED="loaded"),
@@ -349,3 +351,31 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(
             access(registered, setting, state, user, False), ("settings", False)
         )
+
+    def test_telemetry_evidence_uses_exact_current_device_field(self):
+        self.ns["re"] = re
+        self.ns["sensor_identity"] = lambda _registry, _entry, serial, key: (
+            f"{serial}_{key}"
+        )
+        key = "00_0010_7112_0100__000_2_0"
+        endpoint = SimpleNamespace(
+            product_details={"serial": "private"}, bus_src="Controller"
+        )
+        coordinator = SimpleNamespace(last_update_success=True, data={key: endpoint})
+        sources = self.ns["telemetry_sources"](None, "entry", coordinator)
+        row = SimpleNamespace(entity_id="sensor.actual", unique_id=f"private_{key}")
+        device = SimpleNamespace(identifiers={("deltasol", "private_Controller")})
+        evidence = self.ns["telemetry_evidence"]
+        self.assertEqual(
+            evidence(row, device, sources),
+            {"telemetry_packet": "00_0010_7112_0100", "telemetry_field": "000_2_0"},
+        )
+        self.assertEqual(evidence(row, device, {}), {})
+        self.assertEqual(
+            evidence(row, SimpleNamespace(identifiers=set()), sources), {}
+        )
+        coordinator.last_update_success = False
+        self.assertEqual(self.ns["telemetry_sources"](None, "entry", coordinator), {})
+        coordinator.last_update_success = True
+        sources[row.unique_id].append((key, "private_Controller"))
+        self.assertEqual(evidence(row, device, sources), {})

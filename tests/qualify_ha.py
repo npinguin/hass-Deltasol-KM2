@@ -2382,6 +2382,19 @@ async def qualify(directory, phase):
         (resident_view,) = dashboard_objects(hass, resident)
         (reader_view,) = dashboard_objects(hass, readonly)
         assert admin_view["engineering"] and admin_view["settings"]
+        admin_sensor = next(
+            row
+            for asset in admin_view["objects"]
+            for row in asset["capabilities"]
+            if row["entity_id"] == sensor
+        )
+        assert admin_sensor["telemetry_packet"] == SENSOR_UID.split("__")[0]
+        assert admin_sensor["telemetry_field"] == SENSOR_UID.split("__")[1]
+        assert all(
+            "telemetry_packet" not in row
+            for asset in resident_view["objects"]
+            for row in asset["capabilities"]
+        )
         assert not resident_view["engineering"] and not resident_view["settings"]
         assert not reader_view["engineering"]
         assert all(

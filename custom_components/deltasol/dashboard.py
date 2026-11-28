@@ -33,6 +33,7 @@ from .configuration import (
 )
 from .const import CONF_DASHBOARD, CONF_ENGINEERING, DOMAIN
 from .diagnostics import async_get_config_entry_diagnostics, menu_parameter_reason
+from .sensor import sensor_identity
 
 _PANEL = "resol"
 _READY = "deltasol_dashboard_registered"
@@ -267,6 +268,41 @@ def capability_access(registered, setting, state, user, engineering, *, relay=Fa
     return depth, control
 
 
+def telemetry_sources(registry, entry_id, coordinator):
+    """Use the existing sensor identity rule and exact observed packet fields."""
+    sources = {}
+    if not coordinator.last_update_success:
+        return sources
+    for key, endpoint in (coordinator.data or {}).items():
+        serial = (endpoint.product_details or {}).get("serial")
+        if not serial or not endpoint.bus_src:
+            continue
+        uid = sensor_identity(registry, entry_id, serial, key)
+        sources.setdefault(uid, []).append((key, f"{serial}_{endpoint.bus_src}"))
+    return sources
+
+
+def telemetry_evidence(row, device, sources):
+    """Only expose unambiguous, current, device-scoped packet provenance."""
+    if not row.entity_id.startswith("sensor."):
+        return {}
+    matches = [
+        key
+        for key, identifier in sources.get(row.unique_id, ())
+        if (DOMAIN, identifier) in device.identifiers
+    ]
+    if len(matches) != 1:
+        return {}
+    # The native packet/field key contains bus addresses, not gateway serial.
+    key = matches[0]
+    packet, separator, field = key.partition("__")
+    if not separator or not re.fullmatch(
+        r"[0-9A-Fa-f_]+", packet + field
+    ):
+        return {}
+    return {"telemetry_packet": packet, "telemetry_field": field}
+
+
 def dashboard_objects(hass, user):
     """One scoped projection of existing device and entity registry objects."""
     registry = er.async_get(hass)
@@ -290,6 +326,11 @@ def dashboard_objects(hass, user):
         objects = {}
         assignments = {}
         visible_devices = {}
+        sources = (
+            telemetry_sources(registry, entry.entry_id, entry.runtime_data.coordinator)
+            if engineering
+            else {}
+        )
         for row in er.async_entries_for_config_entry(registry, entry.entry_id):
             if (
                 row.platform != DOMAIN
@@ -402,6 +443,7 @@ def dashboard_objects(hass, user):
                         if engineering and row.unique_id in relays
                         else {}
                     ),
+                    **(telemetry_evidence(row, device, sources) if engineering else {}),
                     "control": control,
                     "schedule": bool(setting and setting.weekly_slot is not None),
                     "program": setting.weekly_slot if setting else None,
