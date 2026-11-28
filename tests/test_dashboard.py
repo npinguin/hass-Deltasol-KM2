@@ -29,6 +29,7 @@ class DashboardTests(unittest.TestCase):
             "capability_availability",
             "inherit_object_section",
             "project_assignments",
+            "engineering_catalogue",
             "object_kind",
             "observed_result",
             "scoped_control",
@@ -210,3 +211,34 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(rows[1]["resolution"], "native_reference_only")
         self.assertIsNone(rows[1]["source_object"])
         self.assertEqual(project(observations, {}, True)[0]["parameter"], "actor")
+
+    def test_reference_inventory_redacts_sensitive_aliases_and_never_grants_access(self):
+        public = SimpleNamespace(
+            name="Schema", index=1, type_id="enum", storage="persistent", metadata={}
+        )
+        secret = SimpleNamespace(
+            name="Password", index=2, type_id="text", storage="persistent", metadata={}
+        )
+        alias = SimpleNamespace(
+            name="Alias", index=2, type_id="text", storage="persistent", metadata={}
+        )
+        self.ns.update(
+            is_sensitive=lambda item: item.name == "Password",
+            configuration_evidence=lambda *_: {"write_access": "not_verified"},
+            menu_parameter_reason=lambda *_: "hardware_or_topology_assignment",
+        )
+        profile = SimpleNamespace(
+            settings=(), binding_review=lambda *_: ((), {})
+        )
+        contracts, inventory = self.ns["engineering_catalogue"](
+            profile,
+            SimpleNamespace(definitions=(public, secret, alias)),
+            SimpleNamespace(changeset=1),
+        )
+        self.assertEqual(contracts, {})
+        self.assertEqual(set(inventory), {"Schema"})
+        self.assertEqual(inventory["Schema"]["write_access"], "not_confirmed")
+        self.assertEqual(
+            inventory["Schema"]["write_access_reason"],
+            "hardware_or_topology_assignment",
+        )

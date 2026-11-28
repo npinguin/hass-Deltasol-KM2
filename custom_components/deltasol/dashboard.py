@@ -23,10 +23,10 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
-from .catalog import CatalogError, is_sensitive
+from .catalog import CatalogError, configuration_evidence, is_sensitive
 from .configuration import ActorReferences, format_weekly_day, parse_weekly_day
 from .const import CONF_DASHBOARD, CONF_ENGINEERING, DOMAIN
-from .diagnostics import async_get_config_entry_diagnostics
+from .diagnostics import async_get_config_entry_diagnostics, menu_parameter_reason
 
 _PANEL = "resol"
 _READY = "deltasol_dashboard_registered"
@@ -483,35 +483,9 @@ async def ws_engineering(hass, connection, msg):
     catalog = relay._configuration_catalog() if relay else None
     if catalog and discovery and discovery.profile:
         profile = discovery.profile
-        bound, rejected = profile.binding_review(discovery.changeset, catalog)
-        labels = {setting.name: setting.label for setting in bound}
-        verified = set(labels)
-        for setting in profile.settings:
-            labels.setdefault(setting.name, setting.label)
-        report["operational_contracts"] = {
-            name: {
-                "label": label,
-                "catalogue_binding": "verified"
-                if name in verified
-                else "not_confirmed",
-                "reasons": list(rejected.get(name, ())),
-            }
-            for name, label in labels.items()
-        }
-        # The exact catalogue also supplies reference-only metadata when the
-        # historical capture is unavailable. Never promote this to live access.
-        report["reference_inventory"] = {
-            definition.name: {
-                "reference_index": definition.index,
-                "type_id": definition.type_id,
-                "storage": definition.storage,
-                "metadata": definition.metadata,
-                "status": "reference_only",
-                "write_access": "not_confirmed",
-            }
-            for definition in catalog.definitions
-            if not is_sensitive(definition)
-        }
+        contracts, inventory = engineering_catalogue(profile, catalog, discovery)
+        report["operational_contracts"] = contracts
+        report["reference_inventory"] = inventory
         report["operational_contracts_source"] = {
             "changeset": f"{discovery.changeset:08X}",
             "digest": catalog.digest,
@@ -521,6 +495,88 @@ async def ws_engineering(hass, connection, msg):
         connection.send_error(msg["id"], "not_allowed", "Engineering is not enabled")
         return
     connection.send_result(msg["id"], report)
+
+
+def engineering_catalogue(profile, catalog, discovery):
+    """Project native contracts and reference evidence, without a capture or I/O.
+
+    Static variants describe possible prerequisites. Only native discovery and
+    the typed writer determine live applicability and permission to act.
+    """
+    sensitive_indices = {
+        item.index
+        for item in catalog.definitions
+        if item.index is not None and is_sensitive(item)
+    }
+    definitions = {
+        item.name: item
+        for item in catalog.definitions
+        if not is_sensitive(item) and item.index not in sensitive_indices
+    }
+    bound, rejected = profile.binding_review(discovery.changeset, catalog)
+    contracts = {}
+    for setting in (*bound, *profile.settings):
+        if setting.name not in definitions:
+            continue
+        contracts.setdefault(
+            setting.name,
+            {
+                "label": setting.label,
+                "catalogue_binding": "not_confirmed",
+                "reasons": list(rejected.get(setting.name, ())),
+                "variants": [],
+            },
+        )
+    for setting in bound:
+        if setting.name not in contracts:
+            continue
+        row = contracts[setting.name]
+        row["catalogue_binding"] = "verified"
+        variant = {
+            "kind": setting.kind,
+            "unit": setting.unit,
+            "storage_action": "save" if setting.save else "volatile",
+            "limits": list(setting.limits[:3]) if setting.limits else None,
+            "options": [label for label, _ in setting.options],
+            "native_slot": setting.native_slot,
+            "prerequisites": [
+                {"parameter": name, "reference_index": index}
+                for name, index in sorted(setting.expected.items())
+                if name != setting.name
+                and name in definitions
+                and index not in sensitive_indices
+            ],
+            "relative_constraints": [
+                {"parameter": rule.name, "operation": rule.operation}
+                for rule in setting.relative_constraints
+                if rule.name in definitions
+            ],
+            "requires_live_validation": True,
+        }
+        if variant not in row["variants"]:
+            row["variants"].append(variant)
+
+    inventory = {}
+    for name, definition in definitions.items():
+        evidence = configuration_evidence(definition, definitions)
+        if name in contracts:
+            evidence["write_access_reason"] = (
+                "live_capability_not_confirmed"
+                if contracts[name]["catalogue_binding"] == "verified"
+                else "catalogue_contract_not_confirmed"
+            )
+        elif reason := menu_parameter_reason(profile, definition):
+            evidence["write_access_reason"] = reason
+        inventory[name] = {
+            **evidence,
+            "reference_index": definition.index,
+            "type_id": definition.type_id,
+            "storage": definition.storage,
+            "metadata": definition.metadata,
+            "status": "reference_only",
+            "write_access": "not_confirmed",
+        }
+    return contracts, inventory
 
 
 def scoped_control(hass, user, entry_id, entity_id):

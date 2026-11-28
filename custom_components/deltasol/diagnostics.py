@@ -21,6 +21,22 @@ def safe_version(value):
     return None
 
 
+def menu_parameter_reason(profile, definition):
+    """Use the existing native menu review, not an inferred write flag."""
+    if (
+        profile.menu_review is not None
+        and definition
+        and definition.metadata.get("menu_refs")
+        and not definition.metadata.get("compound_ref")
+        and (
+            definition.metadata.get("rpt_storage") in ("preferences", "persistent")
+            or definition.metadata.get("compound_parent_read_candidate")
+        )
+    ):
+        return profile.menu_review(definition.name)
+    return None
+
+
 async def async_get_config_entry_diagnostics(hass, entry):
     """Return a privacy-safe native diagnostics download for this config entry."""
     runtime = entry.runtime_data
@@ -244,17 +260,8 @@ async def async_get_config_entry_diagnostics(hass, entry):
             and capture.catalog.matches(profile.address, capture.changeset)
         ):
             definition = capture.catalog.by_name.get(name)
-            if (
-                definition
-                and definition.metadata.get("menu_refs")
-                and not definition.metadata.get("compound_ref")
-                and (
-                    definition.metadata.get("rpt_storage")
-                    in ("preferences", "persistent")
-                    or definition.metadata.get("compound_parent_read_candidate")
-                )
-            ):
-                item["write_access_reason"] = profile.menu_review(name)
+            if reason := menu_parameter_reason(profile, definition):
+                item["write_access_reason"] = reason
         if name in reference_contracts:
             item["reference_contract"] = reference_contracts[name]
             item["contract_status"] = (

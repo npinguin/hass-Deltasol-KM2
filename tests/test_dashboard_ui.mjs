@@ -169,3 +169,10 @@ test("daily controls only use currently permitted native capabilities",()=>{
   p.row("select.heating").control=false;assert.equal(p.routineControls().length,0);
   p.row("select.heating").control=true;p.row("select.heating").availability="parameter_unavailable";assert.equal(p.routineControls().length,0);
 });
+
+test("engineering separates live relay controls from captured values and reference evidence",()=>{
+  const p=model(true,true);p.filter="all";p.query="";p.report={configuration_discovery:{parameters:{Schema:{decoded_value:42,status:"read"},Old:{decoded_value:12,status:"read",write_access:"profile_verified"}}},reference_inventory:{Schema:{reference_index:1,write_access_reason:"hardware_or_topology_assignment"}},parameter_access:{relays:{R1:{parameter:"Relais_Regler_R1_Handbetrieb",status:"supported",mode:"Auto",writable_options:["Auto","Off"]}}}};
+  const rows=new Map(p.inventoryEntries());assert.equal(rows.get("Old").liveVerified,false);assert.equal(rows.get("Relais_Regler_R1_Handbetrieb").liveVerified,true);
+  const html=p.inventoryEvidence(rows.get("Schema"));assert.ok(html.includes("Hardware- of topologietoewijzing"));assert.ok(html.includes("Historische snapshot: 42"));assert.ok(!html.includes("Actueel: 42"));
+  p.filter="readonly";assert.ok(!new Map(p.inventoryEntries()).has("Relais_Regler_R1_Handbetrieb"));
+});
