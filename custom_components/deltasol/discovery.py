@@ -600,10 +600,9 @@ class ConfigurationCapture:
     def weekly_program_evidence(self):
         """Inventory packed weekly programs without interpreting a scalar as a day.
 
-        Native SET evidence establishes the serialized day codec and one
-        function-block reference. Three correlated VBus words are required
-        even to interpret a candidate day. Never promote a plausible word
-        reconstruction to verified live schedule or permission to write.
+        Native SET and both DLL builds establish the serialized day codec.
+        Exact captured words establish decoded content, not current ownership
+        or permission to write.
         """
         weeks = {}
         references = {}
@@ -654,11 +653,28 @@ class ConfigurationCapture:
             week["allocated"] = bool(allocated) if allocated in (0, 1) else None
             week["initialized"] = bool(initialized) if initialized in (0, 1) else None
             week["catalogue_days"] = len(week["days"])
-            if native_codec and allocated == 1 and initialized == 1:
-                for day in week["days"].values():
+            slot = int(name[3:])
+            base = 18401 + 13 * slot
+            flags = (
+                definitions.get(f"{name}_Belegt"),
+                definitions.get(f"{name}_Schaltuhr_Woche_Initialisiert"),
+            )
+            if (
+                native_codec
+                and 1 <= slot <= 50
+                and allocated == 1
+                and initialized == 1
+                and all(
+                    flag is not None and flag.index == index
+                    for flag, index in zip(flags, (base, base + 4), strict=True)
+                )
+            ):
+                for label, day in week["days"].items():
                     words = day["observed_words"]
                     if (
                         day["size_bytes"] != 12
+                        or day["reference_index"]
+                        != base + 5 + ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So").index(label)
                         or len(words) != 3
                         or any(type(word) is not int for word in words)
                     ):
@@ -669,9 +685,17 @@ class ConfigurationCapture:
                     if candidate is not None:
                         day["candidate_windows"] = candidate
                         day["candidate_encoding"] = "native_set_quarter_hour_pairs"
-                        day["candidate_status"] = "wire_word_mapping_unverified"
+                        day["candidate_status"] = "wire_word_mapping_verified"
+                        day["payload_verified"] = True
+            verified_days = sum(day["payload_verified"] for day in week["days"].values())
             week["schedule_status"] = (
-                "unallocated"
+                "reserved"
+                if native_codec and slot == 0
+                else "decoded_capture"
+                if verified_days == 7
+                else "partial_payload"
+                if verified_days
+                else "unallocated"
                 if allocated == 0
                 else "uninitialized"
                 if allocated == 1 and initialized == 0
@@ -683,7 +707,7 @@ class ConfigurationCapture:
         # exclusive owner authorization. Zero is never treated as a live link.
         for reference in references.values():
             raw = reference["reference"]
-            if native_codec and type(raw) is int and raw > 0:
+            if native_codec and type(raw) is int and 1 <= raw <= 50:
                 program = f"Wsu{raw}"
                 if program in weeks and weeks[program]["allocated"] is True:
                     reference["candidate_program"] = program
