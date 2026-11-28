@@ -492,7 +492,8 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     stored_value = value // factor
                     step = (
                         5
-                        if index in (3579, 3582, 3585, 7261, 7264, 3908, 3911, 4347, 4112, 4115)
+                        if index
+                        in (3579, 3582, 3585, 7261, 7264, 3908, 3911, 4347, 4112, 4115)
                         else 10
                     )
                     assert stored_value % step == 0
@@ -1812,11 +1813,21 @@ async def qualify(directory, phase):
         # Independently exercise both newly added native Solar families.
         tube = "Solar_Wf1_Roehrenkollektor"
         exchanger = "Solar_Wf1_ExtWT"
-        for suffix, value in (("tBeginn", 390), ("tEnde", 450), ("Laufzeit", 40), ("Pausezeit", 12)):
+        for suffix, value in (
+            ("tBeginn", 390),
+            ("tEnde", 450),
+            ("Laufzeit", 40),
+            ("Pausezeit", 12),
+        ):
             await number(tube + "_" + suffix, value)
-        for suffix, value in (("Nachlaufzeit", 4), ("Mindestlaufzeit", 5),
-                              ("dTein", 14), ("dTaus", 10),
-                              ("ZieltemperaturSekundaer", 140), ("dTAnstieg", 6)):
+        for suffix, value in (
+            ("Nachlaufzeit", 4),
+            ("Mindestlaufzeit", 5),
+            ("dTein", 14),
+            ("dTaus", 10),
+            ("ZieltemperaturSekundaer", 140),
+            ("dTAnstieg", 6),
+        ):
             await number(exchanger + "_" + suffix, value)
         assert Peer.saves == 46
         for name, value in ((tube + "_tBeginn", 450), (exchanger + "_dTein", 10)):
@@ -1871,7 +1882,9 @@ async def qualify(directory, phase):
         async def rejected_schedule(value):
             try:
                 await hass.services.async_call(
-                    "text", "set_value", {"entity_id": schedule, "value": value},
+                    "text",
+                    "set_value",
+                    {"entity_id": schedule, "value": value},
                     blocking=True,
                 )
             except HomeAssistantError as error:
@@ -1900,7 +1913,8 @@ async def qualify(directory, phase):
         assert hass.states.get(schedule).state == "06:00-07:00, 09:00-10:00"
         # Explicit subsequent operator action, never an automatic retry.
         await hass.services.async_call(
-            "text", "set_value",
+            "text",
+            "set_value",
             {"entity_id": schedule, "value": "08:30-10:00, 18:00-20:00"},
             blocking=True,
         )
