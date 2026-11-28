@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import io
 import os
+import re
 import struct
 import sys
 import types
@@ -1497,6 +1498,33 @@ class DiscoveryTests(unittest.TestCase):
                 self.assertEqual(compiled.expected, setting.expected)
         self.assertEqual(len(bound), len(profile.settings) + 350)
         self.assertEqual(len([s for s in bound if s.weekly_slot is not None]), 350)
+        # Report the remaining catalogue/menu review surface as part of the
+        # existing exact-archive check. A menu reference does not grant write
+        # permission; the inventory is evidence, not an automatic allowlist.
+        bound_names = {setting.name for setting in bound}
+        menu_preferences = {
+            name
+            for name, row in definitions.items()
+            if row.metadata.get("menu_refs")
+            and not row.excluded
+            and (
+                row.metadata.get("rpt_storage") in ("preferences", "persistent")
+                or row.metadata.get("compound_parent_read_candidate")
+            )
+            and not row.metadata.get("compound_ref")
+        }
+        unbound = menu_preferences - bound_names
+        families = Counter(
+            re.sub(r"(?<=\\D)\\d+", "X", name) for name in unbound
+        )
+        print(
+            "Exact menu review surface:",
+            len(menu_preferences), "menu preferences/proxies;",
+            len(menu_preferences & bound_names), "bound;",
+            len(unbound), "without typed contracts;",
+            len(families), "normalized families",
+        )
+        print("Unbound native menu families:", sorted(families.items()))
         for slot in range(1, 17):
             prefix = f"Anlage_Wf{slot}"
             self.assertEqual(
