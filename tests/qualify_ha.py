@@ -67,6 +67,12 @@ CONFIG_SELECTORS = {
     "Anlage_WTUmwaelzpumpe_Relais_Nr": (10614, 2),
     "Anlage_WTUmwaelzpumpe_ONachlauf": (10647, 1),
     "Anlage_WTUmwaelzpumpe_ORuhemodus": (10650, 1),
+    "Heizung_RelaisPumpe1_Type": (11166, 2),
+    "Heizung_RelaisPumpe1_Aktiviert_Modus": (11169, 1),
+    "Heizung_RelaisPumpe1_Relais1_Nr": (11171, 4),
+    "Heizung_RelaisPumpe1_Anlauf_Modus": (11178, 2),
+    "Heizung_RelaisPumpe1_Nachlauf_Modus": (11183, 1),
+    "Heizung_RelaisPumpe1_AnlaufNachlauf_Sensor1_Nr": (11189, 6),
     "Heizung_Heizkreis1_OHeizgrenze": (13739, 1),
     "Heizung_Heizkreis1_Heizgrenze": (13740, 1),
     "Heizung_Heizkreis1_Sensor2_Nr": (13800, 3),
@@ -128,6 +134,8 @@ CONFIG_SETTINGS = {
     "Anlage_WTUmwaelzpumpe_SollDrehzahl": (10646, 40, 20, 100),
     "Anlage_WTUmwaelzpumpe_Nachlaufzeit": (10648, 20, 0, 60),
     "Anlage_WTUmwaelzpumpe_RuhemodusDauer": (10651, 120, 5, 240),
+    "Heizung_RelaisPumpe1_Anlauf_dtAnlauf": (11182, 60, 0, 300),
+    "Heizung_RelaisPumpe1_Nachlauf_TNachlauf": (11184, 500, 100, 900),
     "Heizung_Heizkreis1_TSommerTag": (13741, 200, 0, 400),
     "Heizung_Heizkreis1_TSommerNacht": (13744, 140, 0, 400),
     "Heizung_Heizkreis1_tSommerTagEin": (13700, 540, 0, 1425),
@@ -216,6 +224,7 @@ TEMPERATURE_NAMES = (
     "Solar_Wf1_ExtWT_ZieltemperaturSekundaer",
     "Heizung_Heizkreis1_TSommerTag",
     "Heizung_Heizkreis1_TSommerNacht",
+    "Heizung_RelaisPumpe1_Nachlauf_TNachlauf",
 )
 TEMPERATURE_PARENTS = {CONFIG_SETTINGS[name][0] for name in TEMPERATURE_NAMES}
 TEMPERATURE_ALIASES = {
@@ -607,6 +616,12 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[11266] == 4
                         assert Peer.extra_values[11273] == 1
                         assert Peer.extra_values[11405] == 0
+                    elif index == 11184:
+                        assert Peer.extra_values[11166] == 2
+                        assert Peer.extra_values[11169] == 1
+                        assert Peer.extra_values[11171] > 0
+                        assert Peer.extra_values[11183] == 1
+                        assert Peer.extra_values[11189] > 0
                     elif index in (13741, 13744):
                         assert Peer.extra_values[13739] == 1
                         assert Peer.extra_values[13740] in (
@@ -660,6 +675,11 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[10647] == 1
                     elif index == 10651:
                         assert Peer.extra_values[10650] == 1 and value % 5 == 0
+                if index == 11182:
+                    assert Peer.extra_values[11166] == 2
+                    assert Peer.extra_values[11169] == 1
+                    assert Peer.extra_values[11171] > 0
+                    assert Peer.extra_values[11178] == 2
                 if index in (13700, 13701):
                     assert Peer.extra_values[13739] == Peer.extra_values[13740] == 1
                     assert Peer.extra_values[13800] > 0 and value % 15 == 0
@@ -1245,6 +1265,8 @@ async def qualify(directory, phase):
                     ("Anlage_WTUmwaelzpumpe_SollDrehzahl", "number", 50),
                     ("Anlage_WTUmwaelzpumpe_Nachlaufzeit", "number", 30),
                     ("Anlage_WTUmwaelzpumpe_RuhemodusDauer", "number", 12.5),
+                    ("Heizung_RelaisPumpe1_Anlauf_dtAnlauf", "number", 75),
+                    ("Heizung_RelaisPumpe1_Nachlauf_TNachlauf", "number", 140),
                     ("Heizung_Heizkreis1_TSommerTag", "number", 86),
                     ("Heizung_Heizkreis1_TSommerNacht", "number", 50),
                     ("Heizung_Heizkreis1_tSommerTagEin", "number", 555),
@@ -2022,9 +2044,11 @@ async def qualify(directory, phase):
             ("Anlage_WTUmwaelzpumpe_SollDrehzahl", 50),
             ("Anlage_WTUmwaelzpumpe_Nachlaufzeit", 30),
             ("Anlage_WTUmwaelzpumpe_RuhemodusDauer", 12.5),
+            ("Heizung_RelaisPumpe1_Anlauf_dtAnlauf", 75),
+            ("Heizung_RelaisPumpe1_Nachlauf_TNachlauf", 140),
         ):
             await number(name, value)
-        assert Peer.saves == before_operating + 9
+        assert Peer.saves == before_operating + 11
         for name, value in (
             ("Heizung_Heizkreis1_Nachheizung_dTEin", 12),
             ("Heizung_Heizkreis1_Kuehlung_Timer_tEin", 556),
@@ -2036,7 +2060,7 @@ async def qualify(directory, phase):
                 pass
             else:
                 raise AssertionError("Invalid operating value accepted")
-        assert Peer.saves == before_operating + 9
+        assert Peer.saves == before_operating + 11
         early = entity("Heizung_Heizkreis1_Nachheizung_tFruehstart", "number")
         Peer.extra_values[13714] = 0
         await entry.runtime_data.relay_coordinator.async_refresh()
@@ -2045,6 +2069,14 @@ async def qualify(directory, phase):
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert float(hass.states.get(early).state) == 90
         assert entity("Heizung_Heizkreis1_Nachheizung_tFruehstart", "number") == early
+
+        pump = entity("Heizung_RelaisPumpe1_Nachlauf_TNachlauf", "number")
+        Peer.extra_values[11189] = 0
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert hass.states.get(pump).state == "unavailable"
+        Peer.extra_values[11189] = 6
+        await entry.runtime_data.relay_coordinator.async_refresh()
+        assert float(hass.states.get(pump).state) == 140
 
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"
