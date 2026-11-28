@@ -1583,14 +1583,14 @@ class DiscoveryTests(unittest.TestCase):
                     immediates = []
                     for line in output.splitlines():
                         match = re.match(
-                            r"\\s*([0-9a-f]+):\\s+(\\w+)\\s*(.*)", line
+                            r"\s*([0-9a-f]+):\s+(\w+)\s*(.*)", line
                         )
                         if not match:
                             continue
                         address, mnemonic, operands = match.groups()
                         rva = int(address, 16) - base
                         if mnemonic in ("call", "jmp") or mnemonic.startswith("j"):
-                            target = re.match(r"([0-9a-f]+)(?:\\s|$)", operands)
+                            target = re.match(r"([0-9a-f]+)(?:\s|$)", operands)
                             edges.append(
                                 (
                                     hex(rva),
@@ -1600,15 +1600,15 @@ class DiscoveryTests(unittest.TestCase):
                                     else "indirect",
                                 )
                             )
-                        if (
-                            mnemonic in ("mov", "movzx", "movsx", "and", "or", "test", "cmp")
-                            and "PTR [" in operands
-                        ):
-                            memory.append((hex(rva), mnemonic, operands))
                         if mnemonic in (
-                            "mov", "push", "cmp", "test", "and", "or"
-                        ) and re.search(r"(?:^|,)0x[0-9a-f]+$", operands):
+                            "mov", "movzx", "movsx", "and", "or", "test", "cmp"
+                        ) and "PTR [" in operands:
+                            memory.append((hex(rva), mnemonic, operands))
+                        if mnemonic in ("mov", "push", "cmp", "test", "and", "or") and (
+                            re.search(r"(?:^|,)0x[0-9a-f]+$", operands)
+                        ):
                             immediates.append((hex(rva), mnemonic, operands))
+                    self.assertTrue(edges or memory or immediates, label)
                     print("Native region edges:", label, edges)
                     print("Native region memory:", label, memory)
                     print("Native region constants:", label, immediates)
