@@ -343,9 +343,9 @@ class VBusSession:
                 # has resumed scheduling. RPT resynchronizes on 0x0500.
                 # Never consume another master's offer as our own authority.
                 if packet.command == 0x0500:
-                    if (
-                        packet.source == address
-                        and packet.destination in (0, SELF_ADDRESS)
+                    if packet.source == address and packet.destination in (
+                        0,
+                        SELF_ADDRESS,
                     ):
                         self.release_confirmation = "controller_offer"
                         return

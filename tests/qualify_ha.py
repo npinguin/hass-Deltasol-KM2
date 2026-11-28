@@ -152,6 +152,9 @@ class Peer:
     extra_values: ClassVar[dict[int, int]] = {}
     release_silence = 0
     release_other_first = False
+    release_offer_after_write = False
+    release_offer_count = 0
+    redundant_release_commands = 0
     silent_offers = 0
     failed_release_sessions = 0
     sessions = 0
@@ -259,6 +262,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
             Peer.owner.release()
 
     def exchange(self):
+        relay_changed = False
         self.wfile.write(datagram(0, ADDRESS, 0x0500))
         while frame := self.rfile.read(16):
             assert len(frame) == 16 and frame[0] == 170
@@ -343,6 +347,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert value in (0, 1, 2, 3)
                     Peer.em_mode = value
                 Peer.writes += 1
+                relay_changed = True
                 Peer.events.append("relay_write")
                 response = datagram(source, ADDRESS, 0x0100, index, value)
             elif command == 0x0400:
@@ -436,6 +441,20 @@ class VBusHandler(socketserver.StreamRequestHandler):
                 if Peer.release_silence:
                     Peer.release_silence -= 1
                     continue
+                if Peer.release_offer_after_write and relay_changed:
+                    # Regression: after a real write the master resumes with
+                    # a fresh offer rather than a VBus 1.0 live-data packet.
+                    packet = datagram(0, ADDRESS, 0x0500)
+                    self.wfile.write(packet[:9])
+                    threading.Event().wait(0.03)
+                    self.wfile.write(packet[9:])
+                    Peer.release_offer_count += 1
+                    # The client must not send another command on this
+                    # released session. It must close and acquire afresh.
+                    self.connection.settimeout(3)
+                    if self.rfile.read(16):
+                        Peer.redundant_release_commands += 1
+                    return
                 packet = live_packet(ADDRESS)
                 if Peer.release_other_first:
                     Peer.release_other_first = False
@@ -1054,15 +1073,23 @@ async def qualify(directory, phase):
         assert Peer.saves == 2 and Peer.settings[56] == 0
         assert hass.states.get(daylight).state == "off"
         assert Peer.writes == 0
-        for option, expected in (("Off", 0), ("On", 4), ("Auto", 2)):
-            await set_mode(select, option)
-            assert Peer.mode == expected
-            assert hass.states.get(select).state == option
-        for option, expected in (("Min", 1), ("Max", 3), ("Off", 0), ("Auto", 2)):
-            await set_mode(em, option)
-            assert Peer.em_mode == expected
-            assert Peer.mode == 2
-            assert hass.states.get(em).state == option
+        Peer.release_offer_after_write = True
+        try:
+            for option, expected in (("Off", 0), ("On", 4), ("Auto", 2)):
+                await set_mode(select, option)
+                assert Peer.mode == expected
+                assert hass.states.get(select).state == option
+                assert hass.states.get(em).state == "Auto"
+            for option, expected in (("Min", 1), ("Max", 3), ("Off", 0), ("Auto", 2)):
+                await set_mode(em, option)
+                assert Peer.em_mode == expected
+                assert Peer.mode == 2
+                assert hass.states.get(em).state == option
+                assert hass.states.get(select).state == "Auto"
+            assert Peer.release_offer_count == 7
+            assert Peer.redundant_release_commands == 0
+        finally:
+            Peer.release_offer_after_write = False
         assert Peer.writes == 7
         try:
             await set_mode(em, "On")
