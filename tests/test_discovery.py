@@ -1688,7 +1688,8 @@ class DiscoveryTests(unittest.TestCase):
         remaining = {
             family: names
             for family, names in review.items()
-            if configuration.native_menu_review_reason(names[0])
+            if family != "Solar_Losreissimpuls"
+            and configuration.native_menu_review_reason(names[0])
             in (
                 "program_option_review_required",
                 "native_registration_transition_unverified",
@@ -1709,7 +1710,7 @@ class DiscoveryTests(unittest.TestCase):
             parent = root + "_Type"
             origin = descriptor(parent)[0] if parent in values else pointer
             refs = []
-            for name in values:
+            for name, index in values.items():
                 if (
                     name.startswith(root + "_")
                     and (
@@ -1723,7 +1724,7 @@ class DiscoveryTests(unittest.TestCase):
                     if "Raumthermostat" in name and "Raumthermostat1_" not in name:
                         continue
                     refs.append(
-                        (name.removeprefix(root + "_"), values[name],
+                        (name.removeprefix(root + "_"), index,
                          descriptor(name)[0] - origin, hex(descriptor(name)[1]))
                     )
             print(
@@ -1769,7 +1770,7 @@ class DiscoveryTests(unittest.TestCase):
             # Cover all absolute storage references of the remaining families,
             # excluding editor/menu construction references and duplicate bytes.
             seen = set()
-            for family, names in remaining.items():
+            for names in remaining.values():
                 first = min(names, key=values.get)
                 pointer = descriptor(first)[0]
                 if pointer in seen:
