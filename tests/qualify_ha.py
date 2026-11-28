@@ -38,6 +38,13 @@ HQM_SENSOR_UID = "00_0010_7131_0100__004_4_0"
 # Independent wire fixtures: exact 2.08 reference positions, not imported
 # production Setting objects. Persistent state belongs to the protocol peer.
 CONFIG_SELECTORS = {
+    "Anlage_Wf7_Type": (8065, 8),
+    "Anlage_Wf7_Aktiviert_Modus": (8072, 1),
+    "Anlage_Wf7_Relais1_Nr": (8098, 2),
+    "Anlage_Wf7_Sensor1_Nr": (8082, 1),
+    "Anlage_Wf7_Sensor2_Nr": (8086, 2),
+    "Anlage_Wf7_Sensor3_Nr": (8090, 3),
+    "Heizung_Heizkreis1_Energiesparbetrieb_Sensor1_Nr": (14160, 5),
     "Heizung_Wf2_Type": (11417, 2),
     "Heizung_Wf2_Aktiviert_Modus": (11424, 1),
     "Heizung_Wf2_ThBwErwaermung_OLadepumpe": (11526, 1),
@@ -104,27 +111,21 @@ CONFIG_SELECTORS = {
     "Heizung_Heizkreis1_Kuehlung_OTimer": (14098, 1),
     "Anlage_WTUmwaelzpumpe_Aktiviert_Modus": (10607, 1),
     "Anlage_WTUmwaelzpumpe_Relais_Nr": (10614, 2),
-    "Anlage_WTUmwaelzpumpe_ONachlauf": (10647, 1),
-    "Anlage_WTUmwaelzpumpe_ORuhemodus": (10650, 1),
     "Heizung_RelaisPumpe1_Type": (11166, 2),
     "Heizung_RelaisPumpe1_Aktiviert_Modus": (11169, 1),
     "Heizung_RelaisPumpe1_Relais1_Nr": (11171, 4),
     "Heizung_RelaisPumpe1_Anlauf_Modus": (11178, 2),
     "Heizung_RelaisPumpe1_Nachlauf_Modus": (11183, 1),
     "Heizung_RelaisPumpe1_AnlaufNachlauf_Sensor1_Nr": (11189, 6),
-    "Heizung_Heizkreis1_OHeizgrenze": (13739, 1),
-    "Heizung_Heizkreis1_Heizgrenze": (13740, 1),
     "Heizung_Heizkreis1_Sensor2_Nr": (13800, 3),
     "Heizung_Heizkreis1_Raumthermostat1_Option": (13819, 1),
     "Heizung_Heizkreis1_Raumthermostat1_Aktiviert": (13820, 1),
     "Heizung_Heizkreis1_Raumthermostat1_OSchaltuhr": (13821, 1),
     "Heizung_Heizkreis1_Raumthermostat1_Typ": (13823, 0),
     "Heizung_Heizkreis1_Raumthermostat1_Sensor1_Nr": (13834, 4),
-    "Heizung_Heizkreis1_OUrlaub": (14176, 0),
     "Heizung_Heizkreis2_Type": (14179, 1),
     "Heizung_Heizkreis2_Aktiviert_Modus": (14184, 1),
     "Heizung_Heizkreis2_Kopplung": (14534, 1),
-    "Heizung_Heizkreis2_OUrlaub": (14671, 0),
     "InbetriebnahmeAbgeschlossen": (68, 1),
     "Wmz1_Type": (17260, 1),
     "Wmz1_Aktiviert_Modus": (17263, 1),
@@ -134,7 +135,6 @@ CONFIG_SELECTORS = {
     "Solar_Wf1_Roehrenkollektor_Aktiviert_Modus": (3834, 1),
     "Solar_Wf1_Roehrenkollektor_KollektorMaske": (3839, 3),
     "Solar_Wf1_ExtWT_SpeicherMaske": (4089, 3),
-    "Solar_Wf1_ExtWT_OZieltemperatur": (4091, 1),
     "Solar_Wf1_ExtWT_Sensor1_Nr": (4094, 4),
     "Solar_Wf1_ExtWT_Sensor2_Nr": (4098, 5),
     "Solar_Wf1_ExtWT_Relais1_Nr": (4102, 3),
@@ -161,6 +161,19 @@ CONFIG_SELECTORS = {
     "Heizung_Wf1_Zirkulation_Variante": (11405, 0),
 }
 CONFIG_SETTINGS = {
+    "Anlage_Wf7_Ruecklaufanhebung_OSommerAus": (8200, 1, 0, 1),
+    "Anlage_Wf7_Ruecklaufanhebung_TSommerAus": (8207, 200, 100, 600),
+    "Heizung_Heizkreis1_OEnergiesparbetrieb": (14158, 1, 0, 1),
+    "Heizung_Heizkreis1_Energiesparbetrieb_dTAus": (14163, 40, 10, 490),
+    "Heizung_Heizkreis1_Energiesparbetrieb_dtPause": (14166, 15, 0, 60),
+    "Heizung_Heizkreis1_Energiesparbetrieb_dtLaufzeit": (14167, 2, 0, 60),
+    "Anlage_WTUmwaelzpumpe_ORuhemodus": (10650, 1, 0, 1),
+    "Anlage_WTUmwaelzpumpe_ONachlauf": (10647, 1, 0, 1),
+    "Solar_Wf1_ExtWT_OZieltemperatur": (4091, 1, 0, 1),
+    "Heizung_Heizkreis2_OUrlaub": (14671, 0, 0, 1),
+    "Heizung_Heizkreis1_OUrlaub": (14176, 0, 0, 1),
+    "Heizung_Heizkreis1_Heizgrenze": (13740, 1, 0, 1),
+    "Heizung_Heizkreis1_OHeizgrenze": (13739, 1, 0, 1),
     "Heizung_Wf2_ThBwErwaermung_ONachlaufzeit": (11527, 1, 0, 1),
     "Heizung_Wf2_ThBwErwaermung_Nachlaufzeit": (11528, 4, 1, 10),
     "Solar_OSpreizladung": (3424, 1, 0, 1),
@@ -262,6 +275,7 @@ CONFIG_SETTINGS = {
 # This peer deliberately models the selected-unit parent contract. It is
 # independent software evidence, not a physical observation of this encoding.
 COMPOUND_NAMES = (
+    "Heizung_Heizkreis1_Energiesparbetrieb_dTAus",
     "Solar_Spreizladung_dTDifferenz",
     "Heizung_RelaisAnforderung1_Ausgang_dTSollVorlauf",
     "Heizung_RelaisAnforderung1_Ausgang_Vorlauf_dTHysterese",
@@ -294,6 +308,7 @@ COMPOUND_ALIASES = {
 }
 COMPOUND_PARENTS = {CONFIG_SETTINGS[name][0] for name in COMPOUND_NAMES}
 TEMPERATURE_NAMES = (
+    "Anlage_Wf7_Ruecklaufanhebung_TSommerAus",
     "Anlage_Wf2_Feststoffkessel_TMax",
     "Anlage_Wf2_Feststoffkessel_TMin",
     "Heizung_Wf1_Zirkulation_TEin",
@@ -722,7 +737,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     elif index in (4112, 4115, 4121):
                         assert proposed[4112] >= proposed[4115] + 5
                         if index == 4121:
-                            assert Peer.extra_values[4091] == 1
+                            assert Peer.settings[4091] == 1
                             assert Peer.extra_values[4098] > 0
                     elif index in (13747, 13750):
                         assert proposed[13750] >= proposed[13747] + 5
@@ -754,13 +769,13 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert Peer.extra_values[11183] == 1
                         assert Peer.extra_values[11189] > 0
                     elif index in (13741, 13744):
-                        assert Peer.extra_values[13739] == 1
-                        assert Peer.extra_values[13740] in (
+                        assert Peer.settings[13739] == 1
+                        assert Peer.settings[13740] in (
                             (0, 1) if index == 13741 else (1,)
                         )
                         assert Peer.extra_values[13800] > 0
                     elif index == 4109:
-                        assert Peer.extra_values[4091] == 1
+                        assert Peer.settings[4091] == 1
                         assert Peer.extra_values[4098] > 0
                     elif index == 4344:
                         assert Peer.extra_values[4335] == 1
@@ -871,16 +886,16 @@ class VBusHandler(socketserver.StreamRequestHandler):
                     assert Peer.extra_values[10607] == 1
                     assert Peer.extra_values[10614] > 0
                     if index == 10648:
-                        assert Peer.extra_values[10647] == 1
+                        assert Peer.settings[10647] == 1
                     elif index == 10651:
-                        assert Peer.extra_values[10650] == 1 and value % 5 == 0
+                        assert Peer.settings[10650] == 1 and value % 5 == 0
                 if index == 11182:
                     assert Peer.extra_values[11166] == 2
                     assert Peer.extra_values[11169] == 1
                     assert Peer.extra_values[11171] > 0
                     assert Peer.extra_values[11178] == 2
                 if index in (13700, 13701):
-                    assert Peer.extra_values[13739] == Peer.extra_values[13740] == 1
+                    assert Peer.settings[13739] == Peer.settings[13740] == 1
                     assert Peer.extra_values[13800] > 0 and value % 15 == 0
                 if index == 19063:
                     assert Peer.extra_values[68] == 1
@@ -894,7 +909,7 @@ class VBusHandler(socketserver.StreamRequestHandler):
                         assert 1 <= Peer.settings[19063] <= 200
                     if value == 0:
                         assert (
-                            not Peer.extra_values[14176 + offset]
+                            not Peer.settings[14176 + offset]
                             or not Peer.settings[19063]
                         )
                 if index in (3840, 3841, 3842, 3843):
@@ -1521,6 +1536,14 @@ async def qualify(directory, phase):
                     ("Solar_OPausendrehzahl", "switch", "on"),
                     ("Solar_OPumpenverzoegerung", "switch", "on"),
                     ("Solar_OSpreizladung", "switch", "on"),
+                    ("Anlage_Wf7_Ruecklaufanhebung_OSommerAus", "switch", "on"),
+                    ("Heizung_Heizkreis1_OHeizgrenze", "switch", "on"),
+                    ("Heizung_Heizkreis1_Heizgrenze", "select", "Day/Night"),
+                    ("Heizung_Heizkreis1_OEnergiesparbetrieb", "switch", "on"),
+                    ("Heizung_Heizkreis1_OUrlaub", "switch", "on"),
+                    ("Solar_Wf1_ExtWT_OZieltemperatur", "switch", "on"),
+                    ("Anlage_WTUmwaelzpumpe_ONachlauf", "switch", "on"),
+                    ("Anlage_WTUmwaelzpumpe_ORuhemodus", "switch", "on"),
                     ("Heizung_Wf2_ThBwErwaermung_ONachlaufzeit", "switch", "on"),
                     ("Heizung_Wf2_ThBwErwaermung_Nachlaufzeit", "number", 4),
                     ("Anlage_Wf3_RLBeimischung_dTEin", "number", 11),
@@ -2312,10 +2335,10 @@ async def qualify(directory, phase):
             await number("Heizung_Heizkreis1_" + suffix, value)
         assert Peer.saves == before_comfort + 5
         day_clock = entity("Heizung_Heizkreis1_tSommerTagEin", "number")
-        Peer.extra_values[13740] = 0
+        Peer.settings[13740] = 0
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert hass.states.get(day_clock).state == "unavailable"
-        Peer.extra_values[13740] = 1
+        Peer.settings[13740] = 1
         await entry.runtime_data.relay_coordinator.async_refresh()
         assert entity("Heizung_Heizkreis1_tSommerTagEin", "number") == day_clock
         assert float(hass.states.get(day_clock).state) == 555
@@ -2535,6 +2558,36 @@ async def qualify(directory, phase):
             ("Solar_OPumpenverzoegerung", 3422, "Solar_Pumpenverzoegerung"),
             ("Solar_OSpreizladung", 3424, "Solar_Spreizladung_dTDifferenz"),
             (
+                "Anlage_Wf7_Ruecklaufanhebung_OSommerAus",
+                8200,
+                "Anlage_Wf7_Ruecklaufanhebung_TSommerAus",
+            ),
+            (
+                "Heizung_Heizkreis1_OHeizgrenze",
+                13739,
+                "Heizung_Heizkreis1_TSommerTag",
+            ),
+            (
+                "Heizung_Heizkreis1_OEnergiesparbetrieb",
+                14158,
+                "Heizung_Heizkreis1_Energiesparbetrieb_dtPause",
+            ),
+            (
+                "Solar_Wf1_ExtWT_OZieltemperatur",
+                4091,
+                "Solar_Wf1_ExtWT_ZieltemperaturSekundaer",
+            ),
+            (
+                "Anlage_WTUmwaelzpumpe_ONachlauf",
+                10647,
+                "Anlage_WTUmwaelzpumpe_Nachlaufzeit",
+            ),
+            (
+                "Anlage_WTUmwaelzpumpe_ORuhemodus",
+                10650,
+                "Anlage_WTUmwaelzpumpe_RuhemodusDauer",
+            ),
+            (
                 "Heizung_Wf2_ThBwErwaermung_ONachlaufzeit",
                 11527,
                 "Heizung_Wf2_ThBwErwaermung_Nachlaufzeit",
@@ -2560,6 +2613,18 @@ async def qualify(directory, phase):
             assert hass.states.get(target).state == "on"
             assert hass.states.get(number_id).state == original
 
+        seasonal = entity("Heizung_Heizkreis1_Heizgrenze", "select")
+        night = entity("Heizung_Heizkreis1_TSommerNacht", "number")
+        before_seasonal = Peer.saves
+        await set_mode(seasonal, "Day")
+        assert Peer.settings[13740] == 0
+        assert hass.states.get(night).state == "unavailable"
+        await set_mode(seasonal, "Day/Night")
+        assert Peer.settings[13740] == 1
+        assert hass.states.get(night).state != "unavailable"
+        await set_mode(seasonal, "Day/Night")
+        assert Peer.saves == before_seasonal + 2
+
         heating_mode = entity("Heizung_Heizkreis1_Betriebsart", "select")
         assert heating_mode and hass.states.get(heating_mode).state == "Auto"
         assert not entity("Heizung_Heizkreis2_Betriebsart", "select")
@@ -2581,12 +2646,18 @@ async def qualify(directory, phase):
         await number("Urlaubsfunktion_Tage", 7)
         await set_mode(heating_mode, "Holiday")
         assert Peer.settings[14014] == 4
-        Peer.extra_values[14176] = 1
+        holiday = entity("Heizung_Heizkreis1_OUrlaub", "switch")
+        assert holiday
+        await hass.services.async_call(
+            "switch", "turn_on", {"entity_id": holiday}, blocking=True
+        )
+        assert Peer.settings[14176] == 1
+        assert Peer.settings[14014] == 4  # not an implicit operating-mode write
         await reject_mode(heating_mode, "Auto")
-        assert Peer.saves == before + 3
+        assert Peer.saves == before + 4
         await number("Urlaubsfunktion_Tage", 0)
         await set_mode(heating_mode, "Day")
-        assert Peer.saves == before + 5 and Peer.settings[14014] == 1
+        assert Peer.saves == before + 6 and Peer.settings[14014] == 1
         Peer.extra_values[14534] = 0
         await entry.runtime_data.relay_coordinator.async_refresh()
         await hass.async_block_till_done()
@@ -2595,7 +2666,7 @@ async def qualify(directory, phase):
         await set_mode(independent, "Night")
         Peer.extra_values[14534] = 1
         await reject_mode(independent, "Off")
-        assert Peer.saves == before + 6 and Peer.settings[14509] == 2
+        assert Peer.saves == before + 7 and Peer.settings[14509] == 2
         assert hass.states.get(independent).state == "unavailable"
         assert entity("Heizung_Heizkreis1_Betriebsart", "select") == heating_mode
 
