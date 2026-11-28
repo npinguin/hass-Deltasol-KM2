@@ -400,7 +400,9 @@ class DashboardTests(unittest.TestCase):
                     state="unknown" if setting.kind == "button" else "1"
                 )
                 depth, writable = access(row, setting, state, admin, True)
-                self.assertIn(setting.kind, ("number", "select", "switch", "text", "button"))
+                self.assertIn(
+                    setting.kind, ("number", "select", "switch", "text", "button")
+                )
                 self.assertTrue(writable)
                 self.assertIn(depth, ("controls", "settings", "engineering"))
                 self.assertEqual(
