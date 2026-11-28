@@ -463,8 +463,22 @@ def _read_weekly_settings(
         for name, row in observations.items()
         if row.status == "read" and row.index == conditions[name]
     }
-    if complete and any(not owner.inactive(values) for owner in unknown):
-        raise VBusError("Configuration parameter is no longer supported")
+    if complete:
+        # An unresolved reference is safe only when the function is known
+        # inactive. A positive shared link likewise needs a definite active
+        # or inactive state: missing conditions cannot establish inactivity.
+        unresolved_links = (
+            owner
+            for owners in links.values()
+            for owner in owners
+            if not owner.active(values)
+        )
+        if any(
+            not owner.inactive(values) for owner in (*unknown, *unresolved_links)
+        ):
+            raise VBusError("Configuration parameter is no longer supported")
+        if any(row.status == "layout_mismatch" for row in observations.values()):
+            raise VBusError("Configuration parameter is no longer supported")
     active = {
         slot: tuple(sorted(owner.name for owner in owners if owner.active(values)))
         for slot, owners in links.items()
